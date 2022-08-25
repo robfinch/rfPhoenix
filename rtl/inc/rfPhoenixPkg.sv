@@ -155,6 +155,7 @@ parameter byt = 3'd1;
 parameter wyde = 3'd2;
 parameter tetra = 3'd3;
 parameter octa = 3'd4;
+parameter vect = 3'd5;
 
 typedef logic [11:0] CauseCode;
 typedef logic [3:0] Tid;
@@ -286,6 +287,16 @@ typedef struct packed
 	logic vrfwr;
 	logic is_vector;
 	logic multicycle;
+	logic loadr;
+	logic loadn;
+	logic load;
+	logic loadu;
+	logic storer;
+	logic storen;
+	logic store;
+	logic [2:0] memsz;
+	logic br;						// conditional branch
+	logic cjb;					// call, jmp, or bra
 } sDecodeBus;
 
 typedef struct packed
@@ -298,6 +309,8 @@ typedef struct packed
 	CodeAddress ip;
 	Instruction ir;
 	sDecodeBus	dec;
+	logic [3:0] vec_count;
+	logic [3:0] vec_step;
 	VecValue a;
 	VecValue b;
 	VecValue c;
@@ -334,6 +347,7 @@ parameter MR_STPTR	= 4'd9;
 typedef struct packed
 {
 	logic [7:0] tid;		// tran id
+	logic [3:0] rid;		// reorder entry number
 	CodeAddress ip;			// Debubgging aid
 	logic [5:0] step;		// vector operation step
 	logic [5:0] count;	// vector operation count
@@ -343,12 +357,13 @@ typedef struct packed
 	Address adr;
 	logic [511:0] dat;
 	logic [3:0] sz;		// indicates size of data
-} sMemoryRequest;	// 385
+} sMemoryRequest;	// 389
 
 // All the fields in this structure are *output* back to the system.
 typedef struct packed
 {
 	logic [7:0] tid;		// tran id
+	logic [3:0] rid;		// reorder entry number
 	CodeAddress ip;			// Debugging aid
 	logic [5:0] step;
 	logic wr;
@@ -360,6 +375,6 @@ typedef struct packed
 	Address badAddr;
 	VecValue res;
 	logic cmt;
-} sMemoryResponse;	// 614
+} sMemoryResponse;	// 618
 
 endpackage

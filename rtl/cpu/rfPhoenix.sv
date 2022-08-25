@@ -44,8 +44,8 @@ wire clk_g = clk_i;
 sReorderEntry rob [0:11];
 
 reg mc_busy;
-reg [3:0] rfndx,exndx,oundx,wbndx;
-reg [3:0] ithread, rthread, dthread, commit_thread;
+reg [3:0] rfndx,exndx,oundx,wbndx,xrid,mc_rid;
+reg [3:0] ithread, rthread, dthread, xthread, commit_thread;
 reg rthread_v, dthread_v;
 reg commit_wr, commit_wrv;
 reg [15:0] commit_mask;
@@ -84,6 +84,7 @@ reg [9:0] asid;
 wire [1:0] omode;
 wire UserMode = omode==2'b00;
 wire MUserMode = omode==2'b00;
+wire takb;
 
 wire pipe_advance = (rfndx < 4'd12);
 
@@ -144,6 +145,14 @@ rfPhoenix_decoder udec1
 (
 	.ir(ir),
 	.deco(deco)
+);
+
+rfPhoenix_branch_eval ube1
+(
+	.ir(xir),
+	.a(xa[0]),
+	.b(xt[0]),
+	.o(takb)
 );
 
 rfPhoenix_gp_regfile ugprs1
@@ -239,11 +248,13 @@ if (rst_i) begin
 	tReset();
 end
 else begin
+	tOnce();
 	tInsnFetch();
 	tDecode();
 	tRegfetch();
 	tExecute();
 	tOut();
+	tMemory();
 	tWriteback();
 end
 
@@ -269,6 +280,13 @@ begin
 	ra3 <= 'd0;
 	ra4 <= 'd0;
 	ddec <= 'd0;
+	memreq <= 'd0;
+end
+endtask
+
+task tOnce;
+begin
+	memreq.wr <= 1'b0;
 end
 endtask
 
@@ -369,6 +387,7 @@ begin
 			rob[exndx].out <= !mc_busy;
 			if (!mc_busy) begin
 				mc_busy <= 1'b1;
+				mc_rid <= exndx;
 				mir <= rob[exndx].ir;
 				mca <= rob[exndx].a;
 				mcb <= rob[exndx].b;
@@ -378,15 +397,68 @@ begin
 			end
 		end
 		else begin
+			xrid <= exndx;
 			xir <= rob[exndx].ir;
 			xa <= rob[exndx].a;
 			xb <= rob[exndx].b;
 			xc <= rob[exndx].c;
 			xt <= rob[exndx].t;
 			xm <= rob[exndx].ir.r2.m ? rob[exndx].mask : 16'hFFFF;
-			case(rob[exndx].ir.any.opcode)
-			CALLA,JMP:	ip[rob[exndx].thread] <= rob[exndx].ir.call.target;
-			CALLR,BRA:	ip[rob[exndx].thread] <= rob[exndx].ir.call.target + ip[rob[exndx].thread];
+			if (rob[exndx].load) begin
+				if (!memreq_full) begin
+					memreq.wr <= 1'b1;
+					memreq.func <= rob[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
+					memreq.sz <= rob[exndx].dec.memsz;
+					if (rob[exndx].dec.memsz==vect) begin
+						if (rob[exndx].dec.loadr)
+							memreq.adr <= rob[exndx].dec.loadr ? rob[exndx].a[0] + rob[exndx].dec.imm;
+						else begin
+							memreq.adr <= rob[exndx].a[0] + rob[exndx].b[rob[exndx].step];
+							if (rob[exndx].step != 4'd15 && rob[exndx].dec.loadn)
+								rob[exndx].step <= rob[exndx].step + 2'd1;
+						end
+					end
+					else
+						memreq.adr <= rob[exndx].dec.loadr ? rob[exndx].a[0] + rob[exndx].dec.imm : rob[exndx].a[0] + rob[exndx].b[0];
+				end
+			end
+			else if (rob[exndx].store) begin
+				if (!memreq_full) begin
+					memreq.wr <= 1'b1;
+					memreq.func <= MR_STORE;
+					memreq.sz <= rob[exndx].dec.memsz;
+					memreq.dat <= rob[exndx].t;
+					if (rob[exndx].dec.memsz==vect) begin
+						if (rob[exndx].dec.storen)
+							memreq.sz <= tetra;
+						memreq.adr <= rob[exndx].dec.storer ? rob[exndx].a[0] + rob[exndx].dec.imm : rob[exndx].a[0] + rob[exndx].b[rob[exndx].step];
+						// For a scatter store select the current vector element, otherwise select entire vector (set above).
+						if (rob[exndx].dec.memsz==vect && rob[exndx].dec.storen)
+							memreq.dat <= rob[exndx].t[rob[exndx].step];
+						// For scatter increment step
+						if (rob[exndx].step!=4'd15 && rob[exndx].dec.storen)
+							rob[exndx].step <= rob[exndx].step + 2'd1;
+					end
+					else
+						memreq.adr <= rob[exndx].dec.storer ? rob[exndx].a[0] + rob[exndx].dec.imm : rob[exndx].a[0] + rob[exndx].b[0];
+				end
+			end
+		end
+	end
+	tExCall();
+	tExBranch();
+end
+endtask
+
+task tExCall;
+begin
+	if (xrid < 4'd12) begin
+		if (rob[xrid].out) begin
+			rob[xrid].out <= 1'b0;
+			rob[xrid].executed <= 1'b1;
+			case(rob[xrid].ir.any.opcode)
+			CALLA,JMP:	begin ips[rob[xrid].thread] <= rob[xrid].ir.call.target; if (rob[xrid].dec.rfwr) rob[xrid].res <= ips[rob[xrid].thread] + 4'd5; end
+			CALLR,BRA:	begin ips[rob[xrid].thread] <= rob[xrid].ir.call.target + ips[rob[xrid].thread]; if (rob[xrid].dec.rfwr) rob[xrid].res <= ips[rob[xrid].thread] + 4'd5; end
 			default:	;
 			endcase
 		end
@@ -394,25 +466,85 @@ begin
 end
 endtask
 
+task tExBranch;
+begin
+	if (xrid < 4'd12) begin
+		if (rob[xrid].out) begin
+			rob[xrid].out <= 1'b0;
+			rob[xrid].executed <= 1'b1;
+			if (rob[xrid].dec.br) begin
+				if (takb)
+					ips[rob[xrid].thread] <= ips[rob[xrid].thread] + rob[xrid].dec.imm;
+			end
+		end
+	end
+end
+endtask
+
+task tMemory;
+begin
+	if (memresp_fifo_v) begin
+		if (rob[memresp.rid].out) begin
+			// If a gather load
+			if (rob[memresp.rid].dec.loadn && rob[memresp.rid].dec.memsz==vect) begin
+				if (rob[memresp.rid].step!=4'd15) begin
+					rob[memresp.rid].out <= 1'b1;
+					rob[memresp.rid].executed <= 1'b0;
+				end
+				rob[memresp.rid].res[memresp.step] <= memresp.dat;
+			end
+			// Other load
+			else if (rob[memresp.rid].dec.load) begin
+				rob[memresp.rid].res <= memresp.dat;
+				rob[memresp.rid].out <= 1'b0;
+				rob[memresp.rid].executed <= 1'b1;
+			end
+			// Scatter store
+			else if (rob[memresp.rid].dec.storen && rob[memresp.rid].dec.memsz==vect) begin
+				if (rob[memresp.rid].step!=4'd15) begin
+					rob[memresp.rid].out <= 1'b1;
+					rob[memresp.rid].executed <= 1'b0;
+				end
+			end
+			// Other store
+			else if (rob[memresp.rid].dec.store) begin
+				rob[memresp.rid].out <= 1'b0;
+				rob[memresp.rid].executed <= 1'b1;
+			end	
+			// Some other op
+			else begin
+				rob[memresp.rid].out <= 1'b0;
+				rob[memresp.rid].executed <= 1'b1;
+			end
+		end
+	end
+end
+
 task tOut;
 begin
-	if (oundx < 4'd12) begin
-		if (!rob[oundx].dec.multicycle) begin
-			rob[oundx].out <= 1'b0;
-			rob[oundx].executed <= 1'b1;
-			if (rob[oundx].dec.Tt)
-				rob[oundx].res <= vres;
-			else
-				rob[oundx].res <= res;
+	if (xrid < 4'd12) begin
+		rob[xrid].out <= 1'b0;
+		rob[xrid].executed <= 1'b1;
+		if (rob[xrid].dec.storen && rob[xrid].dec.memsz==vect) begin
+			if (rob[xrid].step!=4'd15) begin
+				rob[xrid].out <= 1'b1;
+				rob[xrid].executed <= 1'b0;
+			end
 		end
-		else if (rob[oundx].dec.is_vector ? mcv_done : mc_done) begin
+		if (rob[xrid].dec.Tt)
+			rob[xrid].res <= vres;
+		else if (!rob[xrid].dec.cjb)
+			rob[xrid].res <= res;
+	end
+	if (mc_rid < 4'd12) begin
+		if (rob[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
 			mc_busy <= 1'b0;
-			rob[oundx].out <= 1'b0;
-			rob[oundx].executed <= 1'b1;
-			if (rob[oundx].dec.Tt)
-				rob[oundx].res <= mc_vres;
+			rob[mc_rid].out <= 1'b0;
+			rob[mc_rid].executed <= 1'b1;
+			if (rob[mc_rid].dec.Tt)
+				rob[mc_rid].res <= mc_vres;
 			else
-				rob[oundx].res <= mc_res;
+				rob[mc_rid].res <= mc_res;
 		end
 	end
 end
@@ -423,7 +555,7 @@ begin
 	if (wbndx < 4'd12) begin
 		thread_busy[rob[wbndx].thread] <= 1'b0;
 		commit_thread <= rob[wbndx].thread;
-		commit_mask <= rob[wbndx].mask;
+		commit_mask <= rob[wbndx].ir.r2.m ? rob[wbndx].mask : 16'hFFFF;
 		commit_wr <= rob[wbndx].dec.rfwr;
 		commit_wrv <= rob[wbndx].dec.vrfwr;
 		commit_tgt <= rob[wbndx].dec.Rt;
