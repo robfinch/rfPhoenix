@@ -43,29 +43,39 @@ output CauseCode wcause;
 wire clk_g = clk_i;
 sReorderEntry rob [0:11];
 
-reg mc_busy;
-reg [3:0] rfndx,exndx,oundx,wbndx,xrid,mc_rid;
+// The following var indicates that r0 has been written for the thread.
+// Only one write of r0 is allowed, to set the value to zero.
+reg [NTHREADS-1:0] rz;
+reg [3:0] rfndx,exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+reg [3:0] mcv_ridi, mcv_rido;
 reg [3:0] ithread, rthread, dthread, xthread, commit_thread;
 reg rthread_v, dthread_v;
 reg commit_wr, commit_wrv;
 reg [15:0] commit_mask;
 Regspec commit_tgt;
 VecValue commit_bus;
-reg [3:0] ip_thread;
+reg [3:0] ip_thread, ip_thread2, ip_thread3;
 reg [31:0] ips [0:15];
-reg [31:0] ip;
+reg [31:0] ip, ip2, ip3;
 reg [15:0] thread_busy;
 CodeAddress iip, dip;
-Instruction ir,xir,mir,insn;
+Instruction ir,dir,xir,mir,insn,mir1,mir2;
+Postfix pfx,irpfx;
 sDecodeBus ddec,deco;
 Regspec ra0,ra1,ra2,ra3,ra4;
 Value rfo0, rfo1, rfo2, rfo3, rfo4;
+Value ximm,mcimm;
 VecValue vrfo0, vrfo1, vrfo2, vrfo3, vrfo4;
 VecValue xa,xb,xc,xt,xm;
 VecValue mca,mcb,mcc,mct,mcm;
-Value res,mc_res;
-VecValue vres,mc_vres;
+VecValue mca1,mcb1,mcc1,mct1,mcm1;
+VecValue mca2,mcb2,mcc2,mct2,mcm2;
+reg [2:0] mca_busy;
+Value res,mc_res,mc_res1,mc_res2;
+VecValue vres,mc_vres,mc_vres1,mc_vres2;
 wire mc_done, mcv_done;
+wire mc_done1, mcv_done1;
+wire mc_done2, mcv_done2;
 wire ihit;
 sMemoryRequest memreq;
 sMemoryResponse memresp;
@@ -144,6 +154,7 @@ rfPhoenixBiu ubiu
 rfPhoenix_decoder udec1
 (
 	.ir(ir),
+	.pfx(irpfx),
 	.deco(deco)
 );
 
@@ -194,10 +205,11 @@ rfPhoenix_vec_regfile ugprs2
 	.o0(vrfo0),
 	.o1(vrfo1),
 	.o2(vrfo2),
-	.o3(vrfo3),
+	.o3(),				// mask register port not needed here
 	.o4(vrfo4)
 );
 
+/*
 rfPhoenixAlu usalu1 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -205,6 +217,7 @@ rfPhoenixAlu usalu1 (
 	.a(xa[0]),
 	.b(xb[0]),
 	.c(xc[0]),
+	.imm(ximm),
 	.o(res)
 );
 
@@ -215,10 +228,37 @@ rfPhoenixMcAlu usalu2 (
 	.a(mca[0]),
 	.b(mcb[0]),
 	.c(mcc[0]),
+	.imm(mcimm),
 	.o(mc_res),
-	.done(mc_done)
+	.done(mc_done),
+	.ridi(mc_ridi),
+	.rido(mc_rido)
 );
-
+*/
+/*
+rfPhoenixMcAlu usalu3 (
+	.rst(rst_i),
+	.clk(clk_g),
+	.ir(mir1),
+	.a(mca1[0]),
+	.b(mcb1[0]),
+	.c(mcc1[0]),
+	.o(mc_res1),
+	.done(mc_done1)
+);
+*/
+/*
+rfPhoenixMcAlu usalu4 (
+	.rst(rst_i),
+	.clk(clk_g),
+	.ir(mir2),
+	.a(mca2[0]),
+	.b(mcb2[0]),
+	.c(mcc2[0]),
+	.o(mc_res2),
+	.done(mc_done2)
+);
+*/
 rfPhoenixVecAlu uvalu1 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -226,6 +266,7 @@ rfPhoenixVecAlu uvalu1 (
 	.a(xa),
 	.b(xb),
 	.c(xc),
+	.imm(ximm),
 	.o(vres)
 );
 
@@ -236,12 +277,39 @@ rfPhoenixMcVecAlu uvalu2 (
 	.a(mca),
 	.b(mcb),
 	.c(mcc),
+	.imm(mcimm),
 	.o(mc_vres),
-	.done(mcv_done)
+	.done(mcv_done),
+	.ridi(mcv_ridi),
+	.rido(mcv_rido)
 );
 
+/*
+rfPhoenixMcVecAlu uvalu3 (
+	.rst(rst_i),
+	.clk(clk_g),
+	.ir(mir1),
+	.a(mca1),
+	.b(mcb1),
+	.c(mcc1),
+	.o(mc_vres1),
+	.done(mcv_done1)
+);
+*/
+/*
+rfPhoenixMcVecAlu uvalu4 (
+	.rst(rst_i),
+	.clk(clk_g),
+	.ir(mir2),
+	.a(mca2),
+	.b(mcb2),
+	.c(mcc2),
+	.o(mc_vres2),
+	.done(mcv_done2)
+);
+*/
 always_comb
-	insn = ic_line >> {ip[5:0],3'b0};
+	{pfx,insn} = ic_line >> {ip3[5:0],3'b0};
 
 always_ff @(posedge clk_g)
 if (rst_i) begin
@@ -261,6 +329,7 @@ end
 task tReset;
 integer n;
 begin
+	rz <= 'd0;
 	ip <= RSTIP;
 	iip <= RSTIP;
 	ir <= NOP_INSN;
@@ -268,7 +337,7 @@ begin
 		ips[n] <= RSTIP;
 	ithread <= 'd0;
 	ip_thread <= 'd0;
-	mc_busy <= 'd0;
+	mca_busy <= 'd0;
 	thread_busy <= 'd0;
 	for (n = 0; n < REB_ENTRIES; n = n + 1)
 		rob[n] <= 'd0;
@@ -287,22 +356,31 @@ endtask
 task tOnce;
 begin
 	memreq.wr <= 1'b0;
+	memresp_fifo_rd <= 1'b1;
 end
 endtask
 
 task tInsnFetch;
 begin
 	if (pipe_advance) begin
+		// 3 cycle pipeline delay reading the I$.
+		// 1 for tag lookup and way determination
+		// 2 for cache line lookup
 		ip <= ips[ithread];
+		ip2 <= ip;
+		ip3 <= ip2;
 		ip_thread <= ithread;
+		ip_thread2 <= ip_thread;
+		ip_thread3 <= ip_thread2;
 		ithread <= ithread + 2'd1;
-		if (ihit & ~thread_busy[ip_thread]) begin
-			ips[ip_thread] <= ips[ip_thread] + 4'd5;
+		if (ihit & ~thread_busy[ip_thread3]) begin
+			ips[ip_thread3] <= ips[ip_thread3] + (pfx.opcode==PFX ? 4'd8 : 4'd5);
 			ir <= insn;
-			iip <= ip;
-			rthread <= ip_thread;
+			irpfx <= pfx;
+			iip <= ip3;
+			rthread <= ip_thread3;
 			rthread_v <= 1'b1;
-			thread_busy[ip_thread] <= 1'b1;
+			thread_busy[ip_thread3] <= 1'b1;
 			ra0 <= insn.r2.Ra;
 			ra1 <= insn.r2.Rb;
 			ra2 <= insn.f3.Rc;
@@ -320,6 +398,7 @@ task tDecode;
 begin
 	if (pipe_advance) begin
 		dip <= iip;
+		dir <= ir;
 		dthread <= rthread;
 		dthread_v <= rthread_v;
 		ddec <= deco;
@@ -333,12 +412,13 @@ begin
 		if (dthread_v) begin
 			rob[rfndx].v <= 1'b1;
 			rob[rfndx].ip <= dip;
+			rob[rfndx].ir <= dir;
 			rob[rfndx].thread <= dthread;
-			rob[rfndx].a <= ddec.Ta ? vrfo0 : rfo0;
-			rob[rfndx].b <= ddec.Tb ? vrfo1 : rfo1;
-			rob[rfndx].c <= ddec.Tc ? vrfo2 : rfo2;
+			rob[rfndx].a <= ddec.Ta ? vrfo0 : {NLANES{rfo0}};
+			rob[rfndx].b <= ddec.Tb ? vrfo1 : {NLANES{rfo1}};
+			rob[rfndx].c <= ddec.Tc ? vrfo2 : {NLANES{rfo2}};
 			rob[rfndx].mask <= rfo3;
-			rob[rfndx].t <= ddec.Tt ? vrfo4 : rfo4;
+			rob[rfndx].t <= ddec.Tt ? vrfo4 : {NLANES{rfo4}};
 			rob[rfndx].dec <= ddec;
 			rob[rfndx].decoded <= 1'b1;
 		end
@@ -384,17 +464,16 @@ begin
 		rob[exndx].decoded <= 1'b0;
 		rob[exndx].out <= 1'b1;
 		if (rob[exndx].dec.multicycle) begin
-			rob[exndx].out <= !mc_busy;
-			if (!mc_busy) begin
-				mc_busy <= 1'b1;
-				mc_rid <= exndx;
-				mir <= rob[exndx].ir;
-				mca <= rob[exndx].a;
-				mcb <= rob[exndx].b;
-				mcc <= rob[exndx].c;
-				mct <= rob[exndx].t;
-				mcm <= rob[exndx].mask;
-			end
+			rob[exndx].out <= 1'b1;
+			mc_rid <= exndx;
+			mcv_ridi <= exndx;
+			mir <= rob[exndx].ir;
+			mca <= rob[exndx].a;
+			mcb <= rob[exndx].b;
+			mcc <= rob[exndx].c;
+			mct <= rob[exndx].t;
+			mcimm <= rob[exndx].dec.imm;
+			mcm <= rob[exndx].mask;
 		end
 		else begin
 			xrid <= exndx;
@@ -404,14 +483,15 @@ begin
 			xc <= rob[exndx].c;
 			xt <= rob[exndx].t;
 			xm <= rob[exndx].ir.r2.m ? rob[exndx].mask : 16'hFFFF;
-			if (rob[exndx].load) begin
+			ximm <= rob[exndx].dec.imm;
+			if (rob[exndx].dec.load) begin
 				if (!memreq_full) begin
 					memreq.wr <= 1'b1;
 					memreq.func <= rob[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
 					memreq.sz <= rob[exndx].dec.memsz;
 					if (rob[exndx].dec.memsz==vect) begin
 						if (rob[exndx].dec.loadr)
-							memreq.adr <= rob[exndx].dec.loadr ? rob[exndx].a[0] + rob[exndx].dec.imm;
+							memreq.adr <= rob[exndx].a[0] + rob[exndx].dec.imm;
 						else begin
 							memreq.adr <= rob[exndx].a[0] + rob[exndx].b[rob[exndx].step];
 							if (rob[exndx].step != 4'd15 && rob[exndx].dec.loadn)
@@ -422,7 +502,7 @@ begin
 						memreq.adr <= rob[exndx].dec.loadr ? rob[exndx].a[0] + rob[exndx].dec.imm : rob[exndx].a[0] + rob[exndx].b[0];
 				end
 			end
-			else if (rob[exndx].store) begin
+			else if (rob[exndx].dec.store) begin
 				if (!memreq_full) begin
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_STORE;
@@ -447,6 +527,18 @@ begin
 	end
 	tExCall();
 	tExBranch();
+	/*
+	if (mc_rido < 4'd12) begin
+		rob[mc_rido].res <= mc_res;
+		rob[mc_rido].out <= 1'b0;
+		rob[mc_rido].executed <= 1'b1;
+	end
+	*/
+	if (mcv_rido < 4'd12) begin
+		rob[mcv_rido].res <= mc_vres;
+		rob[mcv_rido].out <= 1'b0;
+		rob[mcv_rido].executed <= 1'b1;
+	end
 end
 endtask
 
@@ -457,6 +549,7 @@ begin
 			rob[xrid].out <= 1'b0;
 			rob[xrid].executed <= 1'b1;
 			case(rob[xrid].ir.any.opcode)
+			NOP:				ips[rob[xrid].thread] <= ips[rob[xrid].thread] - 4'd4;
 			CALLA,JMP:	begin ips[rob[xrid].thread] <= rob[xrid].ir.call.target; if (rob[xrid].dec.rfwr) rob[xrid].res <= ips[rob[xrid].thread] + 4'd5; end
 			CALLR,BRA:	begin ips[rob[xrid].thread] <= rob[xrid].ir.call.target + ips[rob[xrid].thread]; if (rob[xrid].dec.rfwr) rob[xrid].res <= ips[rob[xrid].thread] + 4'd5; end
 			default:	;
@@ -491,11 +584,11 @@ begin
 					rob[memresp.rid].out <= 1'b1;
 					rob[memresp.rid].executed <= 1'b0;
 				end
-				rob[memresp.rid].res[memresp.step] <= memresp.dat;
+				rob[memresp.rid].res[memresp.step] <= memresp.res;
 			end
 			// Other load
 			else if (rob[memresp.rid].dec.load) begin
-				rob[memresp.rid].res <= memresp.dat;
+				rob[memresp.rid].res <= memresp.res;
 				rob[memresp.rid].out <= 1'b0;
 				rob[memresp.rid].executed <= 1'b1;
 			end
@@ -519,6 +612,7 @@ begin
 		end
 	end
 end
+endtask
 
 task tOut;
 begin
@@ -531,22 +625,48 @@ begin
 				rob[xrid].executed <= 1'b0;
 			end
 		end
-		if (rob[xrid].dec.Tt)
+//		if (rob[xrid].dec.Tt)
 			rob[xrid].res <= vres;
-		else if (!rob[xrid].dec.cjb)
-			rob[xrid].res <= res;
+//		else if (!rob[xrid].dec.cjb)
+//			rob[xrid].res <= res;
 	end
 	if (mc_rid < 4'd12) begin
 		if (rob[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
-			mc_busy <= 1'b0;
+			mca_busy[0] <= 1'b0;
 			rob[mc_rid].out <= 1'b0;
 			rob[mc_rid].executed <= 1'b1;
-			if (rob[mc_rid].dec.Tt)
+//			if (rob[mc_rid].dec.Tt)
 				rob[mc_rid].res <= mc_vres;
-			else
-				rob[mc_rid].res <= mc_res;
+//			else
+//				rob[mc_rid].res <= mc_res;
 		end
 	end
+	/*
+	if (mc_rid1 < 4'd12) begin
+		if (rob[mc_rid1].dec.is_vector ? mcv_done1 : mc_done1) begin
+			mca_busy[1] <= 1'b0;
+			rob[mc_rid1].out <= 1'b0;
+			rob[mc_rid1].executed <= 1'b1;
+			if (rob[mc_rid1].dec.Tt)
+				rob[mc_rid1].res <= mc_vres1;
+			else
+				rob[mc_rid1].res <= mc_res1;
+		end
+	end
+	*/
+	/*
+	if (mc_rid2 < 4'd12) begin
+		if (rob[mc_rid2].dec.is_vector ? mcv_done2 : mc_done2) begin
+			mca_busy[2] <= 1'b0;
+			rob[mc_rid2].out <= 1'b0;
+			rob[mc_rid2].executed <= 1'b1;
+			if (rob[mc_rid2].dec.Tt)
+				rob[mc_rid2].res <= mc_vres2;
+			else
+				rob[mc_rid2].res <= mc_res2;
+		end
+	end
+	*/
 end
 endtask
 
@@ -560,6 +680,8 @@ begin
 		commit_wrv <= rob[wbndx].dec.vrfwr;
 		commit_tgt <= rob[wbndx].dec.Rt;
 		commit_bus <= rob[wbndx].res;
+		if (rob[wbndx].dec.Rt=='d0 && rob[wbndx].dec.rfwr)
+			rz[wbndx] <= 1'b1;
 		rob[wbndx] <= 'd0;
 	end
 end

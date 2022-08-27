@@ -1,7 +1,9 @@
 import rfPhoenixPkg::*;
 
-module rfPhoenix_decoder(ir, deco);
+module rfPhoenix_decoder(ir, pfx, rz, deco);
 input Instruction ir;
+input Postfix pfx;
+input rz;
 output sDecodeBus deco;
 
 always_comb
@@ -55,6 +57,9 @@ begin
 	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr <= ir.r2.Tt; deco.rfwr <= ~ir.r2.Tt; end
 	default:	begin deco.rfwr <= 'd0; deco.vrfwr <= 'd0; end
 	endcase
+	// Disable writing r0 if the rz flag is set.
+	if (deco.rfwr && deco.Rt=='d0)
+		deco.rfwr = ~rz;
 
 	deco.multicycle = 'd0;
 	case(ir.any.opcode)
@@ -67,8 +72,13 @@ begin
 	deco.imm = 'd0;
 	case(ir.any.opcode)
 	Bcc:	deco.imm = {{15{ir.br.disp[16]}},ir.br.disp};
+	LDB,LDBU,LDW,LDWU,LDT,
+	STB,STW,STT:
+		deco.imm <= {{16{ir.ls.disp[15]}},ir.ls.disp};
 	default:	deco.imm = 'd0;
 	endcase	
+	if (pfx.opcode==PFX)
+		deco.imm[31:16] <= pfx.imm;
 
 	deco.br = ir.any.opcode==Bcc || ir.any.opcode==FBcc;
 	deco.cjb = ir.any.opcode==CALLA || ir.any.opcode==CALLR || ir.any.opcode==JMP || ir.any.opcode==BRA;
@@ -78,7 +88,7 @@ begin
 	deco.loadr = ir.any.opcode==LDB || ir.any.opcode==LDBU || ir.any.opcode==LDW || ir.any.opcode==LDWU || ir.any.opcode==LDT;
 	deco.loadn = ir.any.opcode==LDX;
 	deco.loadu = ir.any.opcode==LDBU||ir.any.opcode==LDWU || (ir.any.opcode==LDX && (ir.r2.func==LDBU || ir.r2.func==LDWU));
-	deci.load = deco.loadr|deco.loadn;
+	deco.load = deco.loadr|deco.loadn;
 
 	// Memory operation sizes
 	case(ir.any.opcode)

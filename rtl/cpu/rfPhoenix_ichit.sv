@@ -58,7 +58,7 @@ reg ihit2;
 reg icv2, icv1;
 
 integer k;
-always_comb
+always_ff @(posedge clk)
 begin
 	for (k = 0; k < WAYS; k = k + 1)
 	  ihit1[k] = tag[k[1:0]]==ip[AWID-1:6] && valid[k][ip[12:6]]==1'b1;
@@ -94,9 +94,9 @@ always_ff @(posedge clk)
 	prev_rway <= rway;
 
 always_ff @(posedge clk)
-	ihit2 = #1 |ihit1;
-always_ff @(posedge clk)
-	ihit = #1 ihit2 & |ihit1;
+	ihit = |ihit1;
+//always_ff @(posedge clk)
+//	ihit = #1 ihit2 & |ihit1;
 
 always_ff @(posedge clk)
 	prev_vtag <= vtag;
