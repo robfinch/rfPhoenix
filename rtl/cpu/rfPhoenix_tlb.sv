@@ -496,11 +496,12 @@ if (rst_i) begin
   acr_o <= 4'hF;
 end
 else begin
+ 	padr_o <= padr_o;
   if (pe_xlat)
   	hit <= 4'd15;
 	if (next_i)
 		padr_o <= padr_o + 6'd32;
-  else if (iacc_i) begin
+  else begin
 		if (!xlaten_i) begin
 	    tlbmiss_o <= FALSE;
 	  	padr_o[15:0] <= iadr_i[15:0];
@@ -529,39 +530,7 @@ else begin
 				end
 			end
 		end
-  end
-  else if (dacc_i) begin
-		if (!xlaten_i) begin
-	    tlbmiss_o <= FALSE;
-	  	padr_o[15:0] <= dadr_i[15:0];
-	    padr_o[31:16] <= dadr_i[31:16];
-	    acr_o <= 4'hF;
-			tlbkey_o <= 32'hFFFFFFFF;
-		end
-		else begin
-			tlbmiss_o <= dld[4] & ~cd_dadr;
-			tlbmiss_adr_o <= dadr_i;
-			tlbkey_o <= 32'hFFFFFFFF;
-			hit <= 4'd15;
-			acr_o <= 4'h0;
-			for (n = 0; n < ASSOC; n = n + 1) begin
-				if (tentryo[n].vpn[15:10]==dadr_i[31:26] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
-			  	padr_o[9:0] <= dadr_i[9:0];
-			  	padr_o[15:10] <= dadr_i[15:10] + tentryo[n].mb;
-					padr_o[31:16] <= tentryo[n].ppn;
-					if (dadr_i[15:10] + tentryo[n].mb <= tentryo[n].me)
-						acr_o <= {tentryo[n].ppn < 16'h0FFF || tentryo[n].ppn==16'hFFFC,tentryo[n].rwx};
-					else
-						acr_o <= 4'h0;
-					tlbkey_o <= tentryo[n].key;
-					tlbmiss_o <= FALSE;
-					hit <= n;
-				end
-			end
-		end
-  end
-  else
-  	padr_o <= padr_o;
+	end
 end
 
 endmodule

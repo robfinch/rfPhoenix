@@ -83,7 +83,7 @@ input [9:0] ra;
 output Value o;
 
 integer k;
-Value mem [0:1023];
+Value mem [0:NTHREADS*NREGS-1];
 initial begin
 	for (k = 0; k < NTHREADS * NREGS; k = k + 1)
 		mem[k] <= 32'd0;

@@ -41,7 +41,7 @@ module rfPhoenix_stmask(sel, adr, mask);
 parameter BUSWID=128;
 input [BUSWID/8-1:0] sel;
 input [1:0] adr;
-output reg [511:0] mask;
+output reg [255:0] mask;
 
 reg [BUSWID-1:0] lomask;
 

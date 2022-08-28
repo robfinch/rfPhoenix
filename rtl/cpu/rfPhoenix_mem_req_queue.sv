@@ -67,7 +67,7 @@ reg [63:0] isel0, isel1;
 reg [63:0] qsel [0:QDEP-1];
 reg [255:0] imask0, imask1;
 reg [255:0] dat10, dat11;
-reg sx0, sx1;
+reg [31:0] sx0, sx1;
 reg [7:0] last_tid;
 
 integer n5;
@@ -115,9 +115,9 @@ begin
 			imask0[g1*8+7:g1*8] = 8'h00;
 	always_comb
 		if (i0_sel[g1])
-			sx0 = dat10[g1*8+7];
+			sx0[g1] = dat10[g1*8+7];
 		else
-			sx0 = 1'b0;
+			sx0[g1] = 1'b0;
 	always_comb
 		if (i1_sel[g1])
 			imask1[g1*8+7:g1*8] = 8'hFF;
@@ -125,9 +125,9 @@ begin
 			imask1[g1*8+7:g1*8] = 8'h00;
 	always_comb
 		if (i1_sel[g1])
-			sx1 = dat11[g1*8+7];
+			sx1[g1] = dat11[g1*8+7];
 		else
-			sx1 = 1'b0;
+			sx1[g1] = 1'b0;
 end
 end
 endgenerate
@@ -149,7 +149,7 @@ input [3:0] func1;
 input [3:0] func2;
 input sMemoryRequest i;
 input [63:0] isel;
-input sx;
+input [31:0] sx;
 input [255:0] imask;
 output sMemoryRequest ldo;
 output found;
@@ -168,8 +168,16 @@ begin
 						dat1 = que[n2].dat >> {i.adr - que[n2].adr,3'b0};
 					else
 						dat1 = que[n2].dat << {que[n2].adr - i.adr,3'b0};
-					if (i.func==MR_LOAD)
-						ldo.dat = sx ? (dat1 & imask) | ~imask : (dat1 & imask);
+					// For a LOAD sign extend value to machine width.
+					if (i.func==MR_LOAD) begin
+						ldo.dat = /*|sx ? (dat1 & imask) | ~imask :*/ (dat1 & imask);
+						case(i.sz)
+						byt:	ldo.dat = {{32{ldo.dat[7]}},ldo.dat[7:0]};
+						wyde:	ldo.dat = {{16{ldo.dat[15]}},ldo.dat[15:0]};
+						tetra:ldo.dat = ldo.dat[31:0];
+						default:	ldo.dat = ldo.dat[31:0];
+						endcase
+					end
 					else
 						ldo.dat = dat1 & imask;
 				end

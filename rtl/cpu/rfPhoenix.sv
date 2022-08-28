@@ -1,3 +1,38 @@
+`timescale 1ns / 1ps
+// ============================================================================
+//        __
+//   \\__/ o\    (C) 2013-2022  Robert Finch, Waterloo
+//    \  __ /    All rights reserved.
+//     \/_//     robfinch<remove>@finitron.ca
+//       ||
+//
+// BSD 3-Clause License
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//                                                                          
+// ============================================================================
 
 import rfPhoenixPkg::*;
 
@@ -41,12 +76,15 @@ output reg trigger_o;
 output CauseCode wcause;
 
 wire clk_g = clk_i;
-sReorderEntry rob [0:11];
+sReorderEntry rob [0:NTHREADS-1];
 
 // The following var indicates that r0 has been written for the thread.
 // Only one write of r0 is allowed, to set the value to zero.
 reg [NTHREADS-1:0] rz;
-reg [3:0] rfndx,exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+reg [3:0] exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+reg exndx_v,oundx_v,wbndx_v;
+reg [3:0] rfndx;
+reg rfndx_v;
 reg [3:0] mcv_ridi, mcv_rido;
 reg [3:0] ithread, rthread, dthread, xthread, commit_thread;
 reg rthread_v, dthread_v;
@@ -83,7 +121,8 @@ wire memreq_full;
 reg memresp_fifo_rd;
 wire memresp_fifo_empty;
 wire memresp_fifo_v;
-wire [1023:0] ic_line;
+wire [639:0] ic_line;
+wire ic_valid;
 reg [31:0] ptbr;
 wire ipage_fault;
 reg clr_ipage_fault;
@@ -96,12 +135,48 @@ wire UserMode = omode==2'b00;
 wire MUserMode = omode==2'b00;
 wire takb;
 
-wire pipe_advance = (rfndx < 4'd12);
+wire pipe_advance = rfndx_v;
+
+integer n;
+initial begin
+	rz = 'd0;
+	ip = RSTIP;
+	iip = RSTIP;
+	ir = NOP;//_INSN;
+	xir = NOP;//_INSN;
+	mir = NOP;//_INSN;
+	xa = 'd0;
+	xb = 'd0;
+	xc = 'd0;
+	ximm = 'd0;
+	mca = 'd0;
+	mcb = 'd0;
+	mcc = 'd0;
+	mcimm = 'd0;
+	for (n = 0; n < NTHREADS; n = n + 1)
+		ips[n] = RSTIP;
+	ithread = 'd0;
+	ip_thread = 'd0;
+	mca_busy = 'd0;
+	thread_busy = 'd0;
+	for (n = 0; n < REB_ENTRIES; n = n + 1)
+		rob[n] = 'd0;
+	rthread_v = 'd0;
+	dthread_v = 'd0;
+	ra0 = 'd0;
+	ra1 = 'd0;
+	ra2 = 'd0;
+	ra3 = 'd0;
+	ra4 = 'd0;
+	ddec = 'd0;
+	memreq = 'd0;
+end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 wire memreq_wack;
+
 rfPhoenixBiu ubiu
 (
 	.rst(rst_i),
@@ -118,6 +193,7 @@ rfPhoenixBiu ubiu
 	.ihit(ihit),
 	.ifStall(1'b0),
 	.ic_line(ic_line),
+	.ic_valid(ic_valid),
 	.fifoToCtrl_i(memreq),
 	.fifoToCtrl_full_o(memreq_full),
 	.fifoToCtrl_wack(memreq_wack),
@@ -150,6 +226,7 @@ rfPhoenixBiu ubiu
 	.itlbmiss(itlbmiss),
 	.clr_itlbmiss(clr_itlbmiss)
 );
+
 
 rfPhoenix_decoder udec1
 (
@@ -259,9 +336,8 @@ rfPhoenixMcAlu usalu4 (
 	.done(mc_done2)
 );
 */
+
 rfPhoenixVecAlu uvalu1 (
-	.rst(rst_i),
-	.clk(clk_g),
 	.ir(xir),
 	.a(xa),
 	.b(xb),
@@ -270,6 +346,7 @@ rfPhoenixVecAlu uvalu1 (
 	.o(vres)
 );
 
+/**********************************
 rfPhoenixMcVecAlu uvalu2 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -283,7 +360,7 @@ rfPhoenixMcVecAlu uvalu2 (
 	.ridi(mcv_ridi),
 	.rido(mcv_rido)
 );
-
+***********************************/
 /*
 rfPhoenixMcVecAlu uvalu3 (
 	.rst(rst_i),
@@ -332,7 +409,17 @@ begin
 	rz <= 'd0;
 	ip <= RSTIP;
 	iip <= RSTIP;
-	ir <= NOP_INSN;
+	ir <= NOP;//_INSN;
+	xir <= NOP;//_INSN;
+	mir <= NOP;//_INSN;
+	xa <= 'd0;
+	xb <= 'd0;
+	xc <= 'd0;
+	ximm <= 'd0;
+	mca <= 'd0;
+	mcb <= 'd0;
+	mcc <= 'd0;
+	mcimm <= 'd0;
 	for (n = 0; n < NTHREADS; n = n + 1)
 		ips[n] <= RSTIP;
 	ithread <= 'd0;
@@ -389,6 +476,15 @@ begin
 		end
 		else begin
 			rthread_v <= 1'b0;
+			// On a miss, request a cache line load from the memory system. This
+			// should eventuallly cause a hit for the thread.
+			if (!ihit && !memreq_full) begin
+				memreq.wr <= 1'b1;
+				memreq.func <= MR_ICACHE_LOAD;
+				memreq.adr <= ip3;
+				memreq.dat <= ic_line;
+				memreq.sz <= ic_valid ? tetra : nul;
+			end
 		end
 	end
 end
@@ -426,6 +522,7 @@ begin
 end
 endtask
 
+/*
 // Pick an empty rob entry for update.
 ffz12 uffz1 (
 	.i({rob[11].v,rob[10].v,rob[9].v,rob[8].v,
@@ -433,7 +530,13 @@ ffz12 uffz1 (
 			rob[3].v,rob[2].v,rob[1].v,rob[0].v}),
 	.o(rfndx)
 );
+*/
+always_comb
+	rfndx = dthread;
+always_comb
+	rfndx_v = dthread_v;
 
+/*
 // Pick a rob entry to execute.
 ffo12 uffz2 (
 	.i({rob[11].decoded & ~rob[11].out,rob[10].decoded & ~rob[10].out,rob[9].decoded & ~rob[9].out,rob[8].decoded & ~rob[8].out,
@@ -441,7 +544,43 @@ ffo12 uffz2 (
 			rob[3].decoded & ~rob[3].out,rob[2].decoded & ~rob[2].out,rob[1].decoded & ~rob[1].out,rob[0].decoded & ~rob[0].out}),
 	.o(exndx)
 );
+*/
+integer n2;
+always_comb
+begin
+	exndx_v = 1'b0;
+	exndx = 'd0;
+	for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1)
+		if (rob[n2].decoded & ~rob[n2].out) begin
+			exndx = n2;
+			exndx_v = 1'b1;
+		end
+end
 
+integer n3;
+always_comb
+begin
+	oundx_v = 1'b0;
+	oundx = 'd0;
+	for (n3 = 0; n3 < NTHREADS; n3 = n3 + 1)
+		if (rob[n3].out) begin
+			oundx = n3;
+			oundx_v = 1'b1;
+		end
+end
+
+integer n4;
+always_comb
+begin
+	wbndx_v = 1'b0;
+	wbndx = 'd0;
+	for (n4 = 0; n4 < NTHREADS; n4 = n4 + 1)
+		if (rob[n4].executed) begin
+			wbndx = n4;
+			wbndx_v = 1'b1;
+		end
+end
+/*
 // Pick an rob entry thats out.
 ffo12 uffz3 (
 	.i({rob[11].out,rob[10].out,rob[9].out,rob[8].out,
@@ -449,7 +588,9 @@ ffo12 uffz3 (
 			rob[3].out,rob[2].out,rob[1].out,rob[0].out}),
 	.o(oundx)
 );
+*/
 
+/*
 // Pick a finished rob entry.
 ffo12 uffz4 (
 	.i({rob[11].executed,rob[10].executed,rob[9].executed,rob[8].executed,
@@ -457,10 +598,11 @@ ffo12 uffz4 (
 			rob[3].executed,rob[2].executed,rob[1].executed,rob[0].executed}),
 	.o(wbndx)
 );
+*/
 
 task tExecute;
 begin
-	if (exndx < 4'd12) begin
+	if (exndx_v) begin
 		rob[exndx].decoded <= 1'b0;
 		rob[exndx].out <= 1'b1;
 		if (rob[exndx].dec.multicycle) begin
@@ -485,7 +627,7 @@ begin
 			xm <= rob[exndx].ir.r2.m ? rob[exndx].mask : 16'hFFFF;
 			ximm <= rob[exndx].dec.imm;
 			if (rob[exndx].dec.load) begin
-				if (!memreq_full) begin
+				if (!memreq_full && ihit) begin
 					memreq.wr <= 1'b1;
 					memreq.func <= rob[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
 					memreq.sz <= rob[exndx].dec.memsz;
@@ -494,7 +636,7 @@ begin
 							memreq.adr <= rob[exndx].a[0] + rob[exndx].dec.imm;
 						else begin
 							memreq.adr <= rob[exndx].a[0] + rob[exndx].b[rob[exndx].step];
-							if (rob[exndx].step != 4'd15 && rob[exndx].dec.loadn)
+							if (rob[exndx].step != NLANES-1 && rob[exndx].dec.loadn)
 								rob[exndx].step <= rob[exndx].step + 2'd1;
 						end
 					end
@@ -503,7 +645,7 @@ begin
 				end
 			end
 			else if (rob[exndx].dec.store) begin
-				if (!memreq_full) begin
+				if (!memreq_full && ihit) begin
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_STORE;
 					memreq.sz <= rob[exndx].dec.memsz;
@@ -516,7 +658,7 @@ begin
 						if (rob[exndx].dec.memsz==vect && rob[exndx].dec.storen)
 							memreq.dat <= rob[exndx].t[rob[exndx].step];
 						// For scatter increment step
-						if (rob[exndx].step!=4'd15 && rob[exndx].dec.storen)
+						if (rob[exndx].step!=NLANES-1 && rob[exndx].dec.storen)
 							rob[exndx].step <= rob[exndx].step + 2'd1;
 					end
 					else
@@ -534,7 +676,7 @@ begin
 		rob[mc_rido].executed <= 1'b1;
 	end
 	*/
-	if (mcv_rido < 4'd12) begin
+	if (mcv_rido < NTHREADS) begin
 		rob[mcv_rido].res <= mc_vres;
 		rob[mcv_rido].out <= 1'b0;
 		rob[mcv_rido].executed <= 1'b1;
@@ -544,7 +686,7 @@ endtask
 
 task tExCall;
 begin
-	if (xrid < 4'd12) begin
+	if (xrid < NTHREADS) begin
 		if (rob[xrid].out) begin
 			rob[xrid].out <= 1'b0;
 			rob[xrid].executed <= 1'b1;
@@ -561,7 +703,7 @@ endtask
 
 task tExBranch;
 begin
-	if (xrid < 4'd12) begin
+	if (xrid < NTHREADS) begin
 		if (rob[xrid].out) begin
 			rob[xrid].out <= 1'b0;
 			rob[xrid].executed <= 1'b1;
@@ -580,7 +722,7 @@ begin
 		if (rob[memresp.rid].out) begin
 			// If a gather load
 			if (rob[memresp.rid].dec.loadn && rob[memresp.rid].dec.memsz==vect) begin
-				if (rob[memresp.rid].step!=4'd15) begin
+				if (rob[memresp.rid].step!=NLANES-1) begin
 					rob[memresp.rid].out <= 1'b1;
 					rob[memresp.rid].executed <= 1'b0;
 				end
@@ -594,7 +736,7 @@ begin
 			end
 			// Scatter store
 			else if (rob[memresp.rid].dec.storen && rob[memresp.rid].dec.memsz==vect) begin
-				if (rob[memresp.rid].step!=4'd15) begin
+				if (rob[memresp.rid].step!=NLANES-1) begin
 					rob[memresp.rid].out <= 1'b1;
 					rob[memresp.rid].executed <= 1'b0;
 				end
@@ -616,11 +758,11 @@ endtask
 
 task tOut;
 begin
-	if (xrid < 4'd12) begin
+	if (xrid < NTHREADS) begin
 		rob[xrid].out <= 1'b0;
 		rob[xrid].executed <= 1'b1;
 		if (rob[xrid].dec.storen && rob[xrid].dec.memsz==vect) begin
-			if (rob[xrid].step!=4'd15) begin
+			if (rob[xrid].step!=NLANES-1) begin
 				rob[xrid].out <= 1'b1;
 				rob[xrid].executed <= 1'b0;
 			end
@@ -630,7 +772,7 @@ begin
 //		else if (!rob[xrid].dec.cjb)
 //			rob[xrid].res <= res;
 	end
-	if (mc_rid < 4'd12) begin
+	if (mc_rid < NTHREADS) begin
 		if (rob[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
 			mca_busy[0] <= 1'b0;
 			rob[mc_rid].out <= 1'b0;
@@ -672,9 +814,9 @@ endtask
 
 task tWriteback;
 begin
-	if (wbndx < 4'd12) begin
-		thread_busy[rob[wbndx].thread] <= 1'b0;
-		commit_thread <= rob[wbndx].thread;
+	if (wbndx_v) begin
+		thread_busy[wbndx] <= 1'b0;
+		commit_thread <= wbndx;
 		commit_mask <= rob[wbndx].ir.r2.m ? rob[wbndx].mask : 16'hFFFF;
 		commit_wr <= rob[wbndx].dec.rfwr;
 		commit_wrv <= rob[wbndx].dec.vrfwr;
