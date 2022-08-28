@@ -346,7 +346,6 @@ rfPhoenixVecAlu uvalu1 (
 	.o(vres)
 );
 
-/**********************************
 rfPhoenixMcVecAlu uvalu2 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -360,7 +359,7 @@ rfPhoenixMcVecAlu uvalu2 (
 	.ridi(mcv_ridi),
 	.rido(mcv_rido)
 );
-***********************************/
+
 /*
 rfPhoenixMcVecAlu uvalu3 (
 	.rst(rst_i),

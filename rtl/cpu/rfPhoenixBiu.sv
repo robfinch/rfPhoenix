@@ -53,7 +53,7 @@ input clock;							// clock for clock algorithm
 input UserMode;
 input MUserMode;
 input [1:0] omode;
-input [11:0] ASID;
+input [9:0] ASID;
 input bounds_chk;
 input pe;									// protected mode enable
 input Address ip;
@@ -2148,7 +2148,7 @@ begin
 	mem_resp[0] <= 'd0;
 	if (tlbrdy) begin
 		if (tlb_cyc) begin
-			mem_resp[0].func = MR_TLB;
+			mem_resp[0].func <= MR_TLB;
 			mem_resp[0].badAddr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
 		end
 		else if (fifoToCtrl_v) begin

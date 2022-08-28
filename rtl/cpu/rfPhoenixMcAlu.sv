@@ -58,6 +58,7 @@ wire fnm = ir.any.opcode==FNMA || ir.any.opcode==FNMS;
 Value fma_o, fma_o1;
 Value fcmp_o;
 Value i2f_o,i2f1_o;
+Value f2i_o,f2i1_o;
 DoubleValue muli_o,muli1_o;
 
 mult32x32 uimul1(
@@ -82,7 +83,19 @@ i2f32 ui2f1
 	.o(i2f1_o)
 );
 
+f2i32 uf2i1
+(
+	.clk(clk),
+	.ce(ce),
+	.op(1'b0),
+	.i(a),
+	.o(f2i_o),
+	.overflow()
+);
+
+
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd0 (.clk(clk), .ce(1'b1), .i(i2f1_o), .o(i2f_o));
+ft_delay #(.WID($bits(Value)), .DEP(6)) uftd1 (.clk(clk), .ce(1'b1), .i(f2i1_o), .o(f2i_o));
 
 fpFMA32nrL7 ufma1 (
 	.clk(clk),
@@ -120,6 +133,7 @@ case(ir.any.opcode)
 R2:
 	case(ir.r2.func)
 	I2F:	o = i2f_o;
+	F2I:	o = f2i_o;
 	default:	o = 'd0;
 	endcase
 MULI:	o = muli_o[31:0];

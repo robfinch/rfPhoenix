@@ -82,16 +82,16 @@ begin
 	case(ir.any.opcode)
 	R2:	
 		case(ir.r2.func)
-		ADD,SUB,AND,OR,XOR:	begin deco.vrfwr <= ir.r2.Tt; deco.rfwr <= ~ir.r2.Tt; end
+		ADD,SUB,AND,OR,XOR:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 		default:	begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 		endcase
-	FMA,FMS,FNMA,FNMS:	begin deco.vrfwr <= ir.r2.Tt; deco.rfwr <= ~ir.r2.Tt; end
+	FMA,FMS,FNMA,FNMS:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 	NOP:
-		begin deco.rfwr <= 'd0; deco.vrfwr <= 'd0; end
+		begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	CALLA,CALLR,JMP,BRA:
-		begin deco.rfwr <= ir.call.Rt!=2'b00; end
-	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr <= ir.r2.Tt; deco.rfwr <= ~ir.r2.Tt; end
-	default:	begin deco.rfwr <= 'd0; deco.vrfwr <= 'd0; end
+		begin deco.rfwr = ir.call.Rt!=2'b00; end
+	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
+	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
 	// Disable writing r0 if the rz flag is set.
 	if (deco.rfwr && deco.Rt=='d0)
@@ -110,11 +110,11 @@ begin
 	Bcc:	deco.imm = {{15{ir.br.disp[16]}},ir.br.disp};
 	LDB,LDBU,LDW,LDWU,LDT,
 	STB,STW,STT:
-		deco.imm <= {{16{ir.ls.disp[15]}},ir.ls.disp};
+		deco.imm = {{16{ir.ls.disp[15]}},ir.ls.disp};
 	default:	deco.imm = 'd0;
 	endcase	
 	if (pfx.opcode==PFX)
-		deco.imm[31:16] <= pfx.imm;
+		deco.imm[31:16] = pfx.imm;
 
 	deco.br = ir.any.opcode==Bcc || ir.any.opcode==FBcc;
 	deco.cjb = ir.any.opcode==CALLA || ir.any.opcode==CALLR || ir.any.opcode==JMP || ir.any.opcode==BRA;
@@ -136,6 +136,7 @@ begin
 		LDB,LDBU,STB:	deco.memsz = byt;
 		LDW,LDWU,STW:	deco.memsz = wyde;
 		LDT,STT:	deco.memsz = tetra;
+		default:	deco.memsz = tetra;
 		endcase
 	default:	deco.memsz = tetra;
 	endcase
