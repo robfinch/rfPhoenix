@@ -36,8 +36,9 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenix_decoder(ir, pfx, rz, deco);
+module rfPhoenix_decoder(ir, sp_sel, pfx, rz, deco);
 input Instruction ir;
+input [2:0] sp_sel;
 input Postfix pfx;
 input rz;
 output sDecodeBus deco;
@@ -45,6 +46,10 @@ output sDecodeBus deco;
 always_comb
 begin
 
+	deco.rti = ir.any.opcode==R2 && ir.r2.Ra==6'd63 && ir.r2.func==VSRLVI && ir.r2.Rb==6'd1;
+	deco.flt = ir.any.opcode==R2 && ir.r2.Ra==6'd63 && ir.r2.func==VSLLVI && ir.r2.Rb==6'd1 && ir.r2.pad==3'b000;
+	deco.brk = ir.any.opcode==R2 && ir.r2.Ra==6'd63 && ir.r2.func==VSLLVI && ir.r2.Rb==6'd1 && ir.r2.pad==3'b010;
+	deco.irq = ir.any.opcode==R2 && ir.r2.Ra==6'd63 && ir.r2.func==VSLLVI && ir.r2.Rb==6'd1 && ir.r2.pad==3'b100;
 	deco.Ra = ir.r2.Ra;
 	deco.Ta = ir.r2.Ta;
 	deco.Rb = ir.r2.Rb;
@@ -75,6 +80,44 @@ begin
 	CSR:	begin deco.Rt = ir.ri.Rt; deco.Tt = ir.ri.Tt; end
 	default:	begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 	endcase
+	
+	// Stack pointer spec mux
+	if (deco.Ra==6'd31)
+		case(sp_sel)
+		3'd1:	deco.Ra = 6'd44;
+		3'd2:	deco.Ra = 6'd45;
+		3'd3:	deco.Ra = 6'd46;
+		3'd4:	deco.Ra = 6'd47;
+		default:	;
+		endcase
+
+	if (deco.Rb==6'd31)
+		case(sp_sel)
+		3'd1:	deco.Rb = 6'd44;
+		3'd2:	deco.Rb = 6'd45;
+		3'd3:	deco.Rb = 6'd46;
+		3'd4:	deco.Rb = 6'd47;
+		default:	;
+		endcase
+
+	if (deco.Rc==6'd31)
+		case(sp_sel)
+		3'd1:	deco.Rc = 6'd44;
+		3'd2:	deco.Rc = 6'd45;
+		3'd3:	deco.Rc = 6'd46;
+		3'd4:	deco.Rc = 6'd47;
+		default:	;
+		endcase
+	
+	if (deco.Rt==6'd31)
+		case(sp_sel)
+		3'd1:	deco.Rt = 6'd44;
+		3'd2:	deco.Rt = 6'd45;
+		3'd3:	deco.Rt = 6'd46;
+		3'd4:	deco.Rt = 6'd47;
+		default:	;
+		endcase
+	
 
 	deco.multicycle = 'd0;
 	case(ir.any.opcode)

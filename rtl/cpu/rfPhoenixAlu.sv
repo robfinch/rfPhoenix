@@ -138,6 +138,34 @@ R2:
 	AND:		o = a & b;
 	OR:			o = a | b;
 	XOR:		o = a ^ b;
+	CMP:
+		begin
+			o[0] = a == b;
+			o[1] = $signed(a) < $signed(b);
+			o[2] = $signed(a) <= $signed(b);
+			o[4:3] = 2'b0;
+			o[5] = a < b;
+			o[6] = a <= b;
+			o[7] = 1'b0;
+			o[8] = a != b;
+			o[9] = $signed(a) >= $signed(b);
+			o[10] = $signed(a) > $signed(b);
+			o[12:11] = 2'b0;
+			o[13] = a >= b;
+			o[14] = a > b;
+			o[15] = 1'b0;
+			o[16] = fcmp_o[0];
+			o[17] = fcmp_o[1];
+			o[18] = fcmp_o[2];
+			o[19] = fcmp_o[3];
+			o[20] = fcmp_o[4];
+			o[21] = fcmp_o[8];	// <>
+			o[22] = fcmp_o[9];	// >=
+			o[23] = fcmp_o[10];	// >
+			o[24] = fcmp_o[11];	// mag >=
+			o[25] = fcmp_o[12];	// ordered
+			o[31:26] = 6'd0;
+		end
 	CMP_EQ:	o = a == b;
 	CMP_NE:	o = a != b;
 	CMP_LT:	o = $signed(a) < $signed(b);
@@ -167,6 +195,34 @@ SUBFI:		o = imm - a;
 ANDI:			o = a & imm;
 ORI:			o = a | imm;
 XORI:			o = a ^ imm;
+CMPI:
+	begin
+		o[0] = a == imm;
+		o[1] = $signed(a) < $signed(imm);
+		o[2] = $signed(a) <= $signed(imm);
+		o[4:3] = 2'b0;
+		o[5] = a < imm;
+		o[6] = a <= imm;
+		o[7] = 1'b0;
+		o[8] = a != imm;
+		o[9] = $signed(a) >= $signed(imm);
+		o[10] = $signed(a) > $signed(imm);
+		o[12:11] = 2'b0;
+		o[13] = a >= imm;
+		o[14] = a > imm;
+		o[15] = 1'b0;
+		o[16] = fcmpi_o[0];
+		o[17] = fcmpi_o[1];
+		o[18] = fcmpi_o[2];
+		o[19] = fcmpi_o[3];
+		o[20] = fcmpi_o[4];
+		o[21] = fcmpi_o[8];	// <>
+		o[22] = fcmpi_o[9];	// >=
+		o[23] = fcmpi_o[10];	// >
+		o[24] = fcmpi_o[11];	// mag >=
+		o[25] = fcmpi_o[12];	// ordered
+		o[31:26] = 6'd0;
+	end
 CMP_EQI:	o = a == imm;
 CMP_NEI:	o = a != imm;
 CMP_LTI:	o = $signed(a) < $signed(imm);

@@ -22,6 +22,7 @@ parameter ANDI		= 6'h08;
 parameter ORI			= 6'h09;
 parameter XORI		= 6'h0A;
 parameter NOP			= 6'h0B;
+parameter CMPI		= 6'h0D;
 parameter CMP_EQI	= 6'h0E;
 parameter CMP_NEI	= 6'h0F;
 parameter CMP_LTI	= 6'h10;
@@ -53,11 +54,9 @@ parameter LDBU		= 6'h31;
 parameter LDW			= 6'h32;
 parameter LDWU		= 6'h33;
 parameter LDT			= 6'h34;
-parameter LDX			= 6'h37;
 parameter STB			= 6'h38;
 parameter STW			= 6'h39;
 parameter STT			= 6'h3A;
-parameter STX			= 6'h3F;
 
 // R2 ops
 parameter R1			= 6'h01;
@@ -68,7 +67,8 @@ parameter SUB			= 6'h05;
 parameter AND			= 6'h08;
 parameter OR			= 6'h09;
 parameter XOR			= 6'h0A;
-parameter VEINS		= 6'h0D;
+parameter VEINS		= 6'h0C;
+parameter CMPI		= 6'h0D;
 parameter CMP_EQ	= 6'h0E;
 parameter CMP_NE	= 6'h0F;
 parameter CMP_LT	= 6'h10;
@@ -96,17 +96,32 @@ parameter VSRLVI	= 6'h21;
 parameter VSLLV		= 6'h22;
 parameter VSRLV		= 6'h23;
 parameter SHPTENDX	= 6'h28;
+parameter FADD		= 6'h2C;
+parameter FSUB		= 6'h2D;
+parameter FMUL		= 6'h2E;
+parameter LDBX		= 6'h30;
+parameter LDBUX		= 6'h31;
+parameter LDWX		= 6'h32;
+parameter LDWUX		= 6'h33;
+parameter LDTX		= 6'h34;
+parameter STBX		= 6'h38;
+parameter STWX		= 6'h39;
+parameter STTX		= 6'h3A;
 
 // R1 ops
 parameter CNTLZ		= 6'h00;
 parameter CNTPOP	= 6'h02;
+parameter PTGHASH	= 6'h07;
+parameter RTI			= 6'h19;
 parameter FFINITE = 6'h20;
+parameter FNEG		= 6'h23;
 parameter FRSQRTE	= 6'h24;
 parameter FRES		= 6'h25;
 parameter FSIGMOID= 6'h26;
 parameter I2F			= 6'h28;
 parameter F2I			= 6'h29;
 parameter FABS		= 6'h2A;
+parameter FNABS		= 6'h2B;
 parameter FCLASS	= 6'h2C;
 parameter FMAN		= 6'h2D;
 parameter FSIGN		= 6'h2E;
@@ -192,6 +207,7 @@ parameter FLT_PMA		= 8'h3D;
 parameter FLT_BRK		= 8'h3F;
 parameter FLT_PFX		= 8'hC8;
 parameter FLT_TMR		= 8'hE2;
+parameter FLT_IRQ		= 8'hEE;
 parameter FLT_NMI		= 8'hFE;
 
 parameter pL1CacheLines = 64;
@@ -375,6 +391,10 @@ typedef struct packed
 	logic [2:0] memsz;
 	logic br;						// conditional branch
 	logic cjb;					// call, jmp, or bra
+	logic brk;
+	logic irq;
+	logic rti;
+	logic flt;
 } sDecodeBus;
 
 typedef struct packed
@@ -389,6 +409,8 @@ typedef struct packed
 	sDecodeBus	dec;
 	logic [3:0] count;
 	logic [3:0] step;
+	CauseCode cause;
+	Address badAddr;
 	VecValue a;
 	VecValue b;
 	VecValue c;

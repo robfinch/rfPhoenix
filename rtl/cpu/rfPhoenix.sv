@@ -82,6 +82,7 @@ sReorderEntry robq [0:NTHREADS-1];
 // The following var indicates that r0 has been written for the thread.
 // Only one write of r0 is allowed, to set the value to zero.
 reg [NTHREADS-1:0] rz;
+reg [NTHREADS-1:0] gie;
 reg [3:0] exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 reg exndx_v,oundx_v,wbndx_v;
 reg [3:0] rfndx;
@@ -137,6 +138,12 @@ wire [1:0] omode;
 wire UserMode = omode==2'b00;
 wire MUserMode = omode==2'b00;
 wire takb;
+reg [2:0] sp_sel [0:NTHREADS-1];
+reg [2:0] istk_depth [0:NTHREADS-1];
+reg [2:0] ir_sp_sel;
+Instruction [NTHREADS-1:0] exc_bucket;
+CodeAddress [NTHREADS-1:0] exc_ip;
+CauseCode icause,dcause;
 
 // CSRs
 reg [31:0] cr0;
@@ -159,6 +166,7 @@ wire pipe_advance = rfndx_v;
 integer n;
 initial begin
 	rz = 'd0;
+	gie = 'd0;
 	ip = RSTIP;
 	iip = RSTIP;
 	ir = NOP;//_INSN;
@@ -249,6 +257,7 @@ rfPhoenixBiu ubiu
 rfPhoenix_decoder udec1
 (
 	.ir(ir),
+	.sp_sel(ir_sp_sel),
 	.pfx(irpfx),
 	.deco(deco)
 );
@@ -352,6 +361,7 @@ task tReset;
 integer n;
 begin
 	rz <= 'd0;
+	gie <= 'd0;
 	ip <= RSTIP;
 	iip <= RSTIP;
 	ir <= NOP;//_INSN;
@@ -365,8 +375,13 @@ begin
 	mcb <= 'd0;
 	mcc <= 'd0;
 	mcimm <= 'd0;
-	for (n = 0; n < NTHREADS; n = n + 1)
+	for (n = 0; n < NTHREADS; n = n + 1) begin
 		ips[n] <= RSTIP;
+		cause[n][0] <= 'd0;
+		cause[n][1] <= 'd0;
+		cause[n][2] <= 'd0;
+		cause[n][3] <= 'd0;
+	end
 	ithread <= 'd0;
 	ip_thread <= 'd0;
 	mca_busy <= 'd0;
@@ -392,6 +407,23 @@ begin
 end
 endtask
 
+task tSpSel;
+input [5:0] i;
+output [5:0] o;
+begin
+	if (i==6'd31)
+		case(sp_sel[ip_thread3])
+		3'd1:	o <= 6'd44;
+		3'd2:	o <= 6'd45;
+		3'd3:	o <= 6'd46;
+		3'd4:	o <= 6'd47;
+		default:	o <= 6'd31;
+		endcase
+	else
+		o <= i;
+end
+endtask
+
 task tInsnFetch;
 begin
 	if (pipe_advance) begin
@@ -405,19 +437,32 @@ begin
 		ip_thread2 <= ip_thread;
 		ip_thread3 <= ip_thread2;
 		ithread <= ithread + 2'd1;
+		icause <= 'd0;
 		if (ihit && !thread_busy[ip_thread3]) begin
-			ips[ip_thread3] <= ips[ip_thread3] + (pfx.opcode==PFX ? 4'd8 : 4'd5);
-			ir <= insn;
+			if (exc_bucket[ip_thread3].any.opcode!=6'd0) begin
+				ir <= exc_bucket[ip_thread3];
+				iip <= exc_ip[ip_thread3];
+			end
+			else if (irq_i > pmStack[ip_thread3][3:1] && gie[ip_thread3]) begin
+				icause <= {1'b1,irq_i,FLT_BRK};
+				ir <= insn;
+				iip <= ip3;
+			end
+			else begin
+				ips[ip_thread3] <= ips[ip_thread3] + (pfx.opcode==PFX ? 4'd8 : 4'd5);
+				ir <= insn;
+				iip <= ip3;
+			end
 			irpfx <= pfx;
-			iip <= ip3;
+			ir_sp_sel <= sp_sel[ip_thread3];
 			rthread <= ip_thread3;
 			rthread_v <= 1'b1;
 			thread_busy[ip_thread3] <= 1'b1;
-			ra0 <= insn.r2.Ra;
-			ra1 <= insn.r2.Rb;
-			ra2 <= insn.f3.Rc;
+			tSpSel(insn.r2.Ra,ra0);
+			tSpSel(insn.r2.Rb,ra1);
+			tSpSel(insn.f3.Rc,ra2);
 			ra3 <= insn.r2.mask;
-			ra4 <= insn.r2.Rt;
+			tSpSel(insn.r2.Rt,ra4);
 		end
 		else begin
 			rthread_v <= 1'b0;
@@ -440,6 +485,7 @@ begin
 	if (pipe_advance) begin
 		dip <= iip;
 		dir <= ir;
+		dcause <= icause;
 		dthread <= rthread;
 		dthread_v <= rthread_v;
 		ddec <= deco;
@@ -456,6 +502,7 @@ begin
 	if (pipe_advance) begin
 		if (rfndx < NTHREADS) begin
 			rob[rfndx].v <= 1'b1;
+			rob[rfndx].cause <= dcause;
 			rob[rfndx].ip <= dip;
 			rob[rfndx].ir <= dir;
 			rob[rfndx].thread <= dthread;
@@ -573,6 +620,18 @@ begin
 			xrid <= exndx;
 			xir <= rob[exndx].ir;
 			xa <= rob[exndx].a;
+			if (rob[exndx].dec.brk) begin
+				xa[0] <= rob[exndx].ip + 4'd5;
+				ips[exndx] <= tvec[exndx][3];
+			end
+			else if (rob[exndx].dec.irq) begin
+				xa[0] <= rob[exndx].ip;
+				ips[exndx] <= tvec[exndx][3];
+			end
+			else if (rob[exndx].dec.flt) begin
+				xa[0] <= rob[exndx].ip;
+				ips[exndx] <= tvec[exndx][3];
+			end
 			xb <= rob[exndx].b;
 			xc <= rob[exndx].c;
 			xt <= rob[exndx].t;
@@ -769,25 +828,87 @@ begin
 end
 endtask
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// RTI instruction
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+// RTI processing at the EX stage.
+task tExRti;
+begin
+	if (reb[exndx].dec.rti) begin
+		ips[exndx] <= reb[exndx].ia[0];
+ 		$display("  EXEC: %h RTI to %h", reb[exndx].ip, reb[exndx].ia[0]);
+	end
+end
+endtask
+
+// RTI processing at the WB stage.
+task tWbRti;
+begin
+	if (|istk_depth[wbndx]) begin
+		pmStack[wbndx] <= {8'hCE,pmStack[wbndx][63:8]};	// restore operating mode, irq level
+		plStack[wbndx] <= {8'hFF,plStack[wbndx][63:8]};	// restore privilege level
+		istk_depth[wbndx] <= istk_depth[wbndx] - 2'd1;
+		case(pmStack[wbndx][15:14])
+		2'd0:	sp_sel[wbndx] <= 3'd0;
+		2'd1:	sp_sel[wbndx] <= 3'd1;
+		2'd2:	sp_sel[wbndx] <= 3'd2;
+		2'd3:	sp_sel[wbndx] <= 3'd3;
+		endcase
+	end
+end
+endtask
+
+task tWbException;
+begin
+	if (istk_depth[wbndx] < 3'd7) begin
+		pmStack[wbndx] <= pmStack[wbndx] << 8;
+		pmStack[wbndx][7:6] <= 2'b11;		// select machine operating mode
+		pmStack[wbndx][3:1] <= cause[wbndx][omode][10:8];
+		pmStack[wbndx][0] <= 1'b0;			// disable all irqs
+		plStack[wbndx] <= plStack[wbndx] << 8;
+		plStack[wbndx][7:0] <= 8'hFF;		// select max priv level
+		istk_depth[wbndx] <= istk_depth[wbndx] + 2'd1;
+	end
+end
+endtask
+
 task tWriteback;
 begin
 	if (wbndx_v) begin
 		thread_busy[wbndx] <= 1'b0;
-		commit_thread <= wbndx;
-		commit_mask <= rob[wbndx].ir.r2.m ? rob[wbndx].mask : 16'hFFFF;
-		commit_wr <= rob[wbndx].dec.rfwr;
-		commit_wrv <= rob[wbndx].dec.vrfwr;
-		commit_tgt <= rob[wbndx].dec.Rt;
-		commit_bus <= rob[wbndx].res;
-		if (rob[wbndx].dec.csrrw)
-			tWriteCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
-		else if (rob[wbndx].dec.csrrc)
-			tClrbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
-		else if (rob[wbndx].dec.csrrs)
-			tSetbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
-		else			
-		if (rob[wbndx].dec.Rt=='d0 && rob[wbndx].dec.rfwr)
-			rz[wbndx] <= 1'b1;
+		if (|rob[wbndx].cause) begin
+			// VSLLVI
+			exc_bucket[wbndx] <= {1'b0,2'b00,1'b0,6'd32,1'b0,6'd1,3'd0,1'b1,6'd63,1'b1,6'd63,R2};
+			if (rob[wbndx].cause & 12'h0FF == FLT_BRK)
+				exc_bucket[wbndx].r2.pad <= 3'b010;
+			else if (rob[wbndx].cause & 12'h0FF == FLT_IRQ)
+				exc_bucket[wbndx].r2.pad <= 3'b100;
+			exc_ip[wbndx] <= rob[wbndx].ip;
+			cause[wbndx][omode] <= rob[wbndx].cause;
+			badaddr[wbndx][omode] <= rob[wbndx].badAddr;
+			rob[wbndx].cause <= 'd0;
+		end
+		else begin
+			exc_bucket[wbndx] <= 'd0;
+			commit_thread <= wbndx;
+			commit_mask <= rob[wbndx].ir.r2.m ? rob[wbndx].mask : 16'hFFFF;
+			commit_wr <= rob[wbndx].dec.rfwr;
+			commit_wrv <= rob[wbndx].dec.vrfwr;
+			commit_tgt <= rob[wbndx].dec.Rt;
+			commit_bus <= rob[wbndx].res;
+			case(1'b1)
+			rob[wbndx].dec.brk:	tWbException();	// BRK instruction
+			rob[wbndx].dec.irq: tWbException();	// hardware irq
+			rob[wbndx].dec.flt: tWbException();	// processing fault (divide by zero, tlb miss, ...)
+			rob[wbndx].dec.rti:	tWbRti();
+			rob[wbndx].dec.csrrw:	tWriteCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+			rob[wbndx].dec.csrrc:	tClrbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+			rob[wbndx].dec.csrrs:	tSetbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+			endcase
+			if (rob[wbndx].dec.Rt=='d0 && rob[wbndx].dec.rfwr)
+				rz[wbndx] <= 1'b1;
+		end
 		rob[wbndx] <= 'd0;
 	end
 end
