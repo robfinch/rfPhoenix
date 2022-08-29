@@ -77,6 +77,7 @@ output CauseCode wcause;
 
 wire clk_g = clk_i;
 sReorderEntry rob [0:NTHREADS-1];
+sReorderEntry robq [0:NTHREADS-1];
 
 // The following var indicates that r0 has been written for the thread.
 // Only one write of r0 is allowed, to set the value to zero.
@@ -103,8 +104,10 @@ sDecodeBus ddec,deco;
 Regspec ra0,ra1,ra2,ra3,ra4;
 Value rfo0, rfo1, rfo2, rfo3, rfo4;
 Value ximm,mcimm;
+ASID xasid;
 VecValue vrfo0, vrfo1, vrfo2, vrfo3, vrfo4;
 VecValue xa,xb,xc,xt,xm;
+reg xtt;
 VecValue mca,mcb,mcc,mct,mcm;
 VecValue mca1,mcb1,mcc1,mct1,mcm1;
 VecValue mca2,mcb2,mcc2,mct2,mcm2;
@@ -123,17 +126,32 @@ wire memresp_fifo_empty;
 wire memresp_fifo_v;
 wire [639:0] ic_line;
 wire ic_valid;
-reg [31:0] ptbr;
+//reg [31:0] ptbr;
 wire ipage_fault;
 reg clr_ipage_fault;
 wire itlbmiss;
 reg clr_itlbmiss;
 wire dce;
-reg [9:0] asid;
+//reg [9:0] asid;
 wire [1:0] omode;
 wire UserMode = omode==2'b00;
 wire MUserMode = omode==2'b00;
 wire takb;
+
+// CSRs
+reg [31:0] cr0;
+reg [31:0] ptbr [0:NTHREADS-1];
+reg [9:0] asid [0:NTHREADS-1];
+Address badaddr [0:NTHREADS-1][0:3];
+CauseCode cause [0:NTHREADS-1][0:3];
+Address tvec [0:NTHREADS-1][0:3];
+reg [63:0] plStack [0:NTHREADS-1];
+reg [63:0] pmStack [0:NTHREADS-1];
+reg [31:0] status;
+reg [31:0] tick;
+reg [63:0] wc_time;
+reg [31:0] wc_time_dat;
+reg ld_time, clr_wc_time_irq;
 
 wire pipe_advance = rfndx_v;
 
@@ -186,7 +204,6 @@ rfPhoenixBiu ubiu
 	.UserMode(UserMode),
 	.MUserMode(MUserMode),
 	.omode(omode),
-	.ASID(asid),
 	.bounds_chk(),
 	.pe(pe),
 	.ip(ip),
@@ -220,7 +237,7 @@ rfPhoenixBiu ubiu
 	.dce(dce),
 	.keys(),//keys),
 	.arange(),
-	.ptbr(ptbr),
+	.ptbr(ptbr[0]),
 	.ipage_fault(ipage_fault),
 	.clr_ipage_fault(clr_ipage_fault),
 	.itlbmiss(itlbmiss),
@@ -343,6 +360,8 @@ rfPhoenixVecAlu uvalu1 (
 	.b(xb),
 	.c(xc),
 	.imm(ximm),
+	.Tt(xtt),
+	.asid(xasid),
 	.o(vres)
 );
 
@@ -427,8 +446,8 @@ begin
 	thread_busy <= 'd0;
 	for (n = 0; n < REB_ENTRIES; n = n + 1)
 		rob[n] <= 'd0;
-	rthread_v <= 'd0;
-	dthread_v <= 'd0;
+	rthread_v <= 'd1;
+	dthread_v <= 'd1;
 	ra0 <= 'd0;
 	ra1 <= 'd0;
 	ra2 <= 'd0;
@@ -459,7 +478,7 @@ begin
 		ip_thread2 <= ip_thread;
 		ip_thread3 <= ip_thread2;
 		ithread <= ithread + 2'd1;
-		if (ihit & ~thread_busy[ip_thread3]) begin
+		if (ihit && !thread_busy[ip_thread3]) begin
 			ips[ip_thread3] <= ips[ip_thread3] + (pfx.opcode==PFX ? 4'd8 : 4'd5);
 			ir <= insn;
 			irpfx <= pfx;
@@ -504,7 +523,7 @@ endtask
 task tRegfetch;
 begin
 	if (pipe_advance) begin
-		if (dthread_v) begin
+		if (rfndx < NTHREADS) begin
 			rob[rfndx].v <= 1'b1;
 			rob[rfndx].ip <= dip;
 			rob[rfndx].ir <= dir;
@@ -513,7 +532,10 @@ begin
 			rob[rfndx].b <= ddec.Tb ? vrfo1 : {NLANES{rfo1}};
 			rob[rfndx].c <= ddec.Tc ? vrfo2 : {NLANES{rfo2}};
 			rob[rfndx].mask <= rfo3;
-			rob[rfndx].t <= ddec.Tt ? vrfo4 : {NLANES{rfo4}};
+			if (ddec.csrrd|ddec.csrrw|ddec.csrrc|ddec.csrrs)
+				tReadCSR(rob[rfndx].t[0],rfndx,rob[rfndx].dec.imm[13:0]);
+			else
+				rob[rfndx].t <= ddec.Tt ? vrfo4 : {NLANES{rfo4}};
 			rob[rfndx].dec <= ddec;
 			rob[rfndx].decoded <= 1'b1;
 		end
@@ -623,13 +645,16 @@ begin
 			xb <= rob[exndx].b;
 			xc <= rob[exndx].c;
 			xt <= rob[exndx].t;
+			xtt <= rob[exndx].dec.Tt;
 			xm <= rob[exndx].ir.r2.m ? rob[exndx].mask : 16'hFFFF;
 			ximm <= rob[exndx].dec.imm;
+			xasid <= asid[exndx];
 			if (rob[exndx].dec.load) begin
 				if (!memreq_full && ihit) begin
 					memreq.wr <= 1'b1;
 					memreq.func <= rob[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
 					memreq.sz <= rob[exndx].dec.memsz;
+					memreq.asid = asid[exndx];
 					if (rob[exndx].dec.memsz==vect) begin
 						if (rob[exndx].dec.loadr)
 							memreq.adr <= rob[exndx].a[0] + rob[exndx].dec.imm;
@@ -648,6 +673,7 @@ begin
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_STORE;
 					memreq.sz <= rob[exndx].dec.memsz;
+					memreq.asid = asid[exndx];
 					memreq.dat <= rob[exndx].t;
 					if (rob[exndx].dec.memsz==vect) begin
 						if (rob[exndx].dec.storen)
@@ -821,9 +847,112 @@ begin
 		commit_wrv <= rob[wbndx].dec.vrfwr;
 		commit_tgt <= rob[wbndx].dec.Rt;
 		commit_bus <= rob[wbndx].res;
+		if (rob[wbndx].dec.csrrw)
+			tWriteCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+		else if (rob[wbndx].dec.csrrc)
+			tClrbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+		else if (rob[wbndx].dec.csrrs)
+			tSetbitCSR(rob[wbndx].a,wbndx,rob[wbndx].dec.imm[13:0]);
+		else			
 		if (rob[wbndx].dec.Rt=='d0 && rob[wbndx].dec.rfwr)
 			rz[wbndx] <= 1'b1;
 		rob[wbndx] <= 'd0;
+	end
+end
+endtask
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// CSR Read / Update tasks
+//
+// Important to use the correct assignment type for the following, otherwise
+// The read won't happen until the clock cycle.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+task tReadCSR;
+output Value res;
+input [3:0] thread;
+input [13:0] regno;
+begin
+	if (regno[13:12] <= omode) begin
+		casez(regno[11:0])
+		CSR_MHARTID: res = {hartid_i[31:4],thread};
+//		CSR_MCR0:	res = cr0|(dce << 5'd30);
+		CSR_PTBR:	res = ptbr[thread];
+//		CSR_HMASK:	res = hmask;
+//		CSR_KEYS:	res = keys2[regno[0]];
+//		CSR_FSTAT:	res = fpscr;
+		CSR_ASID:	res = asid[thread];
+		CSR_MBADADDR:	res = badaddr[thread][regno[13:12]];
+		CSR_TICK:	res = tick;
+		CSR_CAUSE:	res = cause[thread][regno[13:12]];
+		CSR_MTVEC:	res = tvec[thread][regno[1:0]];
+		CSR_MPLSTACK:	res = plStack[thread];
+		CSR_MPMSTACK:	res = pmStack[thread];
+		CSR_TIME:	res = wc_time[31:0];
+		CSR_MSTATUS:	res = status[3];
+		default:	res = 'd0;
+		endcase
+	end
+	else
+		res = 'd0;
+end
+endtask
+
+task tWriteCSR;
+input Value val;
+input [3:0] thread;
+input [13:0] regno;
+begin
+	if (regno[13:12] <= omode) begin
+		casez(regno[11:0])
+		CSR_MCR0:		cr0 <= val;
+		CSR_PTBR:		ptbr[thread] <= val;
+//		CSR_HMASK:	hmask <= val;
+//		CSR_SEMA:		sema <= val;
+//		CSR_KEYS:		keys2[regno[0]] <= val;
+//		CSR_FSTAT:	fpscr <= val;
+		CSR_ASID: 	asid[thread] <= val;
+		CSR_MBADADDR:	badaddr[thread][regno[13:12]] <= val;
+		CSR_CAUSE:	cause[thread][regno[13:12]] <= val[11:0];
+		CSR_MTVEC:	tvec[thread][regno[1:0]] <= val;
+		CSR_MPLSTACK:	plStack[thread] <= val;
+		CSR_MPMSTACK:	pmStack[thread] <= val;
+		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= 1'b1; end
+		CSR_MSTATUS:	status[3] <= val;
+		default:	;
+		endcase
+	end
+end
+endtask
+
+task tSetbitCSR;
+input Value val;
+input [3:0] thread;
+input [13:0] regno;
+begin
+	if (regno[13:12] <= omode) begin
+		casez(regno[11:0])
+		CSR_MCR0:			cr0[val[5:0]] <= 1'b1;
+		CSR_MPMSTACK:	pmStack[thread] <= pmStack[thread] | val;
+		CSR_MSTATUS:	status[3] <= status[3] | val;
+		default:	;
+		endcase
+	end
+end
+endtask
+
+task tClrbitCSR;
+input Value val;
+input [3:0] thread;
+input [13:0] regno;
+begin
+	if (regno[13:12] <= omode) begin
+		casez(regno[11:0])
+		CSR_MCR0:			cr0[val[5:0]] <= 1'b0;
+		CSR_MPMSTACK:	pmStack[thread] <= pmStack[thread] & ~val;
+		CSR_MSTATUS:	status[3] <= status[3] & ~val;
+		default:	;
+		endcase
 	end
 end
 endtask

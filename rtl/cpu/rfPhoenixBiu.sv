@@ -39,7 +39,7 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenixBiu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,ASID,bounds_chk,pe,
+module rfPhoenixBiu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
 	ip,ihit,ifStall,ic_line,ic_valid, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
@@ -53,7 +53,6 @@ input clock;							// clock for clock algorithm
 input UserMode;
 input MUserMode;
 input [1:0] omode;
-input [9:0] ASID;
 input bounds_chk;
 input pe;									// protected mode enable
 input Address ip;
@@ -286,6 +285,23 @@ rfPhoenix_mem_req_queue umreqq
 );
 
 wire memresp_full;
+wire [5:0] fifoFromCtrl_cnt;
+assign fifoFromCtrl_empty = fifoFromCtrl_cnt=='d0;
+
+rfPhoenix_fifo #(.WID($bits(sMemoryResponse))) uofifo1
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(memresp.wr),
+	.di(memresp),
+	.rd(fifoFromCtrl_rd),
+	.dout(fifoFromCtrl_o),
+	.cnt(fifoFromCtrl_cnt),
+	.full(memresp_full),
+	.v(fifoFromCtrl_v)
+);
+
+/*
 MemoryResponseFifo uofifo1
 (
   .clk(clk),      // input wire clk
@@ -298,10 +314,26 @@ MemoryResponseFifo uofifo1
   .empty(fifoFromCtrl_empty),  // output wire empty
   .valid(fifoFromCtrl_v)  // output wire valid
 );
-
+*/
 
 reg rd_memq;
+wire [5:0] memq_cnt;
 sMemoryResponse memq_o, memr;
+
+rfPhoenix_fifo #(.WID($bits(sMemoryResponse))) uofifo2
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(mem_resp[DATA_ALN].wr),
+	.di(mem_resp[DATA_ALN]),
+	.rd(rd_memq),
+	.dout(memq_o),
+	.cnt(memq_cnt),
+	.full(),
+	.v(memq_v)
+);
+
+/*
 MemoryResponseFifo uofifo2
 (
   .clk(clk),      // input wire clk
@@ -314,19 +346,6 @@ MemoryResponseFifo uofifo2
   .empty(),  // output wire empty
   .valid(memq_v)  // output wire valid
 );
-/*
-bc_fifo16X #(.WID($bits(MemoryResponse))) uififo2
-(
-	.clk(clk),
-	.reset(rst),
-	.wr(memresp.fifo_wr),
-	.rd(fifoFromCtrl_rd),
-	.di(memresp),
-	.dout(fifoFromCtrl_o),
-	.ctr(ofifo_cnt)
-);
-
-assign fifoFromCtrl_empty = ofifo_cnt==4'd0;
 */
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -479,10 +498,10 @@ wire [3:0] tlbacr;
 
 reg [2:0] dwait;		// wait state counter for dcache
 Address dadr;
-reg [255:0] dci;		// 512 + 120 bit overflow area
-wire [255:0] dc_eline, dc_oline;
-reg [511:0] dc_line;
-reg [511:0] datil;
+reg [511:0] dci;		// 512 + 120 bit overflow area
+wire [511:0] dc_eline, dc_oline;
+reg [1023:0] dc_line;
+reg [1023:0] datil;
 reg dcachable;
 reg [1:0] dc_erway,prev_dc_erway;
 reg [1:0] dc_orway,prev_dc_orway;
@@ -495,11 +514,11 @@ dcache_blkmem udcb1e (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(dcache_ewr),      // input wire [0 : 0] wea
-  .addra({dc_ewway,dadr[12:6]+adr_o[5]}),  // input wire [8 : 0] addra
+  .addra({dc_ewway,dadr[13:7]+adr_o[6]}),  // input wire [8 : 0] addra
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_erway,adr_o[12:6]+adr_o[5]}),  // input wire [8 : 0] addrb
+  .addrb({dc_erway,adr_o[13:7]+adr_o[6]}),  // input wire [8 : 0] addrb
   .doutb(dc_eline)  // output wire [511 : 0] doutb
 );
 
@@ -507,16 +526,16 @@ dcache_blkmem udcb1o (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(dcache_owr),      // input wire [0 : 0] wea
-  .addra({dc_owway,dadr[12:6]}),  // input wire [8 : 0] addra
+  .addra({dc_owway,dadr[13:7]}),  // input wire [8 : 0] addra
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_orway,adr_o[12:6]}),  // input wire [8 : 0] addrb
+  .addrb({dc_orway,adr_o[13:7]}),  // input wire [8 : 0] addrb
   .doutb(dc_oline)  // output wire [511 : 0] doutb
 );
 
 always_comb
-	case(adr_o[5])
+	case(adr_o[6])
 	1'b0:	dc_line = {dc_oline,dc_eline};
 	1'b1:	dc_line = {dc_eline,dc_oline};
 	endcase
@@ -534,7 +553,7 @@ rfPhoenix_dchit udchite
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_etag),
-	.ndx(adr_o[12:6]+adr_o[5]),
+	.ndx(adr_o[13:7]+adr_o[6]),
 	.adr(adr_o),
 	.valid(dc_evalid),
 	.hits(dhit1e),
@@ -547,7 +566,7 @@ rfPhoenix_dchit udchito
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_otag),
-	.ndx(adr_o[12:6]),
+	.ndx(adr_o[13:7]),
 	.adr(adr_o),
 	.valid(dc_ovalid),
 	.hits(dhit1o),
@@ -557,7 +576,7 @@ rfPhoenix_dchit udchito
 
 reg dhit;
 always_comb
-	dhit = (dhite & dhito) || (adr_o[5] ? (dhito && adr_o[4:0] < 5'd29) : (dhite && adr_o[4:0] < 5'd29));
+	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && adr_o[5:0] < 6'd61) : (dhite && adr_o[5:0] < 6'd61));
 
 rfPhoenix_dctag
 #(
@@ -568,11 +587,11 @@ rfPhoenix_dctag
 udcotag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && dadr[5]),
+	.wr(state==DFETCH7 && dadr[6]),
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(adr_o[12:6]),
+	.ndx(adr_o[13:7]),
 	.tag(dc_otag)
 );
 
@@ -585,11 +604,11 @@ rfPhoenix_dctag
 udcetag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && ~dadr[5]),
+	.wr(state==DFETCH7 && ~dadr[6]),
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(adr_o[12:6]+adr_o[5]),
+	.ndx(adr_o[13:7]+adr_o[6]),
 	.tag(dc_etag)
 );
 
@@ -603,10 +622,10 @@ udcovalid
 (
 	.rst(rst),
 	.clk(clk),
-	.invce(state==MEMORY4 && adr_o[5]),
+	.invce(state==MEMORY4 && adr_o[6]),
 	.dadr(dadr),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && dadr[5]),
+	.wr(state==DFETCH7 && dadr[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -623,10 +642,10 @@ udcevalid
 (
 	.rst(rst),
 	.clk(clk),
-	.invce(state==MEMORY4 && ~adr_o[5]),
+	.invce(state==MEMORY4 && ~adr_o[6]),
 	.dadr(dadr),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && ~dadr[5]),
+	.wr(state==DFETCH7 && ~dadr[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -643,8 +662,8 @@ rfPhoenix_dcache_wr udcwre
 	.hit(|memr.sz),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
-	.eaeo(~memr.badAddr[5]),
-	.daeo(~adr_o[5]),
+	.eaeo(~memr.badAddr[6]),
+	.daeo(~adr_o[6]),
 	.wr(dcache_ewr)
 );
 
@@ -658,8 +677,8 @@ rfPhoenix_dcache_wr udcwro
 	.hit(|memr.sz),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
-	.eaeo(memr.badAddr[5]),
-	.daeo(adr_o[5]),
+	.eaeo(memr.badAddr[6]),
+	.daeo(adr_o[6]),
 	.wr(dcache_owr)
 );
 
@@ -674,8 +693,8 @@ rfPhoenix_dcache_way udcwaye
 	.hit(dhit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(tlbacr),
-	.eaeo(~memr.badAddr[5]),
-	.daeo(~adr_o[5]),
+	.eaeo(~memr.badAddr[6]),
+	.daeo(~adr_o[6]),
 	.lfsr(lfsr_o[1:0]),
 	.rway(dc_erway),
 	.wway(dc_ewway)
@@ -692,8 +711,8 @@ rfPhoenix_dcache_way udcwayo
 	.hit(dhit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(tlbacr),
-	.eaeo(memr.badAddr[5]),
-	.daeo(adr_o[5]),
+	.eaeo(memr.badAddr[6]),
+	.daeo(adr_o[6]),
 	.lfsr(lfsr_o[1:0]),
 	.rway(dc_orway),
 	.wway(dc_owway)
@@ -743,7 +762,7 @@ rfPhoenix_tlb utlb (
   .al_i(ptbr[7:6]),
   .clock(clock),
   .rdy_o(tlbrdy),
-  .asid_i(ASID),
+  .asid_i(mem_resp[1].asid),
   .sys_mode_i(vpa_o ? ~UserMode : ~MUserMode),
   .xlaten_i(xlaten),
   .we_i(we_o),
@@ -1126,7 +1145,7 @@ if (rst) begin
 	iadr <= RSTIP;
 	dadr <= RSTIP;	// prevents MR_TLB miss at startup
 	tDeactivateBus();
-	dat <= 256'd0;
+	dat <= 'd0;
 	sr_o <= LOW;
 	cr_o <= LOW;
 	waycnt <= 2'd0;
@@ -1134,8 +1153,8 @@ if (rst) begin
 	dwait <= 3'd0;
 	iaccess <= FALSE;
 	daccess <= FALSE;
-	ici <= 512'd0;
-	dci <= 512'd0;
+	ici <= 'd0;
+	dci <= 'd0;
 	memreq_rd <= FALSE;
 	memresp <= 620'd0;
   xlaten <= FALSE;
@@ -1459,8 +1478,8 @@ else begin
 	  	stb_o <= HIGH;
 	    if (ack_i) begin
 	    	dcnt <= dcnt + 4'd4;
-	      dci <= {dat_i,dci[255:128]};
-	      if (dcnt[4:2]==3'd1) begin		// Are we done?
+	      dci <= {dat_i,dci[511:128]};
+	      if (dcnt[4:2]==3'd3) begin		// Are we done?
 	      	tDeactivateBus();
 	      	goto (DFETCH7);
 	    	end
@@ -2159,6 +2178,7 @@ begin
 			mem_resp[0].func <= memreq.func;
 			mem_resp[0].func2 <= memreq.func2;
 			mem_resp[0].step <= memreq.step;
+			mem_resp[0].asid <= memreq.asid;
 			mem_resp[0].badAddr <= memreq.adr;
 			mem_resp[0].res <= memreq.dat;
 			mem_resp[0].sz <= memreq.sz;
@@ -2297,14 +2317,14 @@ begin
 		begin
 			case(mem_resp[CACHE2].sz)
 			byt:	;	// Cant be unaligned
-			wyde:	if (mem_resp[CACHE2].badAddr[4:0] > 5'd30)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
-			tetra:if (mem_resp[CACHE2].badAddr[4:0] > 5'd28)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
-			default:	if (mem_resp[CACHE2].badAddr[4:0] > 5'd28)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
+			wyde:	if (mem_resp[CACHE2].badAddr[5:0] > 6'd62)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
+			tetra:if (mem_resp[CACHE2].badAddr[5:0] > 6'd60)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
+			default:	if (mem_resp[CACHE2].badAddr[5:0] > 6'd60)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
 			endcase
-			if (mem_resp[CACHE2].badAddr[5])
-  			mem_resp[CACHE3].res <= (dc_oline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[4],7'b0}) & stmask);
+			if (mem_resp[CACHE2].badAddr[6])
+  			mem_resp[CACHE3].res <= (dc_oline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[5:4],7'b0}) & stmask);
 			else
-  			mem_resp[CACHE3].res <= (dc_eline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[4],7'b0}) & stmask);
+  			mem_resp[CACHE3].res <= (dc_eline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[5:4],7'b0}) & stmask);
 		end
 	default:	;
 	endcase
@@ -2567,7 +2587,7 @@ task tMemoryActivateHi;
 begin
 `ifndef SUPPORT_HASHPT
   dwait <= 3'd0;
-  memr.badAddr[5] <= ~memr.badAddr[5];
+  memr.badAddr[6] <= ~memr.badAddr[6];
 //    dadr <= adr_o;
   goto (MEMORY_ACKHI);
   begin
@@ -2610,10 +2630,10 @@ begin
 	case(memr.func)
 	MR_STORE,MR_MOVST:
 	  if (ack_i || !stb_o) begin
-			if (memr.badAddr[5])
-				dci <= memr.res[511:256];
+			if (memr.badAddr[6])
+				dci <= memr.res[1023:512];
 			else
-				dci <= memr.res[255:0];
+				dci <= memr.res[511:0];
 		end
 	default:	;
 	endcase

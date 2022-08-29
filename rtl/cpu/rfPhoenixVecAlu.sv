@@ -36,12 +36,14 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixVecAlu(ir, a, b, c, imm, o);
+module rfPhoenixVecAlu(ir, a, b, c, Tt, imm, asid, o);
 input Instruction ir;
 input VecValue a;
 input VecValue b;
 input VecValue c;
+input Tt;
 input Value imm;
+input ASID asid;
 output VecValue o;
 
 VecValue o1;
@@ -61,10 +63,28 @@ generate begin
 end
 endgenerate
 
+reg [31:0] ptendx;
+integer n2;
+always_comb begin
+	ptendx = 32'hFFFFFFFF;
+	for (n2 = 0; n2 < 8; n2 = n2 + 1)
+		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[21]))
+			ptendx = n2;
+end
+
 always_comb
 	case(ir.any.opcode)
 	R2:
 		case (ir.r2.func)
+		FCMP_EQ,FCMP_NE,FCMP_LT,FCMP_GE,FCMP_LE,FCMP_GT,
+		CMP_EQ,CMP_NE,CMP_LT,CMP_GE,CMP_LE,CMP_GT,
+		CMP_LTU,CMP_GEU,CMP_LEU,CMP_GTU:
+			if (Tt)
+				o = o1;
+			else begin
+				for (n = 0; n < NLANES; n = n + 1)
+					o[0][n] = o1[n];
+			end
 		VEX:	o = {NLANES{a[imm[3:0]]}};
 //		VEINS:
 		VSHUF:
@@ -74,8 +94,18 @@ always_comb
 		VSRLV:		o = a >> {b[0][3:0],5'd0};
 		VSLLVI:		o = a << {imm[3:0],5'd0};
 		VSRLVI:		o = a >> {imm[3:0],5'd0};
+		SHPTENDX:	o = {NLANES{ptendx}};
 		default:	o = o1;
 		endcase
+	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI,
+	CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+		if (Tt)
+			o = o1;
+		else begin
+			for (n = 0; n < NLANES; n = n + 1)
+				o[0][n] = o1[n];
+		end
 	default:	o = o1;
 	endcase
 

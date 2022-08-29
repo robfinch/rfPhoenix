@@ -78,6 +78,7 @@
 //            bits 8 to 11 = irq level to issue
 //            bit 16 = irq enable
 //            bit 17 = edge sensitivity
+//						bit 20 to 23 = target thread map
 //=============================================================================
 
 module rfPhoenix_pic
@@ -97,6 +98,7 @@ module rfPhoenix_pic
 		i16, i17, i18, i19, i20, i21, i22, i23,
 		i24, i25, i26, i27, i28, i29, i30, i31,
 	output reg [3:0] irqo,	// normally connected to the processor irq
+	output reg [3:0] threado,
 	input nmii,		// nmi input connected to nmi requester
 	output reg nmio,	// normally connected to the nmi of cpu
 	output reg [7:0] causeo
@@ -116,6 +118,7 @@ reg [31:0] rste;
 reg [31:0] es;
 reg [3:0] irq [0:31];
 reg [7:0] cause [0:31];
+reg [3:0] thread [0:31];
 integer n;
 
 initial begin
@@ -166,6 +169,7 @@ always @(posedge clk)
 			         irq[adr_i[6:2]] <= dat_i[11:8];
 			         ie[adr_i[6:2]] <= dat_i[16];
 			         es[adr_i[6:2]] <= dat_i[17];
+			         thread[adr_i[6:2]] <= dat_i[23:20];
 			     end
 			endcase
 		end
@@ -179,7 +183,7 @@ begin
 	if (cs)
 		casez (adr_i[7:2])
 		6'd0:	dat_o <= cause[irqenc];
-		6'b1?????: dat_o <= {es[adr_i[6:2]],ie[adr_i[6:2]],4'b0,irq[adr_i[6:2]],cause[adr_i[6:2]]};
+		6'b1?????: dat_o <= {thread[adr_i[6:2]],2'b00,es[adr_i[6:2]],ie[adr_i[6:2]],4'b0,irq[adr_i[6:2]],cause[adr_i[6:2]]};
 		default:	dat_o <= ie;
 		endcase
 	else
@@ -190,6 +194,8 @@ always @(posedge clk)
   irqo <= (irqenc == 5'h0) ? 4'd0 : irq[irqenc] & {4{ie[irqenc]}};
 always @(posedge clk)
   causeo <= (irqenc == 5'h0) ? 8'd0 : cause[irqenc];
+always @(posedge clk)
+	threado <= (irqenc == 5'h0) ? 4'd0 : thread[irqenc] & {4{ie[irqenc]}};
 always @(posedge clk)
   nmio <= nmii & ie[0];
 

@@ -6,7 +6,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	Thor2022_fifo.sv
+//	rfPhoenix_fifo.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,7 @@
 //                                                                          
 // ============================================================================
 //
-module Thor2022_fifo(rst, clk, wr, di, rd, dout, cnt, full);
+module rfPhoenix_fifo(rst, clk, wr, di, rd, dout, cnt, full, v);
 parameter WID=3;
 input rst;
 input clk;
@@ -44,19 +44,20 @@ input wr;
 input [WID-1:0] di;
 input rd;
 output reg [WID-1:0] dout;
-output reg [3:0] cnt;
+output reg [5:0] cnt;
 output reg full;
+output reg v;
 
-reg [3:0] wr_ptr;
-reg [3:0] rd_ptr;
-reg [WID-1:0] mem [0:15];
+reg [5:0] wr_ptr;
+reg [5:0] rd_ptr;
+reg [WID-1:0] mem [0:63];
 integer n;
 
 always_ff @(posedge clk)
 	if (rst) begin
 		wr_ptr <= 'd0;
 		rd_ptr <= 'd0;
-		for (n = 0; n < 16; n = n + 1)
+		for (n = 0; n < 64; n = n + 1)
 			mem[n] <= 'd0;		
 	end
 	else begin
@@ -69,15 +70,17 @@ always_ff @(posedge clk)
 		else if (rd) begin
 			rd_ptr <= rd_ptr + 2'd1;
 		end
-		dout <= mem[rd_ptr[3:0]];
+		dout <= mem[rd_ptr[5:0]];
 	end
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;
 	else
-		cnt = wr_ptr + (5'd16 - rd_ptr);
+		cnt = wr_ptr + (7'd64 - rd_ptr);
 
 always_comb
-	full = cnt==4'd15;
+	full = cnt==6'd63;
+always_comb
+	v = cnt > 'd0;
 
 endmodule

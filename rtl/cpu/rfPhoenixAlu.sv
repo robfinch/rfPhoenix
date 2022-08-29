@@ -46,7 +46,40 @@ output Value o;
 
 integer n;
 
-Value fcmp_o;
+Value fcmp_o, fcmpi_o;
+Value fclass_o;
+wire [7:0] exp;
+wire inf, xz, vz, snan, qnan, xinf;
+
+fpDecomp32 udc1
+(
+	.i(a),
+	.sgn(),
+	.exp(exp),
+	.man(),
+	.fract(),
+	.xz(xz),
+	.mz(),
+	.vz(vz),
+	.inf(inf),
+	.xinf(xinf),
+	.qnan(),
+	.snan(snan),
+	.nan(qnan)
+);
+
+assign fclass_o[0] = a[31] & inf;	// negative infinity
+assign fclass_o[1] = a[31];				// negative number
+assign fclass_o[2] = a[31] & xz & ~vz;		// negative subnormal
+assign fclass_o[3] = a[31] & vz;	// negative zero
+assign fclass_o[4] = ~a[31] & vz;	// positive zero
+assign fclass_o[5] = ~a[31] & xz & ~vz;		// positive subnormal
+assign fclass_o[6] = ~a[31];			// positive number
+assign fclass_o[7] = ~a[31] & inf;	// positive infinity
+assign fclass_o[8] = snan;				// signalling nan
+assign fclass_o[9] = qnan;				// quiet nan
+assign fclass_o[30:10] = 'd0;
+assign fclass_o[31] = a[31];
 
 fpCompare32 ucmp1
 (
@@ -57,11 +90,34 @@ fpCompare32 ucmp1
 	.snan()
 );
 
+fpCompare32 ucmp2
+(
+	.a(a),
+	.b(imm),
+	.o(fcmpi_o),
+	.nan(),
+	.snan()
+);
+
+wire [5:0] cntlz_o;
+cntlz32 ucntlz1 (.i(a), .o(cntlz_o));
+
+wire [5:0] cntpop_o;
+cntpop32 ucntpop1 (.i(a), .o(cntpop_o));
 
 always_comb
 case(ir.any.opcode)
 R2:
 	case(ir.r2.func)
+	R1:
+		case(ir.r2.Rb)
+		CNTLZ:		o = {26'd0,cntlz_o};
+		CNTPOP:		o = {26'd0,cntpop_o};
+		FCLASS:		o = fclass_o;
+		FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
+		FFINITE:	o = {31'd0,~xinf};
+		default:	o = 'd0;
+		endcase
 	ADD:		o = a + b;
 	SUB:		o = a - b;
 	AND:		o = a & b;
@@ -77,6 +133,12 @@ R2:
 	CMP_GEU:	o = a >= b;
 	CMP_LEU:	o = a <= b;
 	CMP_GTU:	o = a > b;
+	FCMP_EQ:	o = fcmp_o[0];
+	FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
+	FCMP_LT:	o = fcmp_o[1];
+	FCMP_LE:	o = fcmp_o[2];
+	FCMP_GT:	o = fcmp_o[10];
+	FCMP_GE:	o = fcmp_o[9];
 	SLLI:			o = a << imm[4:0];
 	SRLI:			o = a >> imm[4:0];
 	SRAI:			o = {{32{a[31]}},a} >> imm[4:0];
@@ -100,12 +162,12 @@ CMP_LTUI:	o = a < imm;
 CMP_GEUI:	o	= a >= imm;
 CMP_LEUI:	o = a <= imm;
 CMP_GTUI:	o = a > imm;
-FCMP_EQ:	o = fcmp_o[0];
-FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
-FCMP_LT:	o = fcmp_o[1];
-FCMP_LE:	o = fcmp_o[2];
-FCMP_GT:	o = fcmp_o[10];
-FCMP_GE:	o = fcmp_o[9];
+FCMP_EQI:	o = fcmpi_o[0];
+FCMP_NEI:	o = fcmpi_o[8]|fcmpi_o[4];	// return 1 if Nan
+FCMP_LTI:	o = fcmpi_o[1];
+FCMP_LEI:	o = fcmpi_o[2];
+FCMP_GTI:	o = fcmpi_o[10];
+FCMP_GEI:	o = fcmpi_o[9];
 default:	o = 'd0;
 endcase
 

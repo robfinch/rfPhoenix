@@ -59,6 +59,10 @@ Value fma_o, fma_o1;
 Value fcmp_o;
 Value i2f_o,i2f1_o;
 Value f2i_o,f2i1_o;
+Value frunc_o,ftrunc1_o;
+Value frsqrte_o,frsqrte1_o;
+Value fres_o,fres1_o;
+Value fsig_o,fsig1_o;
 DoubleValue muli_o,muli1_o;
 
 mult32x32 uimul1(
@@ -76,7 +80,7 @@ always_ff @(posedge clk)
 i2f32 ui2f1
 (
 	.clk(clk),
-	.ce(ce),
+	.ce(1'b1),
 	.op(),
 	.rm(3'b001),
 	.i(a),
@@ -86,16 +90,53 @@ i2f32 ui2f1
 f2i32 uf2i1
 (
 	.clk(clk),
-	.ce(ce),
+	.ce(1'b1),
 	.op(1'b0),
 	.i(a),
 	.o(f2i_o),
 	.overflow()
 );
 
+fpTrunc32 utrnc1
+(
+	.clk(clk),
+	.ce(1'b1),
+	.i(a),
+	.o(ftrunc1_o),
+	.overflow()
+);
+
+fpRsqrte32 ufrsqrte1
+(
+	.clk(clk),
+	.ce(1'b1),
+	.ld(1'b0),	// This signal not used
+	.a(a),
+	.o(frsqrte1_o)
+);
+
+fpRes32 ufres1
+(
+	.clk(clk),
+	.ce(1'b1),
+	.a(a),
+	.o(fres1_o)
+);
+
+fpSigmoid32 ufsig1
+(
+	.clk(clk),
+	.ce(1'b1),
+	.a(a),
+	.o(sig1_o)
+);
 
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd0 (.clk(clk), .ce(1'b1), .i(i2f1_o), .o(i2f_o));
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd1 (.clk(clk), .ce(1'b1), .i(f2i1_o), .o(f2i_o));
+ft_delay #(.WID($bits(Value)), .DEP(6)) uftd2 (.clk(clk), .ce(1'b1), .i(ftrunc1_o), .o(ftrunc_o));
+ft_delay #(.WID($bits(Value)), .DEP(4)) uftd3 (.clk(clk), .ce(1'b1), .i(frsqrte1_o), .o(frsqrte_o));
+ft_delay #(.WID($bits(Value)), .DEP(4)) uftd4 (.clk(clk), .ce(1'b1), .i(fres1_o), .o(fres_o));
+ft_delay #(.WID($bits(Value)), .DEP(4)) uftd5 (.clk(clk), .ce(1'b1), .i(fsig1_o), .o(fsig_o));
 
 fpFMA32nrL7 ufma1 (
 	.clk(clk),
@@ -128,12 +169,20 @@ end
 */
 ft_delay #(.WID(4), .DEP(7)) uftd7 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
 
-always
+always_comb
 case(ir.any.opcode)
 R2:
 	case(ir.r2.func)
-	I2F:	o = i2f_o;
-	F2I:	o = f2i_o;
+	R1:
+		case(ir.r2.Rb)
+		I2F:	o = i2f_o;
+		F2I:	o = f2i_o;
+		FTRUNC:	o = ftrunc_o;
+		FRSQRTE:	o = frsqrte_o;
+		FRES:		o = fres_o;
+		FSIGMOID:	o = fsig_o;
+		default:	o = 'd0;
+		endcase
 	default:	o = 'd0;
 	endcase
 MULI:	o = muli_o[31:0];

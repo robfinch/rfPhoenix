@@ -59,12 +59,20 @@ begin
 		ADD,SUB,AND,OR,XOR:	begin deco.Rt = ir.r2.Rt; deco.Tt = ir.r2.Tt; end
 		default:	begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 		endcase
+	ADDI,SUBFI,ANDI,ORI,XORI:
+		begin deco.Rt = ir.ri.Rt; deco.Tt = ir.ri.Tt; end
+	CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+		begin deco.Rt = ir.ri.Rt; deco.Tt = ir.ri.Tt; end
+	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI:
+		begin deco.Rt = ir.ri.Rt; deco.Tt = ir.ri.Tt; end
 	FMA,FMS,FNMA,FNMS:	begin deco.Rt = ir.f3.Rt; deco.Tt = ir.f3.Tt; end
 	NOP:
 		begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 	CALLA,CALLR,JMP,BRA:
 		begin deco.Rt = {ir.call.Rt==2'b0} ? 'd0 : {4'b1010,ir.call.Rt}; deco.Tt = 1'b0; end
 	STB,STW,STT:	begin deco.Rt = ir.ls.Rt; deco.Tt = ir.ls.Tt; end
+	CSR:	begin deco.Rt = ir.ri.Rt; deco.Tt = ir.ri.Tt; end
 	default:	begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 	endcase
 
@@ -85,12 +93,20 @@ begin
 		ADD,SUB,AND,OR,XOR:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 		default:	begin deco.Rt = 'd0; deco.Tt = 1'b0; end
 		endcase
+	ADDI,SUBFI,ANDI,ORI,XORI:
+		begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
+	CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+		begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
+	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI:
+		begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 	FMA,FMS,FNMA,FNMS:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 	NOP:
 		begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	CALLA,CALLR,JMP,BRA:
 		begin deco.rfwr = ir.call.Rt!=2'b00; end
 	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
+	CSR:	deco.rfwr <= 1'b1;
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
 	// Disable writing r0 if the rz flag is set.
@@ -142,6 +158,10 @@ begin
 	endcase
 	if (deco.Tt) deco.memsz = vect;
 
+	deco.csrrd = ir.any.opcode==CSR && ir.csr.func==2'd0;
+	deco.csrrw = ir.any.opcode==CSR && ir.csr.func==2'd1;
+	deco.csrrc = ir.any.opcode==CSR && ir.csr.func==2'd2;
+	deco.csrrs = ir.any.opcode==CSR && ir.csr.func==2'd3;
 end
 
 endmodule

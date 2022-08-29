@@ -5,9 +5,9 @@ parameter NLANES = 16;
 // It cannot be over 13 as that makes the vector register file too big for
 // synthesis to handle.
 // It also needs to be greater than the number of reorder entries (12).
-parameter NTHREADS = 16;
+parameter NTHREADS = 4;
 parameter NREGS = 64;
-parameter REB_ENTRIES = 12;
+parameter REB_ENTRIES = 4;
 
 parameter RSTIP	= 32'hFFFD0000;
 
@@ -17,6 +17,7 @@ parameter R2			= 6'h02;
 parameter ADDI		= 6'h04;
 parameter SUBFI		= 6'h05;
 parameter MULI		= 6'h06;
+parameter CSR			= 6'h07;
 parameter ANDI		= 6'h08;
 parameter ORI			= 6'h09;
 parameter XORI		= 6'h0A;
@@ -37,12 +38,12 @@ parameter JMP			= 6'h1A;
 parameter BRA			= 6'h1B;
 parameter Bcc			= 6'h1C;
 parameter FBcc		= 6'h1D;
-parameter FCMP_EQ	= 6'h1E;
-parameter FCMP_NE	= 6'h1F;
-parameter FCMP_LT	= 6'h24;
-parameter FCMP_GE	= 6'h25;
-parameter FCMP_LE	= 6'h26;
-parameter FCMP_GT	= 6'h27;
+parameter FCMP_EQI	= 6'h1E;
+parameter FCMP_NEI	= 6'h1F;
+parameter FCMP_LTI	= 6'h24;
+parameter FCMP_GEI	= 6'h25;
+parameter FCMP_LEI	= 6'h26;
+parameter FCMP_GTI	= 6'h27;
 parameter FMA 		= 6'h2C;
 parameter FMS 		= 6'h2D;
 parameter FNMA		= 6'h2E;
@@ -59,11 +60,57 @@ parameter STT			= 6'h3A;
 parameter STX			= 6'h3F;
 
 // R2 ops
+parameter R1			= 6'h01;
+parameter VSHUF		= 6'h02;
+parameter VEX			= 6'h03;
 parameter ADD			= 6'h04;
 parameter SUB			= 6'h05;
 parameter AND			= 6'h08;
 parameter OR			= 6'h09;
 parameter XOR			= 6'h0A;
+parameter VEINS		= 6'h0D;
+parameter CMP_EQ	= 6'h0E;
+parameter CMP_NE	= 6'h0F;
+parameter CMP_LT	= 6'h10;
+parameter CMP_GE	= 6'h11;
+parameter CMP_LE	= 6'h12;
+parameter CMP_GT	= 6'h13;
+parameter CMP_LTU	= 6'h14;
+parameter CMP_GEU	= 6'h15;
+parameter CMP_LEU	= 6'h16;
+parameter CMP_GTU	= 6'h17;
+parameter SLLI		= 6'h18;
+parameter SRLI		= 6'h19;
+parameter SRAI		= 6'h1A;
+parameter SLL			= 6'h1B;
+parameter SRL			= 6'h1C;
+parameter SRA			= 6'h1D;
+parameter FCMP_EQ	= 6'h1E;
+parameter FCMP_NE	= 6'h1F;
+parameter FCMP_LT	= 6'h24;
+parameter FCMP_GE	= 6'h25;
+parameter FCMP_LE	= 6'h26;
+parameter FCMP_GT	= 6'h27;
+parameter VSLLVI	= 6'h20;
+parameter VSRLVI	= 6'h21;
+parameter VSLLV		= 6'h22;
+parameter VSRLV		= 6'h23;
+parameter SHPTENDX	= 6'h28;
+
+// R1 ops
+parameter CNTLZ		= 6'h00;
+parameter CNTPOP	= 6'h02;
+parameter FFINITE = 6'h20;
+parameter FRSQRTE	= 6'h24;
+parameter FRES		= 6'h25;
+parameter FSIGMOID= 6'h26;
+parameter I2F			= 6'h28;
+parameter F2I			= 6'h29;
+parameter FABS		= 6'h2A;
+parameter FCLASS	= 6'h2C;
+parameter FMAN		= 6'h2D;
+parameter FSIGN		= 6'h2E;
+parameter FTRUNC	= 6'h2F;
 
 parameter NOP_INSN	= {34'd0,NOP};
 
@@ -81,6 +128,7 @@ parameter MR_MTSEL = 4'd9;
 parameter MR_MOVLD = 4'd10;
 parameter MR_MOVST = 4'd11;
 parameter MR_RGN = 4'd12;
+parameter MR_ICACHE_LOAD = 4'd13;
 parameter MR_PTG = 4'd15;
 
 parameter CSR_CAUSE	= 16'h?006;
@@ -124,10 +172,12 @@ parameter CSR_MTIMECMP	= 16'h3FE1;
 
 parameter FLT_NONE	= 8'h00;
 parameter FLT_TLBMISS = 8'h04;
+parameter FLT_DCM		= 8'h05;
 parameter FLT_IADR	= 8'h22;
 parameter FLT_CHK		= 8'h27;
 parameter FLT_DBZ		= 8'h28;
 parameter FLT_OFL		= 8'h29;
+parameter FLT_ALN		= 8'h30;
 parameter FLT_KEY		= 8'h31;
 parameter FLT_WRV		= 8'h32;
 parameter FLT_RDV		= 8'h33;
@@ -159,17 +209,26 @@ parameter vect = 3'd5;
 
 typedef logic [11:0] CauseCode;
 typedef logic [3:0] Tid;
+typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
 typedef logic [31:0] VirtualAddress;
 typedef logic [31:0] PhysicalAddress;
 typedef logic [31:0] CodeAddress;
 typedef logic [31:0] Value;
+typedef logic [63:0] DoubleValue;
 typedef Value [15:0] VecValue;
 typedef logic [5:0] Opcode;
 typedef logic [5:0] Func;
 typedef logic [5:0] Regspec;
 
 // Instruction types
+
+typedef struct packed
+{
+	logic [15:0] imm;
+	logic [1:0] pad;
+	Opcode opcode;
+} Postfix;
 
 typedef struct packed
 {
@@ -223,6 +282,19 @@ typedef struct packed
 typedef struct packed
 {
 	logic m;
+	logic [1:0] func;
+	logic [13:0] imm;
+	logic [2:0] mask;
+	logic Ta;
+	Regspec Ra;
+	logic Tt;
+	Regspec Rt;
+	Opcode opcode;
+} csrinst;
+
+typedef struct packed
+{
+	logic m;
 	logic [15:0] disp;
 	logic [2:0] mask;
 	logic Ta;
@@ -265,6 +337,8 @@ typedef union packed
 	callinst	call;
 	callinst	jmp;
 	imminst	imm;
+	imminst	ri;
+	csrinst	csr;
 	lsinst	ls;
 	r2inst	lsn;
 	pfxinst	pfx;
@@ -285,6 +359,10 @@ typedef struct packed
 	Value imm;
 	logic rfwr;
 	logic vrfwr;
+	logic csrrd;
+	logic csrrw;
+	logic csrrs;
+	logic csrrc;
 	logic is_vector;
 	logic multicycle;
 	logic loadr;
@@ -309,8 +387,8 @@ typedef struct packed
 	CodeAddress ip;
 	Instruction ir;
 	sDecodeBus	dec;
-	logic [3:0] vec_count;
-	logic [3:0] vec_step;
+	logic [3:0] count;
+	logic [3:0] step;
 	VecValue a;
 	VecValue b;
 	VecValue c;
@@ -354,10 +432,12 @@ typedef struct packed
 	logic wr;
 	logic [3:0] func;		// function to perform
 	logic [3:0] func2;	// more resolution to function
+	ASID asid;
 	Address adr;
-	logic [511:0] dat;
+	logic [639:0] dat;	// 512+128 for icache line
 	logic [3:0] sz;		// indicates size of data
-} sMemoryRequest;	// 389
+	logic [3:0] acr;		// acr bits from TLB lookup
+} sMemoryRequest;	// 521
 
 // All the fields in this structure are *output* back to the system.
 typedef struct packed
@@ -372,9 +452,13 @@ typedef struct packed
 	logic v;
 	logic empty;
 	CauseCode cause;
+	logic [31:0] sel;
+	ASID asid;
 	Address badAddr;
-	VecValue res;
+	logic [1023:0] res;
 	logic cmt;
-} sMemoryResponse;	// 618
+	logic [3:0] sz;		// indicates size of data
+	logic [3:0] acr;		// acr bits from TLB lookup
+} sMemoryResponse;		// 796
 
 endpackage
