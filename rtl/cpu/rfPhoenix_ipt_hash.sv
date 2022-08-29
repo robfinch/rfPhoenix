@@ -1,10 +1,11 @@
-`timescale 1ns / 1ps
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2022  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2021-2022  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
+//
+//	rfPhoenix_ipt_hash.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -35,81 +36,27 @@
 // ============================================================================
 
 import rfPhoenixPkg::*;
+import rfPhoenixMmupkg::*;
 
-module rfPhoenixVecAlu(ir, a, b, c, Tt, imm, asid, hmask, o);
-input Instruction ir;
-input VecValue a;
-input VecValue b;
-input VecValue c;
-input Tt;
-input Value imm;
-input ASID asid;
-input Value hmask;
-output VecValue o;
+module rfPhoenix_ipt_hash(clk, asid, adr, mask, hash);
+input [9:0] asid;
+input Address adr;
+input [31:0] mask;
+output reg [15:0] hash;
 
-VecValue o1;
+reg [31:0] asid_r;
+reg [31:0] mask_r;
+wire [5:0] sz;
+reg [4:0] sz_r;
 
-integer n;
-genvar g;
-generate begin
-	for (g = 0; g < NLANES; g = g + 1)
-		rfPhoenixAlu ualu (
-			.ir(ir),
-			.a(a[g]),
-			.b(b[g]),
-			.c(c[g]),
-			.imm(imm),
-			.asid(asid),
-			.hmask(hmask),
-			.o(o1[g])
-		);
-end
-endgenerate
-
-reg [31:0] ptendx;
-integer n2;
-always_comb begin
-	ptendx = 32'hFFFFFFFF;
-	for (n2 = 0; n2 < 8; n2 = n2 + 1)
-		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[21]))
-			ptendx = n2;
-end
-
+ffo48 uffo1({16'h0,mask},sz);
 always_comb
-	case(ir.any.opcode)
-	R2:
-		case (ir.r2.func)
-		FCMP_EQ,FCMP_NE,FCMP_LT,FCMP_GE,FCMP_LE,FCMP_GT,
-		CMP_EQ,CMP_NE,CMP_LT,CMP_GE,CMP_LE,CMP_GT,
-		CMP_LTU,CMP_GEU,CMP_LEU,CMP_GTU:
-			if (Tt)
-				o = o1;
-			else begin
-				for (n = 0; n < NLANES; n = n + 1)
-					o[0][n] = o1[n];
-			end
-		VEX:	o = {NLANES{a[imm[3:0]]}};
-//		VEINS:
-		VSHUF:
-			for (n = 0; n < NLANES; n = n + 1)
-				o[n] = a[b[n][3:0]];
-		VSLLV:		o = a << {b[0][3:0],5'd0};
-		VSRLV:		o = a >> {b[0][3:0],5'd0};
-		VSLLVI:		o = a << {imm[3:0],5'd0};
-		VSRLVI:		o = a >> {imm[3:0],5'd0};
-		SHPTENDX:	o = {NLANES{ptendx}};
-		default:	o = o1;
-		endcase
-	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI,
-	CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
-	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
-		if (Tt)
-			o = o1;
-		else begin
-			for (n = 0; n < NLANES; n = n + 1)
-				o[0][n] = o1[n];
-		end
-	default:	o = o1;
-	endcase
+	sz_r = sz==6'd63 ? 5'd0 : sz[4:0];
+always_comb
+	asid_r = asid << sz_r;
+always_comb
+	mask_r = {mask,10'h3FF};
+always_comb
+	hash = (adr ^ asid_r) & mask_r;
 
 endmodule

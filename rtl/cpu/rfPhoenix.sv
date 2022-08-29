@@ -142,9 +142,10 @@ wire takb;
 reg [31:0] cr0;
 reg [31:0] ptbr [0:NTHREADS-1];
 reg [9:0] asid [0:NTHREADS-1];
+reg [31:0] hmask,xhmask;
 Address badaddr [0:NTHREADS-1][0:3];
 CauseCode cause [0:NTHREADS-1][0:3];
-Address tvec [0:NTHREADS-1][0:3];
+CodeAddress tvec [0:3];
 reg [63:0] plStack [0:NTHREADS-1];
 reg [63:0] pmStack [0:NTHREADS-1];
 reg [31:0] status;
@@ -303,57 +304,6 @@ rfPhoenix_vec_regfile ugprs2
 	.o4(vrfo4)
 );
 
-/*
-rfPhoenixAlu usalu1 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(xir),
-	.a(xa[0]),
-	.b(xb[0]),
-	.c(xc[0]),
-	.imm(ximm),
-	.o(res)
-);
-
-rfPhoenixMcAlu usalu2 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(mir),
-	.a(mca[0]),
-	.b(mcb[0]),
-	.c(mcc[0]),
-	.imm(mcimm),
-	.o(mc_res),
-	.done(mc_done),
-	.ridi(mc_ridi),
-	.rido(mc_rido)
-);
-*/
-/*
-rfPhoenixMcAlu usalu3 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(mir1),
-	.a(mca1[0]),
-	.b(mcb1[0]),
-	.c(mcc1[0]),
-	.o(mc_res1),
-	.done(mc_done1)
-);
-*/
-/*
-rfPhoenixMcAlu usalu4 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(mir2),
-	.a(mca2[0]),
-	.b(mcb2[0]),
-	.c(mcc2[0]),
-	.o(mc_res2),
-	.done(mc_done2)
-);
-*/
-
 rfPhoenixVecAlu uvalu1 (
 	.ir(xir),
 	.a(xa),
@@ -362,6 +312,7 @@ rfPhoenixVecAlu uvalu1 (
 	.imm(ximm),
 	.Tt(xtt),
 	.asid(xasid),
+	.hmask(xhmask),
 	.o(vres)
 );
 
@@ -379,30 +330,6 @@ rfPhoenixMcVecAlu uvalu2 (
 	.rido(mcv_rido)
 );
 
-/*
-rfPhoenixMcVecAlu uvalu3 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(mir1),
-	.a(mca1),
-	.b(mcb1),
-	.c(mcc1),
-	.o(mc_vres1),
-	.done(mcv_done1)
-);
-*/
-/*
-rfPhoenixMcVecAlu uvalu4 (
-	.rst(rst_i),
-	.clk(clk_g),
-	.ir(mir2),
-	.a(mca2),
-	.b(mcb2),
-	.c(mcc2),
-	.o(mc_vres2),
-	.done(mcv_done2)
-);
-*/
 always_comb
 	{pfx,insn} = ic_line >> {ip3[5:0],3'b0};
 
@@ -520,6 +447,10 @@ begin
 end
 endtask
 
+Value csro;
+always_comb
+	tReadCSR(csro,rfndx,rob[rfndx].dec.imm[13:0]);
+
 task tRegfetch;
 begin
 	if (pipe_advance) begin
@@ -530,12 +461,12 @@ begin
 			rob[rfndx].thread <= dthread;
 			rob[rfndx].a <= ddec.Ta ? vrfo0 : {NLANES{rfo0}};
 			rob[rfndx].b <= ddec.Tb ? vrfo1 : {NLANES{rfo1}};
-			rob[rfndx].c <= ddec.Tc ? vrfo2 : {NLANES{rfo2}};
-			rob[rfndx].mask <= rfo3;
 			if (ddec.csrrd|ddec.csrrw|ddec.csrrc|ddec.csrrs)
-				tReadCSR(rob[rfndx].t[0],rfndx,rob[rfndx].dec.imm[13:0]);
+				rob[rfndx].c <= {NLANES{csro}};
 			else
-				rob[rfndx].t <= ddec.Tt ? vrfo4 : {NLANES{rfo4}};
+				rob[rfndx].c <= ddec.Tc ? vrfo2 : {NLANES{rfo2}};
+			rob[rfndx].mask <= rfo3;
+			rob[rfndx].t <= ddec.Tt ? vrfo4 : {NLANES{rfo4}};
 			rob[rfndx].dec <= ddec;
 			rob[rfndx].decoded <= 1'b1;
 		end
@@ -649,6 +580,7 @@ begin
 			xm <= rob[exndx].ir.r2.m ? rob[exndx].mask : 16'hFFFF;
 			ximm <= rob[exndx].dec.imm;
 			xasid <= asid[exndx];
+			xhmask <= hmask;
 			if (rob[exndx].dec.load) begin
 				if (!memreq_full && ihit) begin
 					memreq.wr <= 1'b1;
@@ -885,7 +817,7 @@ begin
 		CSR_MBADADDR:	res = badaddr[thread][regno[13:12]];
 		CSR_TICK:	res = tick;
 		CSR_CAUSE:	res = cause[thread][regno[13:12]];
-		CSR_MTVEC:	res = tvec[thread][regno[1:0]];
+		CSR_MTVEC:	res = tvec[regno[1:0]];
 		CSR_MPLSTACK:	res = plStack[thread];
 		CSR_MPMSTACK:	res = pmStack[thread];
 		CSR_TIME:	res = wc_time[31:0];
@@ -914,7 +846,7 @@ begin
 		CSR_ASID: 	asid[thread] <= val;
 		CSR_MBADADDR:	badaddr[thread][regno[13:12]] <= val;
 		CSR_CAUSE:	cause[thread][regno[13:12]] <= val[11:0];
-		CSR_MTVEC:	tvec[thread][regno[1:0]] <= val;
+		CSR_MTVEC:	tvec[regno[1:0]] <= val;
 		CSR_MPLSTACK:	plStack[thread] <= val;
 		CSR_MPMSTACK:	pmStack[thread] <= val;
 		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= 1'b1; end

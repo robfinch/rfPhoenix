@@ -106,7 +106,7 @@ begin
 	CALLA,CALLR,JMP,BRA:
 		begin deco.rfwr = ir.call.Rt!=2'b00; end
 	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
-	CSR:	deco.rfwr <= 1'b1;
+	CSR:	begin deco.vrfwr = ir.r2.Tt; deco.rfwr = ~ir.r2.Tt; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
 	// Disable writing r0 if the rz flag is set.
@@ -115,6 +115,12 @@ begin
 
 	deco.multicycle = 'd0;
 	case(ir.any.opcode)
+	R2:
+		case(ir.r2.func)
+		LDBX,LDBUX,LDWX,LDWUX,LDTX,
+		STBX,STWX,STTX:	deco.multicycle = 1'b1;
+		default:	deco.multicycle = 'd0;
+		endcase
 	FMA,FMS,FNMA,FNMS:	deco.multicycle = 1'b1;
 	LDB,LDBU,LDW,LDWU,LDT,
 	STB,STW,STT:	deco.multicycle = 1'b1;
@@ -132,14 +138,24 @@ begin
 	if (pfx.opcode==PFX)
 		deco.imm[31:16] = pfx.imm;
 
+	deco.storen = 'd0;
+	deco.loadn = 'd0;
+	case(ir.any.opcode)
+	R2:
+		case(ir.r2.func)
+		LDBX,LDBUX,LDWX,LDWUX,LDTX:	deco.loadn = 1'b1;
+		STBX,STWX,STTX:	deco.storen = 1'b1;
+		default:	;
+		endcase
+	default:	;
+	endcase
+
 	deco.br = ir.any.opcode==Bcc || ir.any.opcode==FBcc;
 	deco.cjb = ir.any.opcode==CALLA || ir.any.opcode==CALLR || ir.any.opcode==JMP || ir.any.opcode==BRA;
 	deco.storer = ir.any.opcode==STB || ir.any.opcode==STW || ir.any.opcode==STT;
-	deco.storen = ir.any.opcode==STX;
 	deco.store = deco.storer|deco.storen;
 	deco.loadr = ir.any.opcode==LDB || ir.any.opcode==LDBU || ir.any.opcode==LDW || ir.any.opcode==LDWU || ir.any.opcode==LDT;
-	deco.loadn = ir.any.opcode==LDX;
-	deco.loadu = ir.any.opcode==LDBU||ir.any.opcode==LDWU || (ir.any.opcode==LDX && (ir.r2.func==LDBU || ir.r2.func==LDWU));
+	deco.loadu = ir.any.opcode==LDBU||ir.any.opcode==LDWU || (ir.any.opcode==R2 && (ir.r2.func==LDBUX || ir.r2.func==LDWUX));
 	deco.load = deco.loadr|deco.loadn;
 
 	// Memory operation sizes
@@ -147,11 +163,11 @@ begin
 	LDB,LDBU,STB:	deco.memsz = byt;
 	LDW,LDWU,STW:	deco.memsz = wyde;
 	LDT,STT:	deco.memsz = tetra;
-	LDX,STX:
+	R2:
 		case (ir.r2.func)
-		LDB,LDBU,STB:	deco.memsz = byt;
-		LDW,LDWU,STW:	deco.memsz = wyde;
-		LDT,STT:	deco.memsz = tetra;
+		LDBX,LDBUX,STBX:	deco.memsz = byt;
+		LDWX,LDWUX,STWX:	deco.memsz = wyde;
+		LDTX,STTX:	deco.memsz = tetra;
 		default:	deco.memsz = tetra;
 		endcase
 	default:	deco.memsz = tetra;

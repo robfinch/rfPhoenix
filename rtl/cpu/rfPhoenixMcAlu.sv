@@ -54,6 +54,9 @@ integer n;
 
 wire fms = ir.any.opcode==FMS || ir.any.opcode==FNMS;
 wire fnm = ir.any.opcode==FNMA || ir.any.opcode==FNMS;
+wire fmul = ir.any.opcode==R2 && ir.r2.func==FMUL;
+wire fadd = ir.any.opcode==R2 && ir.r2.func==FADD;
+wire fsub = ir.any.opcode==R2 && ir.r2.func==FSUB;
 
 Value fma_o, fma_o1;
 Value fcmp_o;
@@ -75,7 +78,7 @@ mult32x32 uimul1(
 
 // Multiply takes only six cycles, add a cycle.
 always_ff @(posedge clk)
-	if (ce) muli_o <= muli1_o;
+	muli_o <= muli1_o;
 
 i2f32 ui2f1
 (
@@ -141,11 +144,11 @@ ft_delay #(.WID($bits(Value)), .DEP(4)) uftd5 (.clk(clk), .ce(1'b1), .i(fsig1_o)
 fpFMA32nrL7 ufma1 (
 	.clk(clk),
 	.ce(1'b1),
-	.op(fms),
+	.op(fms|fsub),
 	.rm(ir.f3.rm),
 	.a(a ^ {fnm,{$bits(Value)-1{1'b0}}}),
-	.b(b),
-	.c(c),
+	.b(fadd|fsub ? 32'h3F800000 : b),	// multiply by one for FADD/FSUB
+	.c(fmul ? 32'h0 : fadd|fsub ? b : c),
 	.o(fma_o),
 	.inf(),
 	.zero(),
@@ -183,6 +186,7 @@ R2:
 		FSIGMOID:	o = fsig_o;
 		default:	o = 'd0;
 		endcase
+	FADD,FSUB,FMUL:	o = fma_o;
 	default:	o = 'd0;
 	endcase
 MULI:	o = muli_o[31:0];

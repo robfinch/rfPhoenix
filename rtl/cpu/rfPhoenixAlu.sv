@@ -36,12 +36,14 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixAlu(ir, a, b, c, imm, o);
+module rfPhoenixAlu(ir, a, b, c, imm, asid, hmask, o);
 input Instruction ir;
 input Value a;
 input Value b;
 input Value c;
 input Value imm;
+input ASID asid;
+input Value hmask;
 output Value o;
 
 integer n;
@@ -105,6 +107,15 @@ cntlz32 ucntlz1 (.i(a), .o(cntlz_o));
 wire [5:0] cntpop_o;
 cntpop32 ucntpop1 (.i(a), .o(cntpop_o));
 
+wire [15:0] hash;
+rfPhoenix_ipt_hash uhash1
+(
+	.asid(asid),
+	.adr(a),
+	.mask(hmask),
+	.hash(hash)
+);
+
 always_comb
 case(ir.any.opcode)
 R2:
@@ -113,6 +124,10 @@ R2:
 		case(ir.r2.Rb)
 		CNTLZ:		o = {26'd0,cntlz_o};
 		CNTPOP:		o = {26'd0,cntpop_o};
+		PTGHASH:	o = {16'h0,hash};
+		FABS:			o = {1'b0,a[30:0]};
+		FNABS:		o = {1'b1,a[30:0]};
+		FNEG:			o = {~a[31],a[30:0]};
 		FCLASS:		o = fclass_o;
 		FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
 		FFINITE:	o = {31'd0,~xinf};
@@ -168,6 +183,7 @@ FCMP_LTI:	o = fcmpi_o[1];
 FCMP_LEI:	o = fcmpi_o[2];
 FCMP_GTI:	o = fcmpi_o[10];
 FCMP_GEI:	o = fcmpi_o[9];
+CSR:			o = c;
 default:	o = 'd0;
 endcase
 
