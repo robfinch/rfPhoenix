@@ -106,7 +106,10 @@ wire [AWID-1:0] rstip = RSTIP;
 reg [3:0] randway;
 TLBE tentryi [0:ASSOC-1];
 TLBE tentryo [0:ASSOC-1];
+TLBE tentryo2 [0:ASSOC-1];
 reg stptr;
+reg xlatend;
+Address iadrd;
 
 reg [ASSOC-1:0] wr;
 reg wed;
@@ -138,6 +141,14 @@ endgenerate
 TLBE tlbdato [0:ASSOC-1];
 TLBE dumped_entry;
 wire clk_g = clk_i;
+
+// TLB RAM has a 1 cycle lookup latency.
+// These signals need to be matched
+always_ff @(posedge clk_g)
+	xlatend <= xlaten_i;
+always_ff @(posedge clk_g)
+	iadrd <= iadr_i;
+
 always_comb
 	tlbdat_o <= tlbdato[tlbadr_i[2:0]];
 
@@ -419,7 +430,7 @@ ST_READ_PMT3:
 	end
 end
 always_comb
-	adr_i = iacc_i ? iadr_i : dadr_i;
+	adr_i = iadr_i;
 
 // Dirty / Accessed bit write logic
 always_ff @(posedge clk_g)
@@ -438,24 +449,24 @@ begin
 	  			wr <= {ASSOC{1'b1}};
   				for (j1 = 1; j1 < ASSOC; j1 = j1 + 1) begin
   					if (j1 <= n1)
-  						tentryi[j1] <= tentryo[j1-1];
+  						tentryi[j1] <= tentryo2[j1-1];
   					else
-  						tentryi[j1] <= tentryo[j1];
+  						tentryi[j1] <= tentryo2[j1];
   				end
-	  			tentryi[0] <= tentryo[n1];
+	  			tentryi[0] <= tentryo2[n1];
 	  			if (wed)
 	  				tentryi[0].m <= 1'b1;
 	  			//tentryi[0].a <= 1'b1;
-	  			tentryi[0].access_count <= tentryo[n1].access_count + 2'd1;
+	  			tentryi[0].access_count <= tentryo2[n1].access_count + 2'd1;
 //					if (stptr)
 //						tentryo[0].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
   			end
   			else begin
-	  			tentryi[n1] <= tentryo[n1];
+	  			tentryi[n1] <= tentryo2[n1];
 	  			if (wed)
 	  				tentryi[n1].m <= 1'b1;
 	  			//tentryi[n1].a <= 1'b1;
-	  			tentryi[n1].access_count <= tentryo[n1].access_count + 2'd1;
+	  			tentryi[n1].access_count <= tentryo2[n1].access_count + 2'd1;
 //					if (stptr)
 //						tentryo[n1].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
 	  			wr[n1] <= 1'b1;
@@ -502,25 +513,26 @@ else begin
 	if (next_i)
 		padr_o <= padr_o + 6'd32;
   else begin
-		if (!xlaten_i) begin
+		if (!xlatend) begin
 	    tlbmiss_o <= FALSE;
-	  	padr_o[15:0] <= iadr_i[15:0];
-	    padr_o[31:16] <= iadr_i[31:16];
+	  	padr_o[15:0] <= iadrd[15:0];
+	    padr_o[31:16] <= iadrd[31:16];
 	    acr_o <= 4'hF;
 			tlbkey_o <= 32'hFFFFFFFF;
 		end
 		else begin
 			tlbmiss_o <= dli[4] & ~cd_iadr;
-			tlbmiss_adr_o <= iadr_i;
+			tlbmiss_adr_o <= iadrd;
 			tlbkey_o <= 32'hFFFFFFFF;
 			hit <= 4'd15;
 			acr_o <= 4'h0;
 			for (n = 0; n < ASSOC; n = n + 1) begin
-				if (tentryo[n].vpn[15:10]==iadr_i[31:26] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
-			  	padr_o[9:0] <= iadr_i[9:0];
-			  	padr_o[15:10] <= iadr_i[15:10] + tentryo[n].mb;
+				tentryo2[n] <= tentryo[n];
+				if (tentryo[n].vpn[15:10]==iadrd[31:26] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
+			  	padr_o[9:0] <= iadrd[9:0];
+			  	padr_o[15:10] <= iadrd[15:10] + tentryo[n].mb;
 					padr_o[31:16] <= tentryo[n].ppn;
-					if (iadr_i[15:10] + tentryo[n].mb <= tentryo[n].me)
+					if (iadrd[15:10] + tentryo[n].mb <= tentryo[n].me)
 						acr_o <= {tentryo[n].ppn < 16'h0FFF || tentryo[n].ppn==16'hFFFC,tentryo[n].rwx};
 					else
 						acr_o <= 4'h0;

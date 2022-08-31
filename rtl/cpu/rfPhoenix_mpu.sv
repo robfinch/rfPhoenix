@@ -243,6 +243,7 @@ assign irq_o = irq;
 assign crd_dato = 64'd0;
 assign crd_ack = 1'b0;
 
+assign pit_dato = 32'h0;
 always @(posedge clk_i)
 	dati <= {4{pic_dato}}|{4{pit_dato}}|dat_i;
 /*
@@ -253,6 +254,7 @@ casez({pic_ack,pit_ack,ack_i})
 default:  dati <= dati;
 endcase
 */
+assign pit_ack = 1'b0;
 always @(posedge clk_i)
 	ack <= ack_i|pic_ack|pit_ack;
 

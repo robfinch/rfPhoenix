@@ -62,7 +62,7 @@ Value fma_o, fma_o1;
 Value fcmp_o;
 Value i2f_o,i2f1_o;
 Value f2i_o,f2i1_o;
-Value frunc_o,ftrunc1_o;
+Value ftrunc_o,ftrunc1_o;
 Value frsqrte_o,frsqrte1_o;
 Value fres_o,fres1_o;
 Value fsig_o,fsig1_o;

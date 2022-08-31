@@ -62,7 +62,7 @@ always_ff @(posedge clk)
 	end
 	else begin
 		if (rd & wr)
-			;
+			mem[wr_ptr] <= di;
 		else if (wr) begin
 			mem[wr_ptr] <= di;
 			wr_ptr <= wr_ptr + 2'd1;

@@ -34,6 +34,8 @@
 //                                                                          
 // ============================================================================
 
+`define IS_SIM	1'b1
+
 import rfPhoenixPkg::*;
 
 module rfPhoenix(hartid_i, rst_i, clk_i, clk2x_i, clk2d_i, wc_clk_i, clock,
@@ -94,11 +96,11 @@ reg commit_wr, commit_wrv;
 reg [15:0] commit_mask;
 Regspec commit_tgt;
 VecValue commit_bus;
-reg [3:0] ip_thread, ip_thread2, ip_thread3;
-reg [31:0] ips [0:15];
-reg [31:0] ip, ip2, ip3;
-reg [15:0] thread_busy;
-CodeAddress iip, dip;
+reg [3:0] ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
+reg [31:0] ips [0:NTHREADS-1];
+reg [31:0] ip, ip2, ip3, ip4;
+reg [NTHREADS-1:0] thread_busy;
+CodeAddress iip, dip, ip_icline, ip_insn;
 Instruction ir,dir,xir,mir,insn,mir1,mir2;
 Postfix pfx,irpfx;
 sDecodeBus ddec,deco;
@@ -119,6 +121,7 @@ wire mc_done, mcv_done;
 wire mc_done1, mcv_done1;
 wire mc_done2, mcv_done2;
 wire ihit;
+reg ihit2;
 sMemoryRequest memreq;
 sMemoryResponse memresp;
 wire memreq_full;
@@ -126,6 +129,7 @@ reg memresp_fifo_rd;
 wire memresp_fifo_empty;
 wire memresp_fifo_v;
 wire [639:0] ic_line;
+reg [639:0] ic_line2;
 wire ic_valid;
 //reg [31:0] ptbr;
 wire ipage_fault;
@@ -144,6 +148,10 @@ reg [2:0] ir_sp_sel;
 Instruction [NTHREADS-1:0] exc_bucket;
 CodeAddress [NTHREADS-1:0] exc_ip;
 CauseCode icause,dcause;
+reg [7:0] tid;
+CodeAddress last_adr;
+reg [15:0] exv;
+reg [3:0] tmpndx, prev_exndx;
 
 // CSRs
 reg [31:0] cr0;
@@ -161,10 +169,21 @@ reg [63:0] wc_time;
 reg [31:0] wc_time_dat;
 reg ld_time, clr_wc_time_irq;
 
+wire [16:0] lfsr_o;
+lfsr ulfs1
+(	
+	.rst(rst_i),
+	.clk(clk_g),
+	.ce(1'b1),
+	.cyc(1'b0),
+	.o(lfsr_o)
+);
+
 wire pipe_advance = rfndx_v;
 
 integer n;
 initial begin
+	tid = 8'd1;
 	rz = 'd0;
 	gie = 'd0;
 	ip = RSTIP;
@@ -216,6 +235,7 @@ rfPhoenixBiu ubiu
 	.bounds_chk(),
 	.pe(pe),
 	.ip(ip),
+	.ip_o(ip_icline),
 	.ihit(ihit),
 	.ifStall(1'b0),
 	.ic_line(ic_line),
@@ -339,14 +359,78 @@ rfPhoenixMcVecAlu uvalu2 (
 	.rido(mcv_rido)
 );
 
-always_comb
-	{pfx,insn} = ic_line >> {ip3[5:0],3'b0};
+task tDisplayRegs;
+integer n;
+begin
+`ifdef IS_SIM
+	// The heirarchical reference to the register file here prevents synthsis
+	// from using RAM resources to implement the register file. So this block
+	// is enabled only for simulation.
+	$display("GPRs");
+	for (n = 0; n < NTHREADS*64; n = n + 8) begin
+		if ((n % 64)==0)
+			$display("  Thread:%d", n / 64);
+		$display("%s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  ",
+			fnRegName(n), ugprs1.regfile[n],
+			fnRegName(n+1), ugprs1.regfile[n+1],
+			fnRegName(n+2), ugprs1.regfile[n+2],
+			fnRegName(n+3), ugprs1.regfile[n+3],
+			fnRegName(n+4), ugprs1.regfile[n+4],
+			fnRegName(n+5), ugprs1.regfile[n+5],
+			fnRegName(n+6), ugprs1.regfile[n+6],
+			fnRegName(n+7), ugprs1.regfile[n+7]
+			);
+	end
+	$display("");
+`endif
+end
+endtask
+
+task tDisplayRob;
+integer n;
+begin
+	$display("  ROB:");
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		$display("  %d: %c%c%c%c ip=%h ir=%h res=%h a=%h b=%h c=%h i=%h", n[3:0],
+			rob[n].v ? "v":"-",
+			rob[n].decoded ? "d" : "-",
+			rob[n].out ? "o" : "-",
+			rob[n].executed ? "x" : "-",
+			rob[n].ip,
+			rob[n].ir,
+			rob[n].res,
+			rob[n].a,
+			rob[n].b,
+			rob[n].c,
+			rob[n].dec.imm
+		);
+	end
+end
+endtask
+
+always_ff @(posedge clk_g)
+	{pfx,insn} <= ic_line >> {ip_icline[5:0],3'b0};
+always_ff @(posedge clk_g)
+	ic_line2 <= ic_line;
+always_ff @(posedge clk_g)
+	ip_insn <= ip_icline;
+always_ff @(posedge clk_g)
+	ihit2 <= ihit;
 
 always_ff @(posedge clk_g)
 if (rst_i) begin
 	tReset();
 end
 else begin
+	$display("=======================================");
+	$display("=======================================");
+	$display("Time %d", $time);
+	$display("=======================================");
+	$display("=======================================");
+	$display("  exndx=%d exv=%h", exndx, exv);
+	prev_exndx <= exndx;
+	tDisplayRegs();
+	tDisplayRob();
 	tOnce();
 	tInsnFetch();
 	tDecode();
@@ -360,9 +444,12 @@ end
 task tReset;
 integer n;
 begin
+	tid <= 8'd1;
 	rz <= 'd0;
 	gie <= 'd0;
 	ip <= RSTIP;
+	ip2 <= RSTIP;
+	ip3 <= RSTIP;
 	iip <= RSTIP;
 	ir <= NOP;//_INSN;
 	xir <= NOP;//_INSN;
@@ -381,12 +468,15 @@ begin
 		cause[n][1] <= 'd0;
 		cause[n][2] <= 'd0;
 		cause[n][3] <= 'd0;
+		exc_bucket[n] <= 'd0;
+		plStack[n] <= 64'hFFFFFFFFFFFFFFFF;
+		pmStack[n] <= 64'hCECECECECECECECE;
 	end
 	ithread <= 'd0;
 	ip_thread <= 'd0;
 	mca_busy <= 'd0;
 	thread_busy <= 'd0;
-	for (n = 0; n < REB_ENTRIES; n = n + 1)
+	for (n = 0; n < NTHREADS; n = n + 1)
 		rob[n] <= 'd0;
 	rthread_v <= 'd1;
 	dthread_v <= 'd1;
@@ -397,6 +487,10 @@ begin
 	ra4 <= 'd0;
 	ddec <= 'd0;
 	memreq <= 'd0;
+	last_adr <= 'd0;
+	xrid <= 'd15;
+	mc_rid <= 'd15;
+	prev_exndx <= 'd0;
 end
 endtask
 
@@ -425,39 +519,67 @@ end
 endtask
 
 task tInsnFetch;
+integer n;
 begin
-	if (pipe_advance) begin
+	begin
 		// 3 cycle pipeline delay reading the I$.
 		// 1 for tag lookup and way determination
 		// 2 for cache line lookup
-		ip <= ips[ithread];
-		ip2 <= ip;
-		ip3 <= ip2;
-		ip_thread <= ithread;
-		ip_thread2 <= ip_thread;
-		ip_thread3 <= ip_thread2;
 		ithread <= ithread + 2'd1;
+		if (ithread==NTHREADS-1)
+			ithread <= 'd0;
+		/*
+		if (thread_busy[ithread]) begin
+			ip <= 32'hFFFFFFFC;
+			ip_thread1 <= 4'd15;
+		end
+		else begin
+			thread_busy[ithread] <= 1'b1;
+			ip <= ips[ithread];
+			ip_thread1 <= ithread;
+		end
+		*/
+		ip <= ips[ithread];
+		ip_thread1 <= ithread;
+		ip_thread2 <= ip_thread1;
+		ip_thread3 <= ip_thread2;
+		ip_thread4 <= ip_thread3;
+		ip_thread5 <= ip_thread4;
+		$display("  ip_insn=%h  insn=%h postfix=%h", ip_insn, insn, pfx);
+		$display("  ip_thread5=%h", ip_thread5);
+		for (n = 0; n < NTHREADS; n = n + 1)
+			$display("  ips[%d]=%h", n[3:0], ips[n]);
 		icause <= 'd0;
-		if (ihit && !thread_busy[ip_thread3]) begin
-			if (exc_bucket[ip_thread3].any.opcode!=6'd0) begin
-				ir <= exc_bucket[ip_thread3];
-				iip <= exc_ip[ip_thread3];
+		rthread <= ip_thread5;
+		rthread_v <= 1'b1;
+		if (ihit2 && !thread_busy[ip_thread5]) begin
+			if (exc_bucket[ip_thread5].any.opcode!=6'd0) begin
+				ir <= exc_bucket[ip_thread5];
+				iip <= exc_ip[ip_thread5];
 			end
-			else if (irq_i > pmStack[ip_thread3][3:1] && gie[ip_thread3]) begin
+			else if (irq_i > pmStack[ip_thread5][3:1] && gie[ip_thread5]) begin
 				icause <= {1'b1,irq_i,FLT_BRK};
 				ir <= insn;
-				iip <= ip3;
+				iip <= ip_insn;
 			end
 			else begin
-				ips[ip_thread3] <= ips[ip_thread3] + (pfx.opcode==PFX ? 4'd8 : 4'd5);
+				$display("pfx.opcode=%h",pfx.opcode);
+				if (pfx.opcode==PFX) begin
+					ips[ip_thread5] <= ips[ip_thread5] + 4'd8;
+					$display("  %h", ips[ip_thread5] + 4'd8);
+				end
+				else begin
+					ips[ip_thread5] <= ips[ip_thread5] + 4'd5;
+					$display("  %h", ips[ip_thread5] + 4'd5);
+				end
 				ir <= insn;
-				iip <= ip3;
+				iip <= ip_insn;
 			end
 			irpfx <= pfx;
-			ir_sp_sel <= sp_sel[ip_thread3];
-			rthread <= ip_thread3;
+			ir_sp_sel <= sp_sel[ip_thread5];
+			rthread <= ip_thread5;
 			rthread_v <= 1'b1;
-			thread_busy[ip_thread3] <= 1'b1;
+			thread_busy[ip_thread5] <= 1'b1;
 			tSpSel(insn.r2.Ra,ra0);
 			tSpSel(insn.r2.Rb,ra1);
 			tSpSel(insn.f3.Rc,ra2);
@@ -465,24 +587,42 @@ begin
 			tSpSel(insn.r2.Rt,ra4);
 		end
 		else begin
-			rthread_v <= 1'b0;
+			ir <= BRA;
+			irpfx <= NOP;
+//			rthread_v <= 1'b0;
+			rthread <= 4'd15;
 			// On a miss, request a cache line load from the memory system. This
-			// should eventuallly cause a hit for the thread.
-			if (!ihit && !memreq_full) begin
-				memreq.wr <= 1'b1;
-				memreq.func <= MR_ICACHE_LOAD;
-				memreq.adr <= ip3;
-				memreq.dat <= ic_line;
-				memreq.sz <= ic_valid ? tetra : nul;
+			// should eventually cause a hit for the thread.
+			// Suppress consecutive requests for the same cache line load.
+			// The old cache line is passed back for the victim buffer.
+			if (!ihit2 && !memreq_full) begin
+				if (ip_insn[31:6] != last_adr[31:6]) begin
+					last_adr <= ip_insn;
+					tid <= tid + 2'd1;
+					memreq.tid <= tid;
+					memreq.rid <= ip_thread5;
+					memreq.wr <= 1'b1;
+					memreq.func <= MR_ICACHE_LOAD;
+					memreq.adr <= {ip_insn[31:6],6'd0};
+					memreq.vcadr <= ip_insn;
+					memreq.dat <= ic_line2;
+					memreq.sz <= ic_valid ? tetra : nul;
+				end
 			end
 		end
 	end
+	/*
+	else begin
+		if (ihit && !thread_busy[ip_thread3])
+			rthread_v <= 1'b1;
+	end
+	*/
 end
 endtask
 
 task tDecode;
 begin
-	if (pipe_advance) begin
+	begin
 		dip <= iip;
 		dir <= ir;
 		dcause <= icause;
@@ -499,7 +639,7 @@ always_comb
 
 task tRegfetch;
 begin
-	if (pipe_advance) begin
+	begin
 		if (rfndx < NTHREADS) begin
 			rob[rfndx].v <= 1'b1;
 			rob[rfndx].cause <= dcause;
@@ -549,11 +689,17 @@ always_comb
 begin
 	exndx_v = 1'b0;
 	exndx = 'd0;
+	tmpndx = 'd0;
+	exv = 16'h0000;
 	for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1)
-		if (rob[n2].decoded & ~rob[n2].out) begin
-			exndx = n2;
+		exv[n2] = rob[n2].decoded & ~rob[n2].out;
+	for (n2 = 0; n2 < 16; n2 = n2 + 1) begin
+		tmpndx = prev_exndx[3:0]+n2[3:0];
+		if (exv[tmpndx] && !exndx_v) begin
+			exndx = tmpndx;
 			exndx_v = 1'b1;
 		end
+	end
 end
 
 integer n3;
@@ -642,6 +788,8 @@ begin
 			xhmask <= hmask;
 			if (rob[exndx].dec.load) begin
 				if (!memreq_full && ihit) begin
+					tid <= tid + 2'd1;
+					memreq.tid <= tid;
 					memreq.wr <= 1'b1;
 					memreq.func <= rob[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
 					memreq.sz <= rob[exndx].dec.memsz;
@@ -661,6 +809,8 @@ begin
 			end
 			else if (rob[exndx].dec.store) begin
 				if (!memreq_full && ihit) begin
+					tid <= tid + 2'd1;
+					memreq.tid <= tid;
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_STORE;
 					memreq.sz <= rob[exndx].dec.memsz;
@@ -799,32 +949,6 @@ begin
 //				rob[mc_rid].res <= mc_res;
 		end
 	end
-	/*
-	if (mc_rid1 < 4'd12) begin
-		if (rob[mc_rid1].dec.is_vector ? mcv_done1 : mc_done1) begin
-			mca_busy[1] <= 1'b0;
-			rob[mc_rid1].out <= 1'b0;
-			rob[mc_rid1].executed <= 1'b1;
-			if (rob[mc_rid1].dec.Tt)
-				rob[mc_rid1].res <= mc_vres1;
-			else
-				rob[mc_rid1].res <= mc_res1;
-		end
-	end
-	*/
-	/*
-	if (mc_rid2 < 4'd12) begin
-		if (rob[mc_rid2].dec.is_vector ? mcv_done2 : mc_done2) begin
-			mca_busy[2] <= 1'b0;
-			rob[mc_rid2].out <= 1'b0;
-			rob[mc_rid2].executed <= 1'b1;
-			if (rob[mc_rid2].dec.Tt)
-				rob[mc_rid2].res <= mc_vres2;
-			else
-				rob[mc_rid2].res <= mc_res2;
-		end
-	end
-	*/
 end
 endtask
 
@@ -835,9 +959,9 @@ endtask
 // RTI processing at the EX stage.
 task tExRti;
 begin
-	if (reb[exndx].dec.rti) begin
-		ips[exndx] <= reb[exndx].ia[0];
- 		$display("  EXEC: %h RTI to %h", reb[exndx].ip, reb[exndx].ia[0]);
+	if (rob[exndx].dec.rti) begin
+		ips[exndx] <= rob[exndx].a[0];
+ 		$display("  EXEC: %h RTI to %h", rob[exndx].ip, rob[exndx].a[0]);
 	end
 end
 endtask
@@ -876,6 +1000,7 @@ endtask
 task tWriteback;
 begin
 	if (wbndx_v) begin
+		$display("Writeback");
 		thread_busy[wbndx] <= 1'b0;
 		if (|rob[wbndx].cause) begin
 			// VSLLVI
@@ -891,6 +1016,9 @@ begin
 		end
 		else begin
 			exc_bucket[wbndx] <= 'd0;
+			$display("  thread:%d ip=%h ir=%h", wbndx, rob[wbndx].ip, rob[wbndx].ir);
+			if (rob[wbndx].dec.rfwr)
+				$display("  %s=%h", fnRegName(rob[wbndx].dec.Rt), rob[wbndx].res);
 			commit_thread <= wbndx;
 			commit_mask <= rob[wbndx].ir.r2.m ? rob[wbndx].mask : 16'hFFFF;
 			commit_wr <= rob[wbndx].dec.rfwr;
@@ -1009,5 +1137,82 @@ begin
 	end
 end
 endtask
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Disassembler for debugging. It helps to have some output to allow 
+// visual tracking in the simulation run.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+function [31:0] fnRegName;
+input [5:0] Rn;
+begin
+	case(Rn)
+	6'd0:	fnRegName = "zero";
+	6'd1:	fnRegName = "a0";
+	6'd2:	fnRegName = "a1";
+	6'd3:	fnRegName = "t0";
+	6'd4:	fnRegName = "t1";
+	6'd5:	fnRegName = "t2";
+	6'd6:	fnRegName = "t3";
+	6'd7:	fnRegName = "t4";
+	6'd8:	fnRegName = "t5";
+	6'd9:	fnRegName = "t6";
+	6'd10:	fnRegName = "t7";
+	6'd11:	fnRegName = "s0";
+	6'd12:	fnRegName = "s1";
+	6'd13:	fnRegName = "s2";
+	6'd14:	fnRegName = "s3";
+	6'd15:	fnRegName = "s4";
+	6'd16:	fnRegName = "s5";
+	6'd17:	fnRegName = "s6";
+	6'd18:	fnRegName = "s7";
+	6'd19:	fnRegName = "s8";
+	6'd20:	fnRegName = "s9";
+	6'd21:	fnRegName = "a2";
+	6'd22:	fnRegName = "a3";
+	6'd23:	fnRegName = "a4";
+	6'd24:	fnRegName = "a5";
+	6'd25:	fnRegName = "a6";
+	6'd26:	fnRegName = "a7";
+	6'd27:	fnRegName = "gp3";
+	6'd28:	fnRegName = "gp2";
+	6'd29:	fnRegName = "gp";
+	6'd30:	fnRegName = "fp";
+	6'd31:	fnRegName = "sp";
+	6'd32:	fnRegName = "vm0";
+	6'd33:	fnRegName = "vm1";
+	6'd34:	fnRegName = "vm2";
+	6'd35:	fnRegName = "vm3";
+	6'd36:	fnRegName = "vm4";
+	6'd37:	fnRegName = "vm5";
+	6'd38:	fnRegName = "vm6";
+	6'd39:	fnRegName = "vm7";
+	6'd40:	fnRegName = "lc";
+	6'd41:	fnRegName = "lk1";
+	6'd42:	fnRegName = "lk2";
+	6'd43:	fnRegName = "r43";
+	6'd44:	fnRegName = "ssp";
+	6'd45:	fnRegName = "hsp";
+	6'd46:	fnRegName = "msp";
+	6'd47:	fnRegName = "isp";
+	6'd48:	fnRegName = "t8";
+	6'd49:	fnRegName = "t9";
+	6'd50:	fnRegName = "t10";
+	6'd51:	fnRegName = "t11";
+	6'd52:	fnRegName = "s10";
+	6'd53:	fnRegName = "s11";
+	6'd54:	fnRegName = "s12";
+	6'd55:	fnRegName = "s13";
+	6'd56:	fnRegName = "f0";
+	6'd57:	fnRegName = "f1";
+	6'd58:	fnRegName = "f2";
+	6'd59:	fnRegName = "f3";
+	6'd60:	fnRegName = "f4";
+	6'd61:	fnRegName = "f5";
+	6'd62:	fnRegName = "f6";
+	6'd63:	fnRegName = "f7";
+	endcase
+end
+endfunction
 
 endmodule

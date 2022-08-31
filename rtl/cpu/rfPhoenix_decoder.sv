@@ -161,17 +161,24 @@ begin
 	R2:
 		case(ir.r2.func)
 		LDBX,LDBUX,LDWX,LDWUX,LDTX,
-		STBX,STWX,STTX:	deco.multicycle = 1'b1;
+		STBX,STWX,STTX:	deco.multicycle = 1'b0;
 		default:	deco.multicycle = 'd0;
 		endcase
 	FMA,FMS,FNMA,FNMS:	deco.multicycle = 1'b1;
 	LDB,LDBU,LDW,LDWU,LDT,
-	STB,STW,STT:	deco.multicycle = 1'b1;
+	STB,STW,STT:	deco.multicycle = 1'b0;
 	default:	deco.multicycle = 'd0;
 	endcase
 
 	deco.imm = 'd0;
 	case(ir.any.opcode)
+	ADDI,SUBFI,ANDI,ORI,XORI:
+		deco.imm = {{16{ir.ri.imm[15]}},ir.ri.imm};
+	CMPI,CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+		deco.imm = {{16{ir.ri.imm[15]}},ir.ri.imm};
+	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI:
+		deco.imm = {{16{ir.ri.imm[15]}},ir.ri.imm};
 	Bcc:	deco.imm = {{15{ir.br.disp[16]}},ir.br.disp};
 	LDB,LDBU,LDW,LDWU,LDT,
 	STB,STW,STT:
