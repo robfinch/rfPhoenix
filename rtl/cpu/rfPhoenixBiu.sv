@@ -104,11 +104,8 @@ parameter LOW = 1'b0;
 parameter VLOOKUP1	= 4'd2;
 parameter VLOOKUP2  = 4'd3;
 parameter PADR_SET 	= 4'd4;
-parameter CACHE1		= 4'd5;
-parameter CACHE2		= 4'd6;
-parameter CACHE3		= 4'd7;
-parameter DATA_ALN	= 4'd8;
-parameter VLOOKUP3  = 4'd9;
+parameter DATA_ALN	= 4'd5;
+parameter VLOOKUP3  = 4'd6;
 
 parameter IO_KEY_ADR	= 16'hFF88;
 
@@ -153,10 +150,11 @@ reg xlaten;
 reg [31:0] memreq_sel;
 CodeAddress last_cadr;
 
+Address vadr;		// virtual address
 sMemoryRequest memreq,imemreq;
 reg memreq_rd = 0;
 sMemoryResponse memresp;
-sMemoryResponse [9:0] mem_resp;	// memory pipeline
+sMemoryResponse [6:0] mem_resp;	// memory pipeline
 reg zero_data = 0;
 Value movdat;
 
@@ -524,7 +522,7 @@ dcache_blkmem udcb1e (
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_erway,adr_o[13:7]+adr_o[6]}),  // input wire [8 : 0] addrb
+  .addrb({dc_erway,vadr[13:7]+vadr[6]}),  // input wire [8 : 0] addrb
   .doutb(dc_eline)  // output wire [511 : 0] doutb
 );
 
@@ -536,12 +534,12 @@ dcache_blkmem udcb1o (
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_orway,adr_o[13:7]}),  // input wire [8 : 0] addrb
+  .addrb({dc_orway,vadr[13:7]}),  // input wire [8 : 0] addrb
   .doutb(dc_oline)  // output wire [511 : 0] doutb
 );
 
 always_comb
-	case(adr_o[6])
+	case(vadr[6])
 	1'b0:	dc_line = {dc_oline,dc_eline};
 	1'b1:	dc_line = {dc_eline,dc_oline};
 	endcase
@@ -559,8 +557,8 @@ rfPhoenix_dchit udchite
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_etag),
-	.ndx(adr_o[13:7]+adr_o[6]),
-	.adr(adr_o),
+	.ndx(vadr[13:7]+vadr[6]),
+	.adr(vadr),
 	.valid(dc_evalid),
 	.hits(dhit1e),
 	.hit(dhite),
@@ -572,8 +570,8 @@ rfPhoenix_dchit udchito
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_otag),
-	.ndx(adr_o[13:7]),
-	.adr(adr_o),
+	.ndx(vadr[13:7]),
+	.adr(vadr),
 	.valid(dc_ovalid),
 	.hits(dhit1o),
 	.hit(dhito),
@@ -582,7 +580,7 @@ rfPhoenix_dchit udchito
 
 reg dhit;
 always_comb
-	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && adr_o[5:0] < 6'd61) : (dhite && adr_o[5:0] < 6'd61));
+	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && vadr[5:0] < 6'd61) : (dhite && vadr[5:0] < 6'd61));
 
 rfPhoenix_dctag
 #(
@@ -597,7 +595,7 @@ udcotag
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(adr_o[13:7]),
+	.ndx(vadr[13:7]),
 	.tag(dc_otag)
 );
 
@@ -614,7 +612,7 @@ udcetag
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(adr_o[13:7]+adr_o[6]),
+	.ndx(vadr[13:7]+vadr[6]),
 	.tag(dc_etag)
 );
 
@@ -745,6 +743,7 @@ reg inext;
 VirtualAddress tlbmiss_adr;
 VirtualAddress miss_adr;
 reg wr_ptg;
+/*
 always_comb
 begin
 	tlb_ib[ 63:  0] <= tlb_bucket[0];
@@ -755,7 +754,7 @@ begin
 	tlb_ib.pmtadr 	<= tlb_bucket[5];
 	tlb_ia <= tlb_bucket[6][31:0];
 end
-
+*/
 `ifndef SUPPORT_HASHPT
 PMTE pmtram_dinb;
 PMTE pmtram_doutb;
@@ -2201,11 +2200,13 @@ begin
 					mem_resp[0].ip <= imemreq.ip;
 					mem_resp[0].tid <= imemreq.tid;
 					mem_resp[0].rid <= imemreq.rid;
+					mem_resp[0].omode <= imemreq.omode;
 					mem_resp[0].func <= imemreq.func;
 					mem_resp[0].func2 <= imemreq.func2;
 					mem_resp[0].step <= imemreq.step;
 					mem_resp[0].asid <= imemreq.asid;
 					mem_resp[0].badAddr <= imemreq.adr;
+					vadr <= imemreq.adr;	// Begin d$ lookup
 					mem_resp[0].vcadr <= imemreq.vcadr;
 					mem_resp[0].res <= imemreq.dat;
 					mem_resp[0].sz <= imemreq.sz;
@@ -2233,7 +2234,9 @@ begin
 	mem_resp[1].cause <= 'd0;
 	iaccess <= FALSE;
 	xlaten <= FALSE;
-	if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
+	if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || 
+		mem_resp[0].func==MR_TLBRD || mem_resp[0].func==MR_TLBRW ||
+		mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
 		iaccess <= TRUE;
 		xlaten <= TRUE;
     mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].badAddr[3:0];
@@ -2255,14 +2258,18 @@ begin
 			end
 		32'hFFE?????:
 			begin
-				tlbwr <= mem_resp[0].func==MR_STORE;
-				tlb_access <= 1'b1;
+				tlbwr <= mem_resp[0].func==MR_TLBRW;
+//				tlb_access <= 1'b1;
+				tlb_ia <= mem_resp[0].badAddr[15:0];
+				tlb_ib <= mem_resp[0].res;
+				/*
 				tlb_bucket[0] <= tlbdato[ 63:  0];
 				tlb_bucket[1] <= tlbdato[127: 64];
 				tlb_bucket[2] <= tlbdato[191:128];
 				tlb_bucket[3] <= tlbdato[255:192];
 				tlb_bucket[4] <= tlbdato[287:256];
 				tlb_bucket[5] <= tlbdato[319:288];
+				*/
 			end
 		default:	;
 		endcase
@@ -2285,22 +2292,36 @@ endtask
 task tAddressXlat;
 begin
 	mem_resp[VLOOKUP1] <= mem_resp[1];				// tag lookup
+	if (mem_resp[VLOOKUP1].func==MR_TLBRW || mem_resp[VLOOKUP1].func==MR_TLBRD)
+		mem_resp[VLOOKUP1].res <= tlbdato;
 	mem_resp[VLOOKUP2] <= mem_resp[VLOOKUP1];	// address lookup 1
 	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP2];	// address lookup 1
 	mem_resp[PADR_SET] <= mem_resp[VLOOKUP2];
-	mem_resp[PADR_SET].badAddr <= padr;
-	mem_resp[PADR_SET].acr <= tlbacr;
-	if (mem_resp[1].v) begin
-	  if (!region.at[0] && mem_resp[1].func==MR_ICACHE_LOAD)
+	// No address translations for machine mode
+	if (mem_resp[VLOOKUP2].omode!=2'd3) begin
+		mem_resp[PADR_SET].badAddr <= padr;
+		mem_resp[PADR_SET].acr <= tlbacr;
+	end
+	else
+		mem_resp[PADR_SET].acr <= region.at[3:0];
+	if (mem_resp[VLOOKUP2].v) begin
+	  if (!region.at[0] && mem_resp[VLOOKUP2].func==MR_ICACHE_LOAD)
 	    mem_resp[PADR_SET].cause <= {4'h8,FLT_PMA};
 	 	//we_o <= wr & tlbwr & region.at[1];
-	  if (mem_resp[1].func==MR_STORE && !region.at[1])
+	  if (mem_resp[VLOOKUP2].func==MR_STORE && !region.at[1])
 		  mem_resp[PADR_SET].cause <= {4'h8,FLT_WRV};
-	  else if (mem_resp[1].func!=MR_STORE && !region.at[2])
+	  else if (mem_resp[VLOOKUP2].func!=MR_STORE && !region.at[2])
 		  mem_resp[PADR_SET].cause <= {4'h8,FLT_RDV};
 	   // TLB miss has higher precedence than PMA
-		if (tlbmiss)
+	   // No TLB miss in machine mode
+		if (tlbmiss && mem_resp[VLOOKUP2].omode!=2'd3)
 			mem_resp[PADR_SET].cause <= {4'h8,FLT_TLBMISS};
+	 	if (!tlbacr[2] && (mem_resp[VLOOKUP2].func==MR_LOAD || mem_resp[VLOOKUP2].func==MR_LOADZ)) begin
+	 		mem_resp[PADR_SET].cause <= {4'h8,FLT_RDV};
+	 		//tReadViolation(mem_resp[4].badAddr);
+		if (tlbacr[3])
+			mem_resp[PADR_SET].func2 <= MR_CACHE;
+	 	end
 	end
 //	memresp.cause <= {4'h8,FLT_PMA};
 	//dcachable <= dcachable & region.at[3];
@@ -2312,56 +2333,49 @@ endtask
 
 task tCacheAccess;
 begin
-	mem_resp[CACHE1] <= mem_resp[PADR_SET];
-	mem_resp[CACHE2] <= mem_resp[CACHE1];
-	mem_resp[CACHE3] <= mem_resp[CACHE2];
-	if (mem_resp[CACHE2].v) begin
-	if (mem_resp[CACHE2].acr[3])
-		mem_resp[CACHE3].func2 <= MR_CACHE;
+	if (mem_resp[VLOOKUP2].v) begin
 `ifdef SUPPORT_HASHPT
 	if (ptg_fault) begin
 		clr_ptg_fault <= 1'b1;
-		if (mem_resp[CACHE2].func==MR_ICACHE_LOAD)
-			mem_resp[CACHE3].cause <= {4'h8,FLT_CPF};
+		if (mem_resp[VLOOKUP2].func==MR_ICACHE_LOAD)
+			mem_resp[PADR_SET].cause <= {4'h8,FLT_CPF};
 		else
-			mem_resp[CACHE3].cause <= {4'h8,FLT_DPF};
+			mem_resp[PADR_SET].cause <= {4'h8,FLT_DPF};
 	end
 `endif
- 	if (!mem_resp[CACHE2].acr[2] && (mem_resp[CACHE2].func==MR_LOAD || mem_resp[CACHE2].func==MR_LOADZ)) begin
- 		mem_resp[CACHE3].cause <= {4'h8,FLT_RDV};
- 		//tReadViolation(mem_resp[4].badAddr);
- 	end
-	case(mem_resp[CACHE2].func)
+	case(mem_resp[VLOOKUP2].func)
+	MR_TLBRW,MR_TLB_RD:
+		mem_resp[PADR_SET].wr <= TRUE;
 	MR_ICACHE_LOAD:
-		mem_resp[CACHE3].wr <= TRUE;
+		mem_resp[PADR_SET].wr <= TRUE;
 	MR_LOAD,MR_LOADZ:
 		case(1'b1)
-		tlb_access:	begin mem_resp[CACHE3].res <= tlbdato; end
-		ptgram_en:	begin mem_resp[CACHE3].res <= ptgram_dato; end
-		rgn_en:			begin mem_resp[CACHE3].res <= rgn_dat_o; end
-		pmtram_ena:	begin mem_resp[CACHE3].res <= pmtram_douta; end
+		tlb_access:	begin mem_resp[PADR_SET].res <= tlbdato; end
+		ptgram_en:	begin mem_resp[PADR_SET].res <= ptgram_dato; end
+		rgn_en:			begin mem_resp[PADR_SET].res <= rgn_dat_o; end
+		pmtram_ena:	begin mem_resp[PADR_SET].res <= pmtram_douta; end
 		default:		
 			begin
-				mem_resp[CACHE3].res <= dc_line;
-				mem_resp[CACHE3].wr <= !dce & dhit & mem_resp[CACHE2].acr[3];
-				mem_resp[CACHE3].sz <= {dhito,dhite};
-				if (!(dce & dhit & mem_resp[CACHE2].acr[3]))
-					mem_resp[CACHE3].cause <= {4'h8,FLT_DCM};
+				mem_resp[PADR_SET].res <= dc_line;
+				mem_resp[PADR_SET].wr <= !dce & dhit & mem_resp[VLOOKUP2].acr[3];
+				mem_resp[PADR_SET].sz <= {dhito,dhite};
+				if (!(dce & dhit & mem_resp[VLOOKUP2].acr[3]))
+					mem_resp[PADR_SET].cause <= {4'h8,FLT_DCM};
 			end
 	  endcase
 	MR_STORE:	
 		begin
-			mem_resp[CACHE3].wr <= TRUE;
-			case(mem_resp[CACHE2].sz)
+			mem_resp[PADR_SET].wr <= TRUE;
+			case(mem_resp[VLOOKUP2].sz)
 			byt:	;	// Cant be unaligned
-			wyde:	if (mem_resp[CACHE2].badAddr[5:0] > 6'd62)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
-			tetra:if (mem_resp[CACHE2].badAddr[5:0] > 6'd60)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
-			default:	if (mem_resp[CACHE2].badAddr[5:0] > 6'd60)	mem_resp[CACHE3].cause <= {4'h8,FLT_ALN};
+			wyde:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd62)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
+			tetra:if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
+			default:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
 			endcase
-			if (mem_resp[CACHE2].badAddr[6])
-  			mem_resp[CACHE3].res <= (dc_oline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[5:4],7'b0}) & stmask);
+			if (mem_resp[VLOOKUP2].badAddr[6])
+  			mem_resp[PADR_SET].res <= (dc_oline & ~stmask) | ((mem_resp[VLOOKUP2].res << {mem_resp[VLOOKUP2].badAddr[5:4],7'b0}) & stmask);
 			else
-  			mem_resp[CACHE3].res <= (dc_eline & ~stmask) | ((mem_resp[CACHE2].res << {mem_resp[CACHE2].badAddr[5:4],7'b0}) & stmask);
+  			mem_resp[PADR_SET].res <= (dc_eline & ~stmask) | ((mem_resp[VLOOKUP2].res << {mem_resp[VLOOKUP2].badAddr[5:4],7'b0}) & stmask);
 		end
 	default:	;
 	endcase
@@ -2372,37 +2386,37 @@ endtask
 // Align the data and send it back
 task tCacheDataAlign;
 begin
-	mem_resp[DATA_ALN] <= mem_resp[CACHE3];
-	mem_resp[DATA_ALN].wr <= mem_resp[CACHE3].wr & mem_resp[CACHE3].v;
-	if (mem_resp[CACHE3].v) begin
+	mem_resp[DATA_ALN] <= mem_resp[PADR_SET];
+	mem_resp[DATA_ALN].wr <= mem_resp[PADR_SET].wr & mem_resp[PADR_SET].v;
+	if (mem_resp[PADR_SET].v) begin
 		memresp.wr <= TRUE;			// always send something back
-		memresp <= mem_resp[CACHE3];
-	  case(mem_resp[CACHE3].func)
+		memresp <= mem_resp[PADR_SET];
+	  case(mem_resp[PADR_SET].func)
 	  MR_LOAD,MR_MOVLD:
-			if (mem_resp[CACHE3].func2!=MR_LDV)
+			if (mem_resp[PADR_SET].func2!=MR_LDV)
 	    	case(memreq.sz)
-	    	nul:	memresp.res[mem_resp[CACHE3].step] <= 'h0;
-	    	byt:	memresp.res[mem_resp[CACHE3].step] <= {{56{datis[7]}},datis[7:0]};
-	    	wyde:	memresp.res[mem_resp[CACHE3].step] <= {{48{datis[15]}},datis[15:0]};
-	    	tetra:	memresp.res[mem_resp[CACHE3].step] <= {{32{datis[31]}},datis[31:0]};
+	    	nul:	memresp.res[mem_resp[PADR_SET].step] <= 'h0;
+	    	byt:	memresp.res[mem_resp[PADR_SET].step] <= {{56{datis[7]}},datis[7:0]};
+	    	wyde:	memresp.res[mem_resp[PADR_SET].step] <= {{48{datis[15]}},datis[15:0]};
+	    	tetra:	memresp.res[mem_resp[PADR_SET].step] <= {{32{datis[31]}},datis[31:0]};
 	//    	octa:	begin memresp.res[mem_resp[5].step] <= {{64{datis[63]}},datis[63:0]}; end
 	//    	hexi:	begin memresp.res <= datis[127:0]; end
 	//    	hexipair:	memresp.res <= dati;
 	//    	hexiquad:	begin memresp.res <= dati512; end
-	    	default:	memresp.res[mem_resp[CACHE3].step] <= mem_resp[CACHE3].res;
+	    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
 	    	endcase
 	  MR_LOADZ:
-			if (mem_resp[CACHE3].func2!=MR_LDV)
-	    	case(mem_resp[CACHE3].sz)
-	    	nul:	memresp.res[mem_resp[CACHE3].step] <= 'h0;
-	    	byt:	begin memresp.res[mem_resp[CACHE3].step] <= {56'd0,datis[7:0]}; end
-	    	wyde:	begin memresp.res[mem_resp[CACHE3].step] <= {48'd0,datis[15:0]}; end
-	    	tetra:	begin memresp.res[mem_resp[CACHE3].step] <= {32'd0,datis[31:0]}; end
+			if (mem_resp[PADR_SET].func2!=MR_LDV)
+	    	case(mem_resp[PADR_SET].sz)
+	    	nul:	memresp.res[mem_resp[PADR_SET].step] <= 'h0;
+	    	byt:	begin memresp.res[mem_resp[PADR_SET].step] <= {56'd0,datis[7:0]}; end
+	    	wyde:	begin memresp.res[mem_resp[PADR_SET].step] <= {48'd0,datis[15:0]}; end
+	    	tetra:	begin memresp.res[mem_resp[PADR_SET].step] <= {32'd0,datis[31:0]}; end
 	//    	octa:	begin memresp.res[mem_resp[5].step] <= {64'd0,datis[63:0]}; end
 	//    	hexi:	begin memresp.res <= datis[127:0]; end
 	//    	hexipair:	memresp.res <= dati;
 	//    	hexiquad:	begin memresp.res <= dati512; end
-	    	default:	memresp.res[mem_resp[CACHE3].step] <= mem_resp[CACHE3].res;
+	    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
 	    	endcase
 	  default:  ;
 	  endcase

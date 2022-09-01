@@ -183,6 +183,7 @@ begin
 	LDB,LDBU,LDW,LDWU,LDT,
 	STB,STW,STT:
 		deco.imm = {{16{ir.ls.disp[15]}},ir.ls.disp};
+	CSR:	deco.imm = {{16{ir.ri.imm[15]}},ir.ri.imm};
 	default:	deco.imm = 'd0;
 	endcase	
 	if (pfx.opcode==PFX)
