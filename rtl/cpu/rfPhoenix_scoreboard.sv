@@ -1,10 +1,10 @@
+`timescale 1ns / 1ps
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2021-2022  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2022  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
-//	rfPhoenix_stmask.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -35,23 +35,87 @@
 // ============================================================================
 
 import rfPhoenixPkg::*;
-import rfPhoenixMmupkg::*;
 
-module rfPhoenix_stmask(sel, adr, mask);
-input [63:0] sel;
-input [5:0] adr;
-output reg [1023:0] mask;
+module rfPhoenix_scoreboard(rst, clk, db, wb_v, wb_Rt, will_issue, can_issue, rollback, rollback_bitmap);
+input rst;
+input clk;
+input DecodeBus db;
+input wb_v;
+input Regspec wb_Rt;
+input will_issue;
+output reg can_issue;
+input rollback;
+input [127:0] rollback_bitmap;
+localparam ROLLBACK_STAGES = 5;
 
-reg [511:0] lomask;
+integer n1;
 
-// Build an insert mask for data cache store operations.
-genvar g;
-generate begin : gStMask
-for (g = 0; g < 64; g = g + 1)
-	always_comb
-		lomask[g*8+7:g*8] <= sel[g] ? 8'hFF : 8'h00;
+typedef logic [127:0] bitmap;
+
+bitmap valid, nxt_valid;
+bitmap srcs;
+bitmap tgts;	// targets
+bitmap wbs;
+bitmap clr_bm;
+bitmap set_bm;
+bitmap rollback_bm;
+logic [ROLLBACK_STAGES-1:0] has_wb;
+Regspec [ROLLBACK_STAGES-1:0] wb_Rts;
+
+always_comb
+begin
+	srcs = 'd0;
+	if (db.hasRa)	srcs[db.Ra] = 1'b1;
+	if (db.hasRb) srcs[db.Rb] = 1'b1;
+	if (db.hasRc) srcs[db.Rc] = 1'b1;
+	if (db.hasRm) srcs[db.Rm] = 1'b1;
+	if (db.hasRt) srcs[db.Rt] = 1'b1;
 end
-endgenerate
-always_comb mask <= lomask << {adr,3'd0};
+
+always_comb
+begin
+	tgts = 'd0;
+	if (db.hasRt) tgts[db.Rt] = 1'b1;
+end
+
+always_comb
+begin
+	wbs = 'd0;
+	if (wb_v) wbs[wb_Rt] = 1'b1;
+end
+
+always_comb
+	set_bm = wbs | (rollback ? rollback_bitmap : 'd0);
+always_comb
+	clr_bm = tgts & {128{will_issue}};
+always_comb
+	nxt_valid = (valid & ~clr_bm) | set_bm;
+
+always_ff @(posedge clk)
+if (rst)
+	valid <= {128{1'b1}};
+else begin
+	valid <= nxt_valid;
+end
+
+always_ff @(posedge clk)
+if (rst)
+	has_wb <= 'd0;
+else
+	has_wb <= {has_wb,db.hasRt};
+
+// Capture rollback targets
+always_ff @(posedge clk)
+begin
+	if (will_issue & db.hasRt)
+		wb_Rts[0] <= db.Rt;
+	else
+		wb_Rts[0] <= 'd0;
+	for (n1 = 1; n1 < ROLLBACK_STAGES; n1 = n1 + 1)
+		wb_Rts[n1] <= wb_Rts[n1-1];	
+end
+
+always_comb
+	can_issue = (valid & srcs) == srcs;
 
 endmodule

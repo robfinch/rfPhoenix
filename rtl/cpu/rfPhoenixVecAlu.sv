@@ -71,7 +71,7 @@ integer n2;
 always_comb begin
 	ptendx = 32'hFFFFFFFF;
 	for (n2 = 0; n2 < 8; n2 = n2 + 1)
-		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[21]))
+		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[n2*2+1][21]))
 			ptendx = n2;
 end
 

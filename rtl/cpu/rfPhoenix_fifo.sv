@@ -36,29 +36,33 @@
 //                                                                          
 // ============================================================================
 //
-module rfPhoenix_fifo(rst, clk, wr, di, rd, dout, cnt, full, v);
+module rfPhoenix_fifo(rst, clk, wr, di, rd, dout, cnt, almost_full, full, empty, v);
 parameter WID=3;
+parameter DEP=16;
 input rst;
 input clk;
 input wr;
 input [WID-1:0] di;
 input rd;
-output reg [WID-1:0] dout;
-output reg [5:0] cnt;
-output reg full;
-output reg v;
+output reg [WID-1:0] dout = 'd0;
+output reg [5:0] cnt = 'd0;
+output reg almost_full = 'd0;
+output reg full = 'd0;
+output reg empty = 'd0;
+output reg v = 'd0;
 
 reg [5:0] wr_ptr;
 reg [5:0] rd_ptr;
-reg [WID-1:0] mem [0:63];
+reg [WID-1:0] mem [0:DEP-1];
 integer n;
 
 always_ff @(posedge clk)
 	if (rst) begin
 		wr_ptr <= 'd0;
 		rd_ptr <= 'd0;
-		for (n = 0; n < 64; n = n + 1)
-			mem[n] <= 'd0;		
+		for (n = 0; n < DEP; n = n + 1)
+			mem[n] <= 'd0;
+		dout <= 'd0;
 	end
 	else begin
 		if (rd & wr)
@@ -76,10 +80,13 @@ always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;
 	else
-		cnt = wr_ptr + (7'd64 - rd_ptr);
-
+		cnt = wr_ptr + (DEP - rd_ptr);
 always_comb
-	full = cnt==6'd63;
+	almost_full = cnt > DEP - 5;
+always_comb
+	full = cnt==DEP-1;
+always_comb
+	empty = cnt=='d0;
 always_comb
 	v = cnt > 'd0;
 

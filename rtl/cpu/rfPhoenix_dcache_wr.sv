@@ -38,13 +38,14 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_dcache_wr(clk, state, ack, func, dce, hit, inv, acr, eaeo, daeo, wr);
+module rfPhoenix_dcache_wr(clk, state, ack, func, dce, hit, hit2, inv, acr, eaeo, daeo, wr);
 input clk;
 input [6:0] state;
 input ack;
 input [6:0] func;
 input dce;
 input hit;
+input hit2;
 input inv;
 input [3:0] acr;
 input eaeo;
@@ -55,24 +56,22 @@ always_ff @(posedge clk)
 begin
 	wr <= 1'b0;
 	case(state)
-	MEMORY_ACKLO:
-		if (!inv && (dce & hit & acr[3]) &&
-			(func==MR_STORE || func==MR_MOVST || func==M_CALL) &&
-			ack) begin
-			if (~eaeo)
-				wr <= 1'b1;
-		end
 	MEMORY_ACKHI:
-		if ((dce & hit & acr[3]) && 
-			(func==MR_STORE || func==MR_MOVST || func==M_CALL) &&
-			ack) begin
+		if (hit2 && 
+			(func==MR_STORE || func==MR_MOVST) && ack) begin
+			if (~eaeo)
+				wr <= acr[3];	// must be cachable data for cache to update
+		end
+	MEMORY13:
+		if (hit2 && 
+			(func==MR_STORE || func==MR_MOVST) &&	ack) begin
 			if (eaeo)
-				wr <= 1'b1;
+				wr <= acr[3];
 		end
 	DFETCH7:
 		begin
 	  	if (daeo)
-	  		wr <= 1'b1;
+	  		wr <= acr[3];
 	  end
 	IPT_RW_PTG4:
 		if (!inv && (dce & hit) && func==MR_STORE && ack) begin

@@ -1,10 +1,12 @@
+`timescale 1ns / 1ps
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2021-2022  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2022  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
-//	rfPhoenix_stmask.sv
+//
+//	rfPhoenix_fifo.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -33,25 +35,79 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                                                                          
 // ============================================================================
-
+//
 import rfPhoenixPkg::*;
-import rfPhoenixMmupkg::*;
 
-module rfPhoenix_stmask(sel, adr, mask);
-input [63:0] sel;
-input [5:0] adr;
-output reg [1023:0] mask;
+module rfPhoenix_mem_resp_fifo(rst, clk, wr, di, rd, dout, cnt, full, empty, v, 
+	rollback, rollback_thread, rollback_bitmap);
+parameter WID=3;
+parameter DEP=16;
+input rst;
+input clk;
+input wr;
+input MemoryResponse di;
+input rd;
+output MemoryResponse dout;
+output reg [5:0] cnt;
+output reg full;
+output reg empty;
+output reg v;
+input rollback;
+input [3:0] rollback_thread;
+output reg [127:0] rollback_bitmap;
 
-reg [511:0] lomask;
+reg [127:0] rollback_bitmaps [0:NTHREADS];
 
-// Build an insert mask for data cache store operations.
-genvar g;
-generate begin : gStMask
-for (g = 0; g < 64; g = g + 1)
-	always_comb
-		lomask[g*8+7:g*8] <= sel[g] ? 8'hFF : 8'h00;
-end
-endgenerate
-always_comb mask <= lomask << {adr,3'd0};
+reg [5:0] wr_ptr;
+reg [5:0] rd_ptr;
+MemoryResponse  [DEP-1:0] mem;
+integer n,n2;
+
+always_ff @(posedge clk)
+	if (rst) begin
+		for (n = 0; n < NTHREADS; n = n + 1)
+			rollback_bitmaps[n] <= 'd0;
+		wr_ptr <= 'd0;
+		rd_ptr <= 'd0;
+		for (n = 0; n < DEP; n = n + 1)
+			mem[n] <= 'd0;		
+	end
+	else begin
+		if (rd & wr) begin
+			mem[wr_ptr] <= di;
+			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
+		end
+		else if (wr) begin
+			mem[wr_ptr] <= di;
+			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
+			wr_ptr <= wr_ptr + 2'd1;
+		end
+		else if (rd) begin
+			rd_ptr <= rd_ptr + 2'd1;
+			rollback_bitmaps[dout.thread][dout.tgt] <= 1'b0;
+		end
+		dout <= mem[rd_ptr[5:0]];
+		if (rollback) begin
+			for (n = 0; n < DEP; n = n + 1)
+				if (mem[n].thread==rollback_thread)	
+					mem[n].v <= 1'b0;
+			rollback_bitmaps[rollback_thread] <= 'd0;
+		end
+	end
+always_comb
+	if (wr_ptr >= rd_ptr)
+		cnt = wr_ptr - rd_ptr;
+	else
+		cnt = wr_ptr + (DEP - rd_ptr);
+
+always_comb
+	full = cnt==DEP-1;
+always_comb
+	empty = cnt=='d0;
+always_comb
+	v = cnt > 'd0;
+
+always_comb
+	rollback_bitmap = rollback_bitmaps[rollback_thread];
 
 endmodule

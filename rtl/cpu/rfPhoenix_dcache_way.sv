@@ -61,14 +61,14 @@ else begin
 	case(state)
 	MEMORY_ACKLO:
 		if (!inv && (dce & hit & acr[3]) &&
-			(func==MR_STORE || func==MR_MOVST || func==M_CALL) &&
+			(func==MR_STORE || func==MR_MOVST) &&
 			ack) begin
 			//if (~eaeo)
 				wway <= rway;
 		end
 	MEMORY_ACKHI:
 		if ((dce & hit & acr[3]) && 
-			(func==MR_STORE || func==MR_MOVST || func==M_CALL) &&
+			(func==MR_STORE || func==MR_MOVST) &&
 			ack) begin
 			//if (eaeo)
 				wway <= rway;
