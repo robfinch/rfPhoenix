@@ -11,127 +11,141 @@ parameter REB_ENTRIES = 4;
 
 parameter RSTIP	= 32'hFFFD0000;
 
-parameter BRK			= 6'h00;
-parameter PFX			= 6'h01;
-parameter R2			= 6'h02;
-parameter ADDI		= 6'h04;
-parameter SUBFI		= 6'h05;
-parameter MULI		= 6'h06;
-parameter CSR			= 6'h07;
-parameter ANDI		= 6'h08;
-parameter ORI			= 6'h09;
-parameter XORI		= 6'h0A;
-parameter NOP			= 6'h0B;
-parameter CMPI		= 6'h0D;
-parameter CMP_EQI	= 6'h0E;
-parameter CMP_NEI	= 6'h0F;
-parameter CMP_LTI	= 6'h10;
-parameter CMP_GEI	= 6'h11;
-parameter CMP_LEI	= 6'h12;
-parameter CMP_GTI	= 6'h13;
-parameter CMP_LTUI	= 6'h14;
-parameter CMP_GEUI	= 6'h15;
-parameter CMP_LEUI	= 6'h16;
-parameter CMP_GTUI	= 6'h17;
-parameter CALLA		= 6'h18;
-parameter CALLR		= 6'h19;
-parameter JMP			= 6'h1A;
-parameter BRA			= 6'h1B;
-parameter Bcc			= 6'h1C;
-parameter FBcc		= 6'h1D;
-parameter FCMP_EQI	= 6'h1E;
-parameter FCMP_NEI	= 6'h1F;
-parameter FCMP_LTI	= 6'h24;
-parameter FCMP_GEI	= 6'h25;
-parameter FCMP_LEI	= 6'h26;
-parameter FCMP_GTI	= 6'h27;
-parameter FMA 		= 6'h2C;
-parameter FMS 		= 6'h2D;
-parameter FNMA		= 6'h2E;
-parameter FNMS 		= 6'h2F;
-parameter LDB			= 6'h30;
-parameter LDBU		= 6'h31;
-parameter LDW			= 6'h32;
-parameter LDWU		= 6'h33;
-parameter LDT			= 6'h34;
-parameter LDR			= 6'h35;
-parameter STB			= 6'h38;
-parameter STW			= 6'h39;
-parameter STT			= 6'h3A;
-parameter STC			= 6'h3B;
+parameter pL1CacheLines = 64;
+parameter pL1LineSize = 512;
+parameter pL1ICacheLines = 512;
+// The following arrived at as 512+32 bits for word at end of cache line, plus
+// 40 bits for a possible constant postfix
+parameter pL1ICacheLineSize = 584;
+localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
+
+typedef enum [5:0] {
+	BRK			= 6'h00,
+	PFX			= 6'h01,
+	R2			= 6'h02,
+	ADDI		= 6'h04,
+	SUBFI		= 6'h05,
+	MULI		= 6'h06,
+	CSR			= 6'h07,
+	ANDI		= 6'h08,
+	ORI			= 6'h09,
+	XORI		= 6'h0A,
+	NOP			= 6'h0B,
+	CMPI		= 6'h0D,
+	CMP_EQI	= 6'h0E,
+	CMP_NEI	= 6'h0F,
+	CMP_LTI	= 6'h10,
+	CMP_GEI	= 6'h11,
+	CMP_LEI	= 6'h12,
+	CMP_GTI	= 6'h13,
+	CMP_LTUI	= 6'h14,
+	CMP_GEUI	= 6'h15,
+	CMP_LEUI	= 6'h16,
+	CMP_GTUI	= 6'h17,
+	CALLA		= 6'h18,
+	CALLR		= 6'h19,
+	JMP			= 6'h1A,
+	BRA			= 6'h1B,
+	Bcc			= 6'h1C,
+	FBcc		= 6'h1D,
+	FCMP_EQI	= 6'h1E,
+	FCMP_NEI	= 6'h1F,
+	FCMP_LTI	= 6'h24,
+	FCMP_GEI	= 6'h25,
+	FCMP_LEI	= 6'h26,
+	FCMP_GTI	= 6'h27,
+	FMA 		= 6'h2C,
+	FMS 		= 6'h2D,
+	FNMA		= 6'h2E,
+	FNMS 		= 6'h2F,
+	LDB			= 6'h30,
+	LDBU		= 6'h31,
+	LDW			= 6'h32,
+	LDWU		= 6'h33,
+	LDT			= 6'h34,
+	LDR			= 6'h35,
+	STB			= 6'h38,
+	STW			= 6'h39,
+	STT			= 6'h3A,
+	STC			= 6'h3B
+} Opcode;
 
 // R2 ops
-parameter R1			= 6'h01;
-parameter VSHUF		= 6'h02;
-parameter VEX			= 6'h03;
-parameter ADD			= 6'h04;
-parameter SUB			= 6'h05;
-parameter TLBRW		= 6'h07;
-parameter AND			= 6'h08;
-parameter OR			= 6'h09;
-parameter XOR			= 6'h0A;
-parameter VEINS		= 6'h0C;
-parameter CMP			= 6'h0D;
-parameter CMP_EQ	= 6'h0E;
-parameter CMP_NE	= 6'h0F;
-parameter CMP_LT	= 6'h10;
-parameter CMP_GE	= 6'h11;
-parameter CMP_LE	= 6'h12;
-parameter CMP_GT	= 6'h13;
-parameter CMP_LTU	= 6'h14;
-parameter CMP_GEU	= 6'h15;
-parameter CMP_LEU	= 6'h16;
-parameter CMP_GTU	= 6'h17;
-parameter SLLI		= 6'h18;
-parameter SRLI		= 6'h19;
-parameter SRAI		= 6'h1A;
-parameter SLL			= 6'h1B;
-parameter SRL			= 6'h1C;
-parameter SRA			= 6'h1D;
-parameter FCMP_EQ	= 6'h1E;
-parameter FCMP_NE	= 6'h1F;
-parameter FCMP_LT	= 6'h24;
-parameter FCMP_GE	= 6'h25;
-parameter FCMP_LE	= 6'h26;
-parameter FCMP_GT	= 6'h27;
-parameter VSLLVI	= 6'h20;
-parameter VSRLVI	= 6'h21;
-parameter VSLLV		= 6'h22;
-parameter VSRLV		= 6'h23;
-parameter SHPTENDX	= 6'h28;
-parameter FADD		= 6'h2C;
-parameter FSUB		= 6'h2D;
-parameter FMUL		= 6'h2E;
-parameter LDBX		= 6'h30;
-parameter LDBUX		= 6'h31;
-parameter LDWX		= 6'h32;
-parameter LDWUX		= 6'h33;
-parameter LDTX		= 6'h34;
-parameter LDRX		= 6'h35;
-parameter STBX		= 6'h38;
-parameter STWX		= 6'h39;
-parameter STTX		= 6'h3A;
-parameter STCX		= 6'h3B;
+typedef enum [5:0] {
+	R1			= 6'h01,
+	VSHUF		= 6'h02,
+	VEX			= 6'h03,
+	ADD			= 6'h04,
+	SUB			= 6'h05,
+	TLBRW		= 6'h07,
+	AND			= 6'h08,
+	OR			= 6'h09,
+	XOR			= 6'h0A,
+	VEINS		= 6'h0C,
+	CMP			= 6'h0D,
+	CMP_EQ	= 6'h0E,
+	CMP_NE	= 6'h0F,
+	CMP_LT	= 6'h10,
+	CMP_GE	= 6'h11,
+	CMP_LE	= 6'h12,
+	CMP_GT	= 6'h13,
+	CMP_LTU	= 6'h14,
+	CMP_GEU	= 6'h15,
+	CMP_LEU	= 6'h16,
+	CMP_GTU	= 6'h17,
+	SLLI		= 6'h18,
+	SRLI		= 6'h19,
+	SRAI		= 6'h1A,
+	SLL			= 6'h1B,
+	SRL			= 6'h1C,
+	SRA			= 6'h1D,
+	FCMP_EQ	= 6'h1E,
+	FCMP_NE	= 6'h1F,
+	FCMP_LT	= 6'h24,
+	FCMP_GE	= 6'h25,
+	FCMP_LE	= 6'h26,
+	FCMP_GT	= 6'h27,
+	VSLLVI	= 6'h20,
+	VSRLVI	= 6'h21,
+	VSLLV		= 6'h22,
+	VSRLV		= 6'h23,
+	SHPTENDX	= 6'h28,
+	FADD		= 6'h2C,
+	FSUB		= 6'h2D,
+	FMUL		= 6'h2E,
+	LDBX		= 6'h30,
+	LDBUX		= 6'h31,
+	LDWX		= 6'h32,
+	LDWUX		= 6'h33,
+	LDTX		= 6'h34,
+	LDRX		= 6'h35,
+	STBX		= 6'h38,
+	STWX		= 6'h39,
+	STTX		= 6'h3A,
+	STCX		= 6'h3B
+} R2Func;
 
 // R1 ops
-parameter CNTLZ		= 6'h00;
-parameter CNTPOP	= 6'h02;
-parameter PTGHASH	= 6'h07;
-parameter RTI			= 6'h19;
-parameter REX			= 6'h1A;
-parameter FFINITE = 6'h20;
-parameter FNEG		= 6'h23;
-parameter FRSQRTE	= 6'h24;
-parameter FRES		= 6'h25;
-parameter FSIGMOID= 6'h26;
-parameter I2F			= 6'h28;
-parameter F2I			= 6'h29;
-parameter FABS		= 6'h2A;
-parameter FNABS		= 6'h2B;
-parameter FCLASS	= 6'h2C;
-parameter FMAN		= 6'h2D;
-parameter FSIGN		= 6'h2E;
-parameter FTRUNC	= 6'h2F;
+typedef enum [5:0] {
+	CNTLZ		= 6'h00,
+	CNTPOP	= 6'h02,
+	PTGHASH	= 6'h07,
+	RTI			= 6'h19,
+	REX			= 6'h1A,
+	FFINITE = 6'h20,
+	FNEG		= 6'h23,
+	FRSQRTE	= 6'h24,
+	FRES		= 6'h25,
+	FSIGMOID= 6'h26,
+	I2F			= 6'h28,
+	F2I			= 6'h29,
+	FABS		= 6'h2A,
+	FNABS		= 6'h2B,
+	FCLASS	= 6'h2C,
+	FMAN		= 6'h2D,
+	FSIGN		= 6'h2E,
+	FTRUNC	= 6'h2F
+} R1Func;
 
 parameter NOP_INSN	= {34'd0,NOP};
 
@@ -191,47 +205,45 @@ parameter CSR_TIME	= 16'h?FE0;
 parameter CSR_MTIME	= 16'h3FE0;
 parameter CSR_MTIMECMP	= 16'h3FE1;
 
-parameter FLT_NONE	= 8'h00;
-parameter FLT_TLBMISS = 8'h04;
-parameter FLT_DCM		= 8'h05;
-parameter FLT_IADR	= 8'h22;
-parameter FLT_CHK		= 8'h27;
-parameter FLT_DBZ		= 8'h28;
-parameter FLT_OFL		= 8'h29;
-parameter FLT_ALN		= 8'h30;
-parameter FLT_KEY		= 8'h31;
-parameter FLT_WRV		= 8'h32;
-parameter FLT_RDV		= 8'h33;
-parameter FLT_SGB		= 8'h34;
-parameter FLT_PRIV	= 8'h35;
-parameter FLT_WD		= 8'h36;
-parameter FLT_UNIMP	= 8'h37;
-parameter FLT_CPF		= 8'h39;
-parameter FLT_DPF		= 8'h3A;
-parameter FLT_LVL		= 8'h3B;
-parameter FLT_PMA		= 8'h3D;
-parameter FLT_BRK		= 8'h3F;
-parameter FLT_PFX		= 8'hC8;
-parameter FLT_TMR		= 8'hE2;
-parameter FLT_RTI		= 8'hED;
-parameter FLT_IRQ		= 8'hEE;
-parameter FLT_NMI		= 8'hFE;
+typedef enum [11:0] {
+	FLT_NONE	= 12'h000,
+	FLT_TLBMISS = 12'h04,
+	FLT_DCM		= 12'h005,
+	FLT_IADR	= 12'h022,
+	FLT_CHK		= 12'h027,
+	FLT_DBZ		= 12'h028,
+	FLT_OFL		= 12'h029,
+	FLT_ALN		= 12'h030,
+	FLT_KEY		= 12'h031,
+	FLT_WRV		= 12'h032,
+	FLT_RDV		= 12'h033,
+	FLT_SGB		= 12'h034,
+	FLT_PRIV	= 12'h035,
+	FLT_WD		= 12'h036,
+	FLT_UNIMP	= 12'h037,
+	FLT_CPF		= 12'h039,
+	FLT_DPF		= 12'h03A,
+	FLT_LVL		= 12'h03B,
+	FLT_PMA		= 12'h03D,
+	FLT_BRK		= 12'h03F,
+	FLT_PFX		= 12'h0C8,
+	FLT_TMR		= 12'h0E2,
+	FLT_RTI		= 12'h0ED,
+	FLT_IRQ		= 12'h8EE,
+	FLT_NMI		= 12'h8FE
+} CauseCode;
 
-parameter pL1CacheLines = 64;
-parameter pL1LineSize = 512;
-parameter pL1ICacheLines = 512;
-parameter pL1ICacheLineSize = 640;
-localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
-
-parameter nul = 3'd0;
-parameter byt = 3'd1;
-parameter wyde = 3'd2;
-parameter tetra = 3'd3;
-parameter octa = 3'd4;
-parameter vect = 3'd5;
+typedef enum logic [2:0] {
+	nul = 3'd0,
+	byt = 3'd1,
+	wyde = 3'd2,
+	tetra = 3'd3,
+	octa = 3'd4,
+	vect = 3'd5
+} memsz_t;
 
 typedef logic [11:0] CauseCode;
-typedef logic [3:0] Tid;
+typedef logic [2:0] Tid;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
 typedef logic [31:0] VirtualAddress;
@@ -240,12 +252,11 @@ typedef logic [31:0] CodeAddress;
 typedef logic [31:0] Value;
 typedef logic [63:0] DoubleValue;
 typedef Value [15:0] VecValue;
-typedef logic [5:0] Opcode;
 typedef logic [5:0] Func;
 
 typedef struct packed
 {
-	logic vec;
+	logic vec;					// 1=vector register
 	logic [5:0] num;
 } Regspec;
 
@@ -253,6 +264,7 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [15:0] pad2;
 	logic [15:0] imm;
 	logic [1:0] pad;
 	Opcode opcode;
@@ -280,13 +292,26 @@ typedef struct packed
 {
 	logic m;
 	logic [2:0] pad;
-	Func func;
+	R2Func func;
 	Regspec Rb;
 	logic [2:0] mask;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
 } r2inst;
+
+typedef struct packed
+{
+	logic m;
+	logic [2:0] pad;
+	R2Func func;
+	logic Tb;
+	R1Func func1;
+	logic [2:0] mask;
+	Regspec Ra;
+	Regspec Rt;
+	Opcode opcode;
+} r1inst;
 
 typedef struct packed
 {
@@ -346,6 +371,7 @@ typedef union packed
 {
 	f3inst 	f3;
 	r2inst	r2;
+	r1inst	r1;
 	brinst	br;
 	callinst	call;
 	callinst	jmp;
@@ -403,7 +429,7 @@ typedef struct packed
 	logic storen;
 	logic store;
 	logic stc;
-	logic [2:0] memsz;
+	memsz_t memsz;
 	logic br;						// conditional branch
 	logic cjb;					// call, jmp, or bra
 	logic brk;
@@ -465,7 +491,7 @@ parameter MR_STPTR	= 4'd9;
 typedef struct packed
 {
 	logic [7:0] tid;		// tran id
-	logic [3:0] thread;	// 
+	Tid thread;					// 
 	logic [1:0] omode;	// operating mode
 	CodeAddress ip;			// Debubgging aid
 	logic [5:0] step;		// vector operation step
@@ -477,8 +503,8 @@ typedef struct packed
 	ASID asid;
 	Address adr;
 	CodeAddress vcadr;		// victim cache address
-	logic [639:0] dat;	// 512+128 for icache line
-	logic [3:0] sz;		// indicates size of data
+	logic [pL1ICacheLineSize-1:0] dat;	// 512+40 for icache line
+	memsz_t sz;					// indicates size of data
 	logic [63:0] sel;
 	logic [3:0] acr;		// acr bits from TLB lookup
 	Regspec tgt;				// target register
@@ -488,7 +514,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic [7:0] tid;		// tran id
-	logic [3:0] thread;
+	Tid thread;
 	logic [1:0] omode;	// operating mode
 	CodeAddress ip;			// Debugging aid
 	logic [5:0] step;
@@ -506,7 +532,7 @@ typedef struct packed
 	Value dat;
 	logic dchit;
 	logic cmt;
-	logic [3:0] sz;		// indicates size of data
+	memsz_t sz;					// indicates size of data
 	logic [3:0] acr;		// acr bits from TLB lookup
 	logic tlb_access;
 	logic ptgram_en;
