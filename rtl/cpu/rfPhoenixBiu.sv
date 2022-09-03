@@ -97,7 +97,7 @@ input clr_ipage_fault;
 output reg itlbmiss;
 input clr_itlbmiss;
 input rollback;
-input [3:0] rollback_thread;
+input Tid rollback_thread;
 output reg [127:0] rollback_bitmap;
 
 parameter TRUE = 1'b1;
@@ -457,7 +457,7 @@ uicval1
 	.ip(ipo),
 	.adr(adr_o),
 	.wr(icache_wr),
-	.way(waycnt),
+	.way(ic_wway),
 	.invline(ic_invline),
 	.invall(ic_invall),
 	.valid(icvalid)

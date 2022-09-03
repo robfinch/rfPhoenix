@@ -62,7 +62,6 @@ always_ff @(posedge clk)
 		rd_ptr <= 'd0;
 		for (n = 0; n < DEP; n = n + 1)
 			mem[n] <= 'd0;
-		dout <= 'd0;
 	end
 	else begin
 		if (rd & wr)
@@ -74,8 +73,9 @@ always_ff @(posedge clk)
 		else if (rd) begin
 			rd_ptr <= rd_ptr + 2'd1;
 		end
-		dout <= mem[rd_ptr[5:0]];
 	end
+always_comb
+	dout = mem[rd_ptr];
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;

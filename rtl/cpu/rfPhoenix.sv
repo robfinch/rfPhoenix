@@ -85,18 +85,19 @@ ExecuteBuffer ebq [0:NTHREADS-1];
 // Only one write of r0 is allowed, to set the value to zero.
 reg [NTHREADS-1:0] rz;
 reg [NTHREADS-1:0] gie;
-reg [3:0] exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+Tid exndx,oundx,wbndx,xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 reg exndx_v,oundx_v,wbndx_v,itndx_v;
-reg [3:0] dcndx, rfndx, itndx;
-reg dcndx_v,rfndx_v,xrid_v;
-reg [3:0] mcv_ridi, mcv_rido;
-reg [3:0] ithread, rthread, dthread, xthread, commit_thread;
+Tid dcndx, rfndx, itndx;
+reg dcndx_v,xrid_v;
+reg [NTHREADS-1:0] rfndx_v;
+Tid mcv_ridi, mcv_rido;
+Tid ithread, rthread, dthread, xthread, commit_thread;
 reg rthread_v, dthread_v;
 reg commit_wr, commit_wrv;
 reg [15:0] commit_mask;
 Regspec commit_tgt;
 VecValue commit_bus;
-reg [3:0] ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
+Tid ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
 reg [31:0] ips [0:NTHREADS-1];
 reg [31:0] ip, ip2, ip3, ip4;
 reg [NTHREADS-1:0] thread_busy;
@@ -153,15 +154,15 @@ CauseCode icause,dcause;
 reg [7:0] tid;
 CodeAddress last_adr;
 reg [15:0] exv;
-reg [3:0] tmpndx, tmpndx3, tmpndx4, tmpndx8, tmpndx9, prev_exndx;
-reg [3:0] prev_oundx, prev_wbndx, prev_dcndx, prev_itndx;
+Tid tmpndx, tmpndx3, tmpndx4, tmpndx8, tmpndx9, prev_exndx;
+Tid prev_oundx, prev_wbndx, prev_dcndx, prev_itndx;
 wire [25:0] ic_tag;
 reg [25:0] ic_tag2;
 ExecuteBuffer [NTHREADS-1:0] dcbuf;
 ExecuteBuffer [NTHREADS-1:0] mceb;
 reg [NTHREADS-1:0] mem_rollback, ou_rollback, rollback;
-reg [3:0] mem_rollback_thread;
-reg [3:0] ou_rollback_thread;
+Tid mem_rollback_thread;
+Tid ou_rollback_thread;
 wire [127:0] mem_rollback_bitmap;
 reg [127:0] ou_rollback_bitmap [0:NTHREADS-1];
 reg [127:0] rollback_bitmap;
@@ -318,7 +319,7 @@ generate begin : gDecoders
 for (g = 0; g < NTHREADS; g = g + 1)
 	rfPhoenix_decoder udec1
 	(
-		.ifb(ic_ifb[g]),
+		.ifb(dc_ifb[g]),
 		.sp_sel(sp_sel[g]),
 		.deco(deco[g])
 	);
@@ -461,14 +462,15 @@ begin
 end
 endtask
 
-task tDisplayRob;
+task tDisplayEb;
 integer n;
 begin
 	$display("  ExecuteBuffer:");
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		$display("  %d: %c%c%c%c ip=%h ir=%h res=%h a=%h b=%h c=%h i=%h", n[3:0],
+		$display("  %d: %c%c%c%c%c ip=%h ir=%h res=%h a=%h b=%h c=%h i=%h", n[3:0],
 			eb[n].v ? "v":"-",
 			eb[n].decoded ? "d" : "-",
+			eb[n].regfetched ? "r": "-",
 			eb[n].out ? "o" : "-",
 			eb[n].executed ? "x" : "-",
 			eb[n].ifb.ip,
@@ -508,21 +510,24 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	ic_tag2 <= ic_tag;
 
+reg [NTHREADS-1:0] wr_ififo;
 generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
 		clr_ififo[g] = rollback[g];
 	always_comb
 		sb_will_issue[g] = g==dcndx && dcndx_v && !ififo_empty[g];
+	always_comb
+		wr_ififo[g] = ihit2 && ip_thread5==g;
 
 	rfPhoenix_fifo #(.WID($bits(InstructionFetchbuf)), .DEP(16)) ufifo1
 	(
 		.rst(rst_i|clr_ififo[g]),
 		.clk(clk_g),
-		.wr(ihit2 && ip_thread5==g),
+		.wr(wr_ififo[g]),
 		.di(ic_ifb),
 		.rd(sb_will_issue[g]),
-		.dout(dc1_ifb[g]),
+		.dout(dc_ifb[g]),
 		.cnt(),
 		.full(),
 		.almost_full(ififo_almost_full[g]),
@@ -530,8 +535,6 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.v()
 	);
 	
-	always_ff @(posedge clk_g)
-		dc_ifb[g] <= dc1_ifb[g];
 end
 end
 endgenerate
@@ -539,9 +542,10 @@ endgenerate
 integer n10;
 always_ff @(posedge clk_g)
 if (rst_i) begin
-	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1)
+	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1) begin
 		eb[n10] <= 'd0;
-	rfndx_v <= 1'b0;
+		rfndx_v[n10] <= 1'b0;
+	end
 	ra0 <= 'd0;
 	ra1 <= 'd0;
 	ra2 <= 'd0;
@@ -562,10 +566,10 @@ else begin
 			ra3 <= deco[n10].Rm.num;
 			ra4 <= fnSpSel(n10,deco[n10].Rt.num);
 			rfndx <= n10;
-			rfndx_v <= 1'b1;
+			rfndx_v[n10] <= 1'b1;
 		end
 		else
-			rfndx_v <= 1'b0;
+			rfndx_v[n10] <= 1'b0;
 end		
 
 always_ff @(posedge clk_g)
@@ -579,13 +583,8 @@ else begin
 	$display("=======================================");
 	$display("=======================================");
 	$display("  exndx=%d exv=%h", exndx, exv);
-	prev_itndx <= itndx;
-	prev_dcndx <= dcndx;
-	prev_exndx <= exndx;
-	prev_oundx <= oundx;
-	prev_wbndx <= wbndx;
 	tDisplayRegs();
-	tDisplayRob();
+	tDisplayEb();
 	tOnce();
 	tInsnFetch();
 	tRegfetch();
@@ -626,6 +625,7 @@ begin
 		plStack[n] <= 64'hFFFFFFFFFFFFFFFF;
 		pmStack[n] <= 64'hCECECECECECECECE;
 		ipStack[n] <= {8{RSTIP}};
+		sp_sel[n] <= 3'd3;
 	end
 	ithread <= 'd0;
 	ip_thread <= 'd0;
@@ -639,11 +639,6 @@ begin
 	last_adr <= 'd0;
 	xrid <= 'd15;
 	mc_rid <= 'd15;
-	prev_dcndx <= 'd0;
-	prev_exndx <= 'd0;
-	prev_oundx <= 'd0;
-	prev_wbndx <= 'd0;
-	prev_itndx <= 'd0;
 end
 endtask
 
@@ -685,84 +680,372 @@ endtask
 
 // The following selectors use round-robin selection.
 
-integer n9;
+Tid pit1;
+Tid pit2;
+Tid pit3;
+Tid pit4;
+Tid pit5;
+Tid pit6;
+Tid pit7;
+
 always_comb
-begin
-	itndx_v = 1'b0;
-	itndx = 'd0;
-	tmpndx9 = 'd0;
-	for (n9 = 1; n9 < 17; n9 = n9 + 1) begin
-		tmpndx9 = prev_itndx[3:0]+n9[3:0];
-		if (!ififo_almost_full[tmpndx9] && !itndx_v) begin
-			itndx = tmpndx9;
-			itndx_v = 1'b1;
-		end
+	pit1 = prev_itndx + 3'd1;
+always_comb
+	pit2 = prev_itndx + 3'd2;
+always_comb
+	pit3 = prev_itndx + 3'd3;
+always_comb
+	pit4 = prev_itndx + 4'd4;
+always_comb
+	pit5 = prev_itndx + 3'd5;
+always_comb
+	pit6 = prev_itndx + 3'd6;
+always_comb
+	pit7 = prev_itndx + 3'd7;
+
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	itndx <= 'd0;
+	itndx_v <= 'd0;
+	prev_itndx <= 'd0;
+end
+else begin
+	itndx_v <= 1'b0;
+	itndx <= 'd0;
+	if (!ififo_almost_full[pit1]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd1;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit2]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd2;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit3]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd3;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit4]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd4;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit5]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd5;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit6]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd6;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[pit7]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx + 3'd7;
+		itndx_v <= 1'b1;
+	end
+	else if (!ififo_almost_full[prev_itndx]) begin
+		prev_itndx <= itndx;
+		itndx <= prev_itndx;
+		itndx_v <= 1'b1;
 	end
 end
 
-integer n8;
+Tid dit1;
+Tid dit2;
+Tid dit3;
+Tid dit4;
+Tid dit5;
+Tid dit6;
+Tid dit7;
+
 always_comb
-begin
-	dcndx_v = 1'b0;
-	dcndx = 'd0;
-	tmpndx8 = 'd0;
-	for (n8 = 1; n8 < 17; n8 = n8 + 1) begin
-		tmpndx8 = prev_dcndx[3:0]+n8[3:0];
-		if (sb_can_issue[tmpndx8] && !dcndx_v) begin
-			dcndx = tmpndx8;
-			dcndx_v = 1'b1;
-		end
+	dit1 = prev_dcndx + 3'd1;
+always_comb
+	dit2 = prev_dcndx + 3'd2;
+always_comb
+	dit3 = prev_dcndx + 3'd3;
+always_comb
+	dit4 = prev_dcndx + 3'd4;
+always_comb
+	dit5 = prev_dcndx + 3'd5;
+always_comb
+	dit6 = prev_dcndx + 3'd6;
+always_comb
+	dit7 = prev_dcndx + 3'd7;
+
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	prev_dcndx <= 'd0;
+	dcndx <= 'd0;
+	dcndx_v <= 'd0;
+end
+else begin
+	if (sb_can_issue[dit1]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd1;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit2]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd2;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit3]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd3;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit4]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd4;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit5]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd5;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit6]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd6;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[dit7]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx + 3'd7;
+		dcndx_v <= 1'b1;
+	end
+	else if (sb_can_issue[prev_dcndx]) begin
+		prev_dcndx <= dcndx;
+		dcndx <= prev_dcndx;
+		dcndx_v <= 1'b1;
 	end
 end
+
+Tid exn1;
+Tid exn2;
+Tid exn3;
+Tid exn4;
+Tid exn5;
+Tid exn6;
+Tid exn7;
+
+always_comb
+	exn1 = prev_exndx + 3'd1;
+always_comb
+	exn2 = prev_exndx + 3'd2;
+always_comb
+	exn3 = prev_exndx + 3'd3;
+always_comb
+	exn4 = prev_exndx + 3'd4;
+always_comb
+	exn5 = prev_exndx + 3'd5;
+always_comb
+	exn6 = prev_exndx + 3'd6;
+always_comb
+	exn7 = prev_exndx + 3'd7;
 
 // Pick a rob entry to execute.
-
-integer n2;
-always_comb
-begin
-	exndx_v = 1'b0;
-	exndx = 'd0;
-	tmpndx = 'd0;
-	exv = 16'h0000;
-	for (n2 = 1; n2 < 17; n2 = n2 + 1)
-		exv[n2] = eb[n2].regfetched & ~eb[n2].out;
-	for (n2 = 0; n2 < 16; n2 = n2 + 1) begin
-		tmpndx = prev_exndx[3:0]+n2[3:0];
-		if (exv[tmpndx] && !exndx_v) begin
-			exndx = tmpndx;
-			exndx_v = 1'b1;
-		end
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	prev_exndx <= 'd0;
+	exndx_v <= 'd0;
+	exndx <= 'd0;
+end
+else begin
+	exndx_v <= 1'b0;
+	if (eb[exn1].regfetched & ~eb[exn1].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn1;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn2].regfetched & ~eb[exn2].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn2;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn3].regfetched & ~eb[exn3].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn3;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn4].regfetched & ~eb[exn4].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn4;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn5].regfetched & ~eb[exn5].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn5;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn6].regfetched & ~eb[exn6].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn6;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[exn7].regfetched & ~eb[exn7].out) begin
+		prev_exndx <= exndx;
+		exndx <= exn7;
+		exndx_v <= 1'b1;
+	end
+	else if (eb[prev_exndx].regfetched & ~eb[prev_exndx].out) begin
+		prev_exndx <= exndx;
+		exndx <= prev_exndx;
+		exndx_v <= 1'b1;
 	end
 end
 
 // Pick an rob entry thats out.
-integer n3;
+
+Tid oun1;
+Tid oun2;
+Tid oun3;
+Tid oun4;
+Tid oun5;
+Tid oun6;
+Tid oun7;
+
 always_comb
-begin
-	oundx_v = 1'b0;
-	oundx = 'd0;
-	tmpndx3 = 'd0;
-	for (n3 = 1; n3 < 17; n3 = n3 + 1)
-		tmpndx3 = prev_oundx[3:0]+n3[3:0];
-		if (eb[tmpndx3].out && !oundx_v) begin
-			oundx = tmpndx3;
-			oundx_v = 1'b1;
-		end
+	oun1 = prev_oundx + 3'd1;
+always_comb
+	oun2 = prev_oundx + 3'd2;
+always_comb
+	oun3 = prev_oundx + 3'd3;
+always_comb
+	oun4 = prev_oundx + 3'd4;
+always_comb
+	oun5 = prev_oundx + 3'd5;
+always_comb
+	oun6 = prev_oundx + 3'd6;
+always_comb
+	oun7 = prev_oundx + 3'd7;
+
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	prev_oundx <= 'd0;
+	oundx_v <= 'd0;
+	oundx <= 'd0;
+end
+else begin
+	oundx_v <= 1'b0;
+	if (eb[oun1].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun1;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun2].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun2;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun3].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun3;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun4].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun4;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun5].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun5;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun6].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun6;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[oun7].out) begin
+		prev_oundx <= oundx;
+		oundx <= oun7;
+		oundx_v <= 1'b1;
+	end
+	else if (eb[prev_oundx].out) begin
+		prev_oundx <= oundx;
+		oundx <= prev_oundx;
+		oundx_v <= 1'b1;
+	end
 end
 
 // Pick a finished rob entry.
-integer n4;
+Tid wbn1;
+Tid wbn2;
+Tid wbn3;
+Tid wbn4;
+Tid wbn5;
+Tid wbn6;
+Tid wbn7;
 always_comb
-begin
-	wbndx_v = 1'b0;
-	wbndx = 'd0;
-	tmpndx4 = 'd0;
-	for (n4 = 1; n4 < 17; n4 = n4 + 1)
-		tmpndx4 = prev_wbndx[3:0]+n4[3:0];
-		if (eb[tmpndx4].executed && !wbndx_v) begin
-			wbndx = tmpndx4;
-			wbndx_v = 1'b1;
-		end
+	wbn1 = prev_wbndx + 3'd1;
+always_comb
+	wbn2 = prev_wbndx + 3'd2;
+always_comb
+	wbn3 = prev_wbndx + 3'd3;
+always_comb
+	wbn4 = prev_wbndx + 3'd4;
+always_comb
+	wbn5 = prev_wbndx + 3'd5;
+always_comb
+	wbn6 = prev_wbndx + 3'd6;
+always_comb
+	wbn7 = prev_wbndx + 3'd7;
+
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	prev_wbndx <= 'd0;
+	wbndx_v <= 'd0;
+	wbndx <= 'd0;
+end
+else begin
+	wbndx_v <= 1'b0;
+	if (eb[wbn1].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn1;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn2].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn2;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn3].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn3;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn4].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn4;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn5].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn5;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn6].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn6;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[wbn7].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= wbn7;
+		wbndx_v <= 1'b1;
+	end
+	else if (eb[prev_wbndx].executed) begin
+		prev_wbndx <= wbndx;
+		wbndx <= prev_wbndx;
+		wbndx_v <= 1'b1;
+	end
 end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -785,8 +1068,8 @@ begin
 		ip_thread3 <= ip_thread2;
 		ip_thread4 <= ip_thread3;
 		ip_thread5 <= ip_thread4;
-		if (!ihit)
-			ips[ip_thread5] <= ips[ip_thread5] - 4'd5;
+		if (!ihit2)
+			ips[ip_thread5] <= ic_ifb.ip;
 		$display("  ip_insn=%h  insn=%h postfix=%h", ip_icline, ic_ifb.insn, ic_ifb.pfx);
 		$display("  ip_thread5=%h", ip_thread5);
 		for (n = 0; n < NTHREADS; n = n + 1)
@@ -828,7 +1111,7 @@ always_comb
 
 task tRegfetch;
 begin
-	if (rfndx_v)
+	if (rfndx_v[rfndx])
 	begin
 		//eb[rfndx].cause <= dcause;
 		eb[rfndx].a <= eb[rfndx].dec.Ra.vec ? vrfo0 : {NLANES{rfo0}};
@@ -1196,11 +1479,9 @@ task tWriteback;
 begin
 	if (wbndx_v) begin
 		$display("Writeback");
-		thread_busy[wbndx] <= 1'b0;
 		if (|eb[wbndx].cause)
 			tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);
 		else begin
-			exc_bucket[wbndx] <= 'd0;
 			$display("  thread:%d ip=%h ir=%h", wbndx, eb[wbndx].ifb.ip, eb[wbndx].ifb.insn);
 			if (eb[wbndx].dec.rfwr)
 				$display("  %s=%h", fnRegName(eb[wbndx].dec.Rt), eb[wbndx].res);
@@ -1237,12 +1518,12 @@ endtask
 
 task tReadCSR;
 output Value res;
-input [3:0] thread;
+input Tid thread;
 input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
-		CSR_MHARTID: res = {hartid_i[31:4],thread};
+		CSR_MHARTID: res = {hartid_i[31:2],thread};
 //		CSR_MCR0:	res = cr0|(dce << 5'd30);
 		CSR_PTBR:	res = ptbr[thread];
 //		CSR_HMASK:	res = hmask;
@@ -1268,7 +1549,7 @@ endtask
 
 task tWriteCSR;
 input Value val;
-input [3:0] thread;
+input Tid thread;
 input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
@@ -1295,7 +1576,7 @@ endtask
 
 task tSetbitCSR;
 input Value val;
-input [3:0] thread;
+input Tid thread;
 input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
@@ -1311,7 +1592,7 @@ endtask
 
 task tClrbitCSR;
 input Value val;
-input [3:0] thread;
+input Tid thread;
 input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
