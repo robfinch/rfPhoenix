@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // ============================================================================
 //        __
 //   \\__/ o\    (C) 2022  Robert Finch, Waterloo
@@ -5,8 +6,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	rfPhoenix_gp_regfile.sv
-//
+//	rfPhoenix_insn_fifo.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -35,70 +35,70 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                                                                          
 // ============================================================================
-
-//import const_pkg::*;
+//
 import rfPhoenixPkg::*;
 
-module rfPhoenix_gp_regfile(rst, clk, wr, wthread, wa, i,
-	rthread, ra0, ra1, ra2, ra3, ra4, o0, o1, o2, o3, o4);
+module rfPhoenix_insn_fifo(rst, clk, wr, decin, ifbin, rd, decout, ifbout, cnt, almost_full, full, empty, v);
+parameter DEP=16;
 input rst;
 input clk;
 input wr;
-input Tid wthread;
-input Regspec wa;
-input Value i;
-input Tid rthread;
-input Regspec ra0;
-input Regspec ra1;
-input Regspec ra2;
-input Regspec ra3;
-input Regspec ra4;
-output Value o0;
-output Value o1;
-output Value o2;
-output Value o3;
-output Value o4;
+input DecodeBus decin;
+output DecodeBus decout;
+input InstructionFetchbuf ifbin;
+output InstructionFetchbuf ifbout;
+input rd;
+output reg [5:0] cnt = 'd0;
+output reg almost_full = 'd0;
+output reg full = 'd0;
+output reg empty = 'd0;
+output reg v = 'd0;
 
-integer n,j,k;
-Regspec ra0r, ra1r, ra2r, ra3r, ra4r;
-Tid rthreadr;
+reg [5:0] wr_ptr;
+reg [5:0] rd_ptr;
+DecodeBus [DEP-1:0] decmem;
+InstructionFetchbuf [DEP-1:0] ifbmem;
+integer n;
 
-(* ram_style = "block" *)
-Value [NTHREADS*NREGS-1:0] regfile;
-
-initial begin
-	for (j = 0; j < NTHREADS; j = j + 1 ) begin
-		for (n = 0; n < NREGS; n = n + 1) begin
-			regfile[j*NREGS+n] <= 32'd0;
+always_ff @(posedge clk)
+	if (rst) begin
+		wr_ptr <= 'd0;
+		rd_ptr <= 'd0;
+		for (n = 0; n < DEP; n = n + 1) begin
+			decmem[n] <= 'd0;
+			ifbmem[n] <= 'd0;
 		end
 	end
-end
-
-always_ff @(posedge clk)
-	if (wr)
-		regfile[{wthread,wa.num}] <= i;
-always_ff @(posedge clk)
-	rthreadr <= rthread;
-always_ff @(posedge clk)
-	ra0r <= ra0;
-always_ff @(posedge clk)
-	ra1r <= ra1;
-always_ff @(posedge clk)
-	ra2r <= ra2;
-always_ff @(posedge clk)
-	ra3r <= ra3;
-always_ff @(posedge clk)
-	ra4r <= ra4;
-	
+	else begin
+		if (rd & wr) begin
+			decmem[wr_ptr] <= decin;
+			ifbmem[wr_ptr] <= ifbin;
+		end
+		else if (wr) begin
+			decmem[wr_ptr] <= decin;
+			ifbmem[wr_ptr] <= ifbin;
+			wr_ptr <= wr_ptr + 2'd1;
+		end
+		else if (rd) begin
+			rd_ptr <= rd_ptr + 2'd1;
+		end
+	end
 always_comb
-	o0 <= regfile[{rthreadr,ra0r.num}];
+	decout = decmem[rd_ptr];
 always_comb
-	o1 <= regfile[{rthreadr,ra1r.num}];
+	ifbout = ifbmem[rd_ptr];
 always_comb
-	o2 <= regfile[{rthreadr,ra2r.num}];
+	if (wr_ptr >= rd_ptr)
+		cnt = wr_ptr - rd_ptr;
+	else
+		cnt = wr_ptr + (DEP - rd_ptr);
 always_comb
-	o3 <= regfile[{rthreadr,ra3r.num}];
+	almost_full = cnt > DEP - 5;
 always_comb
-	o4 <= regfile[{rthreadr,ra4r.num}];
+	full = cnt==DEP-1;
+always_comb
+	empty = cnt=='d0;
+always_comb
+	v = cnt > 'd0;
 
 endmodule

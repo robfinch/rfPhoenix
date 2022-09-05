@@ -87,7 +87,7 @@ end
 always_comb
 	set_bm = wbs | (rollback ? rollback_bitmap : 'd0);
 always_comb
-	clr_bm = tgts & {128{will_issue}};
+	clr_bm = tgts & {{127{will_issue}},1'b0};	// r0 is always valid
 always_comb
 	nxt_valid = (valid & ~clr_bm) | set_bm;
 

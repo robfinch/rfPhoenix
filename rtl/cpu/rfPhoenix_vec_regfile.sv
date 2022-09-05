@@ -44,11 +44,11 @@ module rfPhoenix_vec_regfile(rst, clk, wr, wthread, wmask, wa, i,
 input rst;
 input clk;
 input wr;
-input [3:0] wthread;
+input Tid wthread;
 input [15:0] wmask;
 input Regspec wa;
 input VecValue i;
-input [3:0] rthread;
+input Tid rthread;
 input Regspec ra0;
 input Regspec ra1;
 input Regspec ra2;
@@ -79,13 +79,13 @@ input clk;
 input wr;
 input [9:0] wa;
 input Value i;
-input [9:0] ra;
+input [89:0] ra;
 output Value o;
 
 integer k;
 Value mem [0:NTHREADS*NREGS-1];
 initial begin
-	for (k = 0; k < NTHREADS * NREGS; k = k + 1)
+	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
 		mem[k] <= 32'd0;
 end
 reg [9:0] rar;

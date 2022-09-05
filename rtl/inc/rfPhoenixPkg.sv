@@ -5,7 +5,7 @@ parameter NLANES = 16;
 // It cannot be over 13 as that makes the vector register file too big for
 // synthesis to handle.
 // It also needs to be greater than the latency of the icache read (5).
-parameter NTHREADS = 6;
+parameter NTHREADS = 8;
 parameter NREGS = 64;
 parameter REB_ENTRIES = 4;
 
@@ -19,7 +19,7 @@ parameter pL1ICacheLines = 512;
 parameter pL1ICacheLineSize = 584;
 localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
 
-typedef enum [5:0] {
+typedef enum logic [5:0] {
 	BRK			= 6'h00,
 	PFX			= 6'h01,
 	R2			= 6'h02,
@@ -71,7 +71,7 @@ typedef enum [5:0] {
 } Opcode;
 
 // R2 ops
-typedef enum [5:0] {
+typedef enum logic [5:0] {
 	R1			= 6'h01,
 	VSHUF		= 6'h02,
 	VEX			= 6'h03,
@@ -126,7 +126,7 @@ typedef enum [5:0] {
 } R2Func;
 
 // R1 ops
-typedef enum [5:0] {
+typedef enum logic [5:0] {
 	CNTLZ		= 6'h00,
 	CNTPOP	= 6'h02,
 	PTGHASH	= 6'h07,
@@ -205,7 +205,7 @@ parameter CSR_TIME	= 16'h?FE0;
 parameter CSR_MTIME	= 16'h3FE0;
 parameter CSR_MTIMECMP	= 16'h3FE1;
 
-typedef enum [11:0] {
+typedef enum logic [11:0] {
 	FLT_NONE	= 12'h000,
 	FLT_TLBMISS = 12'h04,
 	FLT_DCM		= 12'h005,
@@ -242,7 +242,6 @@ typedef enum logic [2:0] {
 	vect = 3'd5
 } memsz_t;
 
-typedef logic [11:0] CauseCode;
 typedef logic [2:0] Tid;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
@@ -282,7 +281,7 @@ typedef struct packed
 	logic [1:0] rm;
 	Regspec Rc;
 	Regspec Rb;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -294,7 +293,7 @@ typedef struct packed
 	logic [2:0] pad;
 	R2Func func;
 	Regspec Rb;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -307,7 +306,7 @@ typedef struct packed
 	R2Func func;
 	logic Tb;
 	R1Func func1;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -317,7 +316,7 @@ typedef struct packed
 {
 	logic m;
 	logic [15:0] imm;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -328,7 +327,7 @@ typedef struct packed
 	logic m;
 	logic [1:0] func;
 	logic [13:0] imm;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -338,7 +337,7 @@ typedef struct packed
 {
 	logic m;
 	logic [15:0] disp;
-	logic [2:0] mask;
+	logic [2:0] Rm;
 	Regspec Ra;
 	Regspec Rt;
 	Opcode opcode;
@@ -346,7 +345,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [16:0] disp;
+	logic resv;
+	logic [15:0] disp;
 	logic [2:0] cnd;	
 	Regspec	Ra;
 	Regspec Rb;
@@ -397,7 +397,6 @@ typedef struct packed
 typedef struct packed
 {
 	logic v;
-	Tid thread;
 	Regspec Ra;
 	Regspec Rb;
 	Regspec Rc;
@@ -533,6 +532,7 @@ typedef struct packed
 	logic dchit;
 	logic cmt;
 	memsz_t sz;					// indicates size of data
+	logic [1:0] hit;
 	logic [3:0] acr;		// acr bits from TLB lookup
 	logic tlb_access;
 	logic ptgram_en;

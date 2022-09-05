@@ -153,6 +153,7 @@ reg keyViolation = 1'b0;
 reg xlaten;
 reg [31:0] memreq_sel;
 CodeAddress last_cadr;
+PDCE ptc;
 
 Address vadr;		// virtual address
 MemoryRequest memreq,imemreq;
@@ -255,9 +256,6 @@ rfPhoenix_active_region uargn
 	.region(region),
 	.err()
 );
-
-PMTE arti = dat_i;
-Address pmt_adr = adr_o[AWID-1:0] - region.start[AWID-1:0];
 
 wire [3:0] ififo_cnt, ofifo_cnt;
 
@@ -395,13 +393,13 @@ always_ff @(posedge clk)
 always_ff @(posedge clk)
 	ic_tag <= ic_tag3;
 	
-// 640 wide x 512 deep, uses output register so there is a 2 cycle read latency.
+// 552 wide x 512 deep, uses output register so there is a 2 cycle read latency.
 icache_blkmem uicm (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(icache_wr),      // input wire [0 : 0] wea
   .addra({ic_wway,ipo[12:6]}),  // input wire [8 : 0] addra
-  .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [511 : 0] dina
+  .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [551 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),//!ifStall),      // input wire enb
   .addrb({ic_rway,ip2[12:6]}),  // input wire [8 : 0] addrb
@@ -760,13 +758,8 @@ begin
 	tlb_ia <= tlb_bucket[6][31:0];
 end
 */
-`ifndef SUPPORT_HASHPT
-PMTE pmtram_dinb;
-PMTE pmtram_doutb;
-wire pmtram_web;
-wire [13:0] pmtram_adrb;
-
-rfPhoenix_tlb utlb (
+rfPhoenix_tlb utlb
+(
   .rst_i(rst),
   .clk_i(tlbclk),
   .al_i(ptbr[7:6]),
@@ -793,42 +786,7 @@ rfPhoenix_tlb utlb (
   .m_cyc_o(tlb_cyc),
   .m_ack_i(tlb_ack),
   .m_adr_o(tlb_adr),
-  .m_dat_o(tlb_dat),
-  .pmt_we(pmtram_web),
-  .pmt_adr(pmtram_adrb),
-  .pmt_din(pmtram_doutb),
-  .pmt_dout(pmtram_dinb)
-);
-`endif
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-
-reg pmtram_ena;
-reg pmtram_wea;
-reg [13:0] pmtram_adra;
-reg [159:0] pmtram_dina;
-wire [159:0] pmtram_douta;
-`ifdef SUPPORT_HASHPT
-reg pmtram_web;
-reg [13:0] pmtram_adrb;
-PMTE pmtram_dinb;
-PMTE pmtram_doutb;
-`endif
-
-PMT_RAM pmtram1 (
-  .clka(clk),    // input wire clka
-  .ena(pmtram_ena),      // input wire ena
-  .wea(pmtram_wea),      // input wire [0 : 0] wea
-  .addra(pmtram_adra),  // input wire [13 : 0] addra
-  .dina(pmtram_dina),    // input wire [159 : 0] dina
-  .douta(pmtram_douta),  // output wire [159 : 0] douta
-  .clkb(tlbclk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .web(pmtram_web),      // input wire [0 : 0] web
-  .addrb(pmtram_adrb),  // input wire [13 : 0] addrb
-  .dinb(pmtram_dinb),    // input wire [159 : 0] dinb
-  .doutb(pmtram_doutb)  // output wire [159 : 0] doutb
+  .m_dat_o(tlb_dat)
 );
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -836,7 +794,6 @@ PMT_RAM pmtram1 (
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 reg [6:0] ptg_state = IPT_IDLE;
-reg pmt_store;
 reg [7:0] fault_code;
 reg ptg_fault;
 reg clr_ptg_fault;
@@ -1022,16 +979,13 @@ change_det uchgdt1 (.rst(rst), .clk(tlbclk), .ce(1'b1), .i(idadr), .cd(cd_idadr)
 
 reg special_ram;
 always_comb
-	special_ram = ptgram_en || pmtram_ena || rgn_en || tlb_access;
+	special_ram = ptgram_en || rgn_en || tlb_access;
 
 reg [15:0] hash_r;
 `ifdef SUPPORT_HASHPT
 integer n6;
 always_ff @(posedge tlbclk)
-if (rst)
-	pmtram_dinb <= 'd0;
-else begin
-	pmtram_web <= 1'b0;
+begin
 	if (clr_ptg_fault|clr_ipage_fault) begin
 		ipt_miss_count <= 'd0;
 		ptg_fault <= 1'b0;
@@ -1054,7 +1008,6 @@ else begin
 			else if (clock_r) begin
 				clock_r <= 1'b0;
 				ptg_state <= IPT_CLOCK1;
-				pmtram_adrb <= clock_count;
 				clock_count <= clock_count + 2'd1;
 			end
 		end
@@ -1080,7 +1033,6 @@ else begin
 	// Region is not valid until after next_adr_o is set
 	IPT_RW_PTG3:
 		begin
-			pmtram_adrb <= {region.pmt[31:4],4'h0} + tmptlbe2.ppn[13:0];
 			ptg_state <= IPT_RW_PTG4;
 		end
 	IPT_RW_PTG4:
@@ -1091,11 +1043,6 @@ else begin
 		ptg_state <= IPT_RW_PTG6;
 	IPT_RW_PTG6:
 		begin
-	    pmtram_web <= 1'b1;
-  		pmtram_dinb <= pmtram_doutb;
-			pmtram_dinb.access_count <= pmtram_doutb.access_count + 2'd1;
-			if (pmt_store)
-				pmtram_dinb.m <= 1'b1;
   		ptg_state <= pte_found ? IPT_IDLE : IPT_FETCH1;
 		end	
 
@@ -1109,9 +1056,6 @@ else begin
 		ptg_state <= IPT_CLOCK3;
 	IPT_CLOCK3:
 		begin
-	    pmtram_web <= 1'b1;
-  		pmtram_dinb <= pmtram_doutb;
- 			pmtram_dinb.access_count <= {1'b0,pmtram_dinb.access_count[31:1]};
   		ptg_state <= IPT_IDLE;
 		end
 	
@@ -1131,7 +1075,6 @@ reg [12:0] adr_slice;
 PTE pte;
 PDE pde;
 reg wr_pte;
-PDCE [11:0] ptc;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // State Machine
@@ -1181,9 +1124,6 @@ if (rst) begin
 	ptgram_en <= 1'b0;
 	rgn_en <= 1'b0;
 	tlb_access <= 1'b0;
-	pmtram_ena <= 1'b0;
-	pmtram_wea <= 1'b0;
-	pmt_store <= 1'b0;
 	sel <= 'd0;
 	dfetch2 <= 1'b0;
 	rd_memq <= 'd0;
@@ -1209,7 +1149,6 @@ else begin
 	tlbwr <= FALSE;
 	tlb_ack <= FALSE;
 	ptgram_wr <= FALSE;
-	pmtram_wea <= FALSE;
 	clr_ptg_fault <= 1'b0;
 	if (clr_ipage_fault)
 		ipage_fault <= 1'b0;
@@ -1220,7 +1159,6 @@ else begin
 	tlbwr <= FALSE;
 	tlb_ack <= FALSE;
 	ptgram_wr <= FALSE;
-	pmtram_wea <= FALSE;
 	tStage0();
 	tStage1();
 	tAddressXlat();
@@ -1309,7 +1247,6 @@ else begin
     	goto (MEMORY9);
 	    dadr <= {dadr[AWID-1:4] + 2'd1,4'd0};
 			ptgram_adr <= memr.badAddr[18:4];
-			pmtram_adra <= memr.badAddr[18:5];
 			rgn_adr <= memr.badAddr[9:4];
 	  end
   
@@ -1358,7 +1295,7 @@ else begin
 		goto (TLB3);	// Give time for MR_TLB to process
 	TLB3:
 		begin
-			memresp.cause <= 12'h0;
+			memresp.cause <= FLT_NONE;
 			memresp.step <= memreq.step;
 	    memresp.res <= {432'd0,tlbdato};
 	    memresp.cmt <= TRUE;
@@ -1500,14 +1437,14 @@ else begin
 	    	dcnt <= dcnt + 4'd4;
 	      dci <= {dat_i,dci[511:128]};
 	      if (dcnt[4:2]==3'd3) begin		// Are we done?
-	      	case(memr.sz)
-	      	2'b00:	memr.sz <= 2'b01;
-	      	2'b01:	memr.sz <= 2'b11;
-	      	2'b10:	memr.sz <= 2'b11;
-	      	2'b11:	memr.sz <= 2'b11;
+	      	case(memr.hit)
+	      	2'b00:	memr.hit <= 2'b01;
+	      	2'b01:	memr.hit <= 2'b11;
+	      	2'b10:	memr.hit <= 2'b11;
+	      	2'b11:	memr.hit <= 2'b11;
 	      	endcase
 	      	// Fill in missing memory data.
-	      	case(memr.sz)
+	      	case(memr.hit)
 	      	2'b00:	memr.res[ 511:  0] <= {dat_i,dci[511:12]};
 	      	2'b01:	memr.res[1023:512] <= {dat_i,dci[511:12]};
 	      	2'b10:	memr.res[ 511:  0] <= {dat_i,dci[511:12]};
@@ -1579,10 +1516,7 @@ else begin
 //			if (tmptlbe.av)
 //				call (IPT_RW_PTG2,IPT_FETCH3);
 //			else
-			if (tmptlbe.av)
-				goto (IPT_FETCH3);
-			else
-				gosub(PMT_FETCH1);
+			goto (IPT_FETCH3);
 		end
 	// Delay a couple of cycles to allow TLB update
 	IPT_FETCH3:
@@ -1992,10 +1926,7 @@ else begin
 //			tlb_ib <= tmptlbe;
 			tlb_ib.a <= 1'b1;
 			wr_pte <= 1'b1;
-			if (pte.av)
-				goto (PT_FETCH4);
-			else
-				gosub(PMT_FETCH1);
+			goto (PT_FETCH4);
 		end
 	PT_FETCH4:
 		begin
@@ -2137,43 +2068,6 @@ else begin
 		end
 `endif	// SUPPORT_HWWALK
 
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	// Subroutine to fetch access rights.
-	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	PMT_FETCH1:
-		begin
-	 		xlaten <= FALSE;
-			daccess <= TRUE;
-			iaccess <= FALSE;
-			dadr <= {region.pmt[AWID-1:4],4'h0} + {pmt_adr[AWID-1:12] << region.pmt[1:0],4'h0};
-			goto (PMT_FETCH2);
-		end
-	PMT_FETCH2:
-		goto (PMT_FETCH3);
-	PMT_FETCH3:
-		if (!ack_i) begin
-			vda_o <= HIGH;
-	  	bte_o <= 2'b00;
-	  	cti_o <= 3'b001;	// constant address burst cycle
-	    cyc_o <= HIGH;
-			stb_o <= HIGH;
-			we_o <= wr_pte;
-	    sel_o <= 16'hFFFF;
-	    goto (PMT_FETCH4);
-		end
-	PMT_FETCH4:
-		if (ack_i) begin
-			tDeactivateBus();
-			tmptlbe.pl <= arti.pl;
-			tmptlbe.key <= arti.key;
-			tmptlbe.access_count <= arti.access_count;
-			goto (PMT_FETCH5);
-		end
-	PMT_FETCH5:
-		begin
-			ret();
-		end
-
 	default:
 		goto (MEMORY_IDLE);
 	endcase
@@ -2242,10 +2136,8 @@ begin
 	tlb_access <= 1'b0;
 	rgn_en <= 1'b0;
 	ptgram_en <= 1'b0;
-	pmtram_ena <= 1'b0;
-	pmt_store <= 1'b0;
 	mem_resp[1] <= mem_resp[0];
-	mem_resp[1].cause <= 'd0;
+	mem_resp[1].cause <= FLT_NONE;
 	iaccess <= FALSE;
 	xlaten <= FALSE;
 	if (mem_resp[0].func==MR_CACHE) begin
@@ -2282,9 +2174,6 @@ begin
 			end
 		32'hFFD?????:
 			begin
-				mem_resp[1].pmtram_ena <= 1'b1;
-				pmtram_ena <= 1'b1;
-				pmtram_wea <= mem_resp[0].func==MR_STORE;
 			end
 		32'hFFE?????:
 			begin
@@ -2304,11 +2193,8 @@ begin
 			end
 		default:	;
 		endcase
-		pmt_store <= mem_resp[0].func==MR_STORE;
 		rgn_adr <= mem_resp[0].badAddr[9:4];
 		rgn_dat <= mem_resp[0].res;
-		pmtram_adra <= mem_resp[0].badAddr[18:5];
-		pmtram_dina <= mem_resp[0].res;
 `ifdef SUPPORT_HASHPT
 		ptgram_adr <= mem_resp[0].badAddr[18:4];
 		ptgram_dati <= mem_resp[0].res;
@@ -2337,18 +2223,18 @@ begin
 		mem_resp[PADR_SET].acr <= region.at[3:0];
 	if (mem_resp[VLOOKUP2].v) begin
 	  if (!region.at[0] && mem_resp[VLOOKUP2].func==MR_ICACHE_LOAD)
-	    mem_resp[PADR_SET].cause <= {4'h8,FLT_PMA};
+	    mem_resp[PADR_SET].cause <= FLT_PMA;
 	 	//we_o <= wr & tlbwr & region.at[1];
 	  if (mem_resp[VLOOKUP2].func==MR_STORE && !region.at[1])
-		  mem_resp[PADR_SET].cause <= {4'h8,FLT_WRV};
+		  mem_resp[PADR_SET].cause <= FLT_WRV;
 	  else if (mem_resp[VLOOKUP2].func!=MR_STORE && !region.at[2])
-		  mem_resp[PADR_SET].cause <= {4'h8,FLT_RDV};
+		  mem_resp[PADR_SET].cause <= FLT_RDV;
 	   // TLB miss has higher precedence than PMA
 	   // No TLB miss in machine mode
 		if (tlbmiss && mem_resp[VLOOKUP2].omode!=2'd3)
-			mem_resp[PADR_SET].cause <= {4'h8,FLT_TLBMISS};
+			mem_resp[PADR_SET].cause <= FLT_TLBMISS;
 	 	if (!tlbacr[2] && (mem_resp[VLOOKUP2].func==MR_LOAD || mem_resp[VLOOKUP2].func==MR_LOADZ)) begin
-	 		mem_resp[PADR_SET].cause <= {4'h8,FLT_RDV};
+	 		mem_resp[PADR_SET].cause <= FLT_RDV;
 	 		//tReadViolation(mem_resp[4].badAddr);
 //		if (tlbacr[3])
 //			mem_resp[PADR_SET].func2 <= MR_CACHE;
@@ -2385,14 +2271,13 @@ begin
 		mem_resp[VLOOKUP2].tlb_access:	begin mem_resp[PADR_SET].res <= tlbdato; end
 		mem_resp[VLOOKUP2].ptgram_en:		begin mem_resp[PADR_SET].res <= ptgram_dato; end
 		mem_resp[VLOOKUP2].rgn_en:			begin mem_resp[PADR_SET].res <= rgn_dat_o; end
-		mem_resp[VLOOKUP2].pmtram_ena:	begin mem_resp[PADR_SET].res <= pmtram_douta; end
 		default:		
 			begin
 				mem_resp[PADR_SET].res <= dc_line;
 				mem_resp[PADR_SET].wr <= !dce & dhit & mem_resp[VLOOKUP2].acr[3];
-				mem_resp[PADR_SET].sz <= {dhito,dhite};
+				mem_resp[PADR_SET].hit <= {dhito,dhite};
 				if (!(dce & dhit & mem_resp[VLOOKUP2].acr[3]))
-					mem_resp[PADR_SET].cause <= {4'h8,FLT_DCM};
+					mem_resp[PADR_SET].cause <= FLT_DCM;
 			end
 	  endcase
 	MR_STORE:	
@@ -2400,9 +2285,9 @@ begin
 			mem_resp[PADR_SET].wr <= TRUE;
 			case(mem_resp[VLOOKUP2].sz)
 			byt:	;	// Cant be unaligned
-			wyde:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd62)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
-			tetra:if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
-			default:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= {4'h8,FLT_ALN};
+			wyde:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd62)	mem_resp[PADR_SET].cause <= FLT_ALN;
+			tetra:if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
+			default:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
 			endcase
  			mem_resp[PADR_SET].res <= (dc_line & ~stmask) | ((mem_resp[VLOOKUP2].res << {mem_resp[VLOOKUP2].badAddr[6:0],3'b0}) & stmask);
 		end
@@ -2425,7 +2310,6 @@ begin
 		mem_resp[PADR_SET].tlb_access:	;
 		mem_resp[PADR_SET].ptgram_en:		;
 		mem_resp[PADR_SET].rgn_en:			;
-		mem_resp[PADR_SET].pmtram_ena:	;
 		default:		
 		  case(mem_resp[PADR_SET].func)
 		  MR_LOAD,MR_MOVLD:
@@ -2487,17 +2371,6 @@ begin
 						ret();
 				end
 			ptgram_en:
-				begin
-					memresp.cause <= 12'h0;
-	  			memresp.step <= memreq.step;
-		    	memresp.cmt <= TRUE;
-	  			memresp.tid <= memreq.tid;
-	  			memresp.wr <= TRUE;
-					memresp.res <= {127'd0,rb_i};
-					if (!memresp_full)
-						ret();
-				end
-			pmtram_ena:
 				begin
 					memresp.cause <= 12'h0;
 	  			memresp.step <= memreq.step;
@@ -2611,7 +2484,7 @@ begin
 			  else begin
 	    		if (memreq.func2==MR_STPTR) begin	// STPTR
 			    	if (~|ea[AWID-5:0] || shr_ma[5:3] >= region.at[18:16]) begin
-	  					memresp.cause <= 12'h0;
+	  					memresp.cause <= FLT_NONE;
 			  			memresp.step <= memreq.step;
 			    	 	memresp.cmt <= TRUE;
   						memresp.tid <= memreq.tid;
@@ -2632,7 +2505,7 @@ begin
 			    	end
 	    		end
 	    		else begin
-  					memresp.cause <= 12'h0;
+  					memresp.cause <= FLT_NONE;
 		  			memresp.step <= memreq.step;
 			    	memresp.cmt <= TRUE;
 		  			memresp.tid <= memreq.tid;
@@ -2728,7 +2601,7 @@ begin
     	begin
     		if (memreq.func2==MR_STPTR) begin	// STPTR
 		    	if (~|ea[AWID-5:0] || shr_ma[5:3] >= region.at[18:16]) begin
-  					memresp.cause <= 12'h0;
+  					memresp.cause <= FLT_NONE;
 		  			memresp.step <= memreq.step;
 		    	 	memresp.cmt <= TRUE;
 		  			memresp.tid <= memreq.tid;
@@ -2748,7 +2621,7 @@ begin
 		    	end
     		end
     		else begin
-					memresp.cause <= 12'h0;
+					memresp.cause <= FLT_NONE;
 	  			memresp.step <= memreq.step;
 	    	 	memresp.cmt <= TRUE;
 	  			memresp.tid <= memreq.tid;
@@ -2768,11 +2641,11 @@ endtask
 
 task tDataAlign;
 begin
-	memresp.cause <= 12'h0;
+	memresp.cause <= FLT_NONE;
 	tDeactivateBus();
 	if ((memr.func==MR_LOAD || memr.func==MR_LOADZ || memr.func==MR_MOVLD) & memr.sz!=2'b11 & dcachable & memr.acr[3] & dce &
-	 	~memr.ptgram_en & ~memr.rgn_en & ~memr.tlb_access & ~memr.pmtram_ena) begin
-		memresp.cause <= {4'h8,FLT_DCM};
+	 	~memr.ptgram_en & ~memr.rgn_en & ~memr.tlb_access) begin
+		memresp.cause <= FLT_DCM;
 	end
 	else if (memreq.func==MR_MOVLD) begin
 		ret();
@@ -2854,7 +2727,7 @@ begin
 	resp <= oresp;
 	resp.step <= req.step;
 	resp.cmt <= TRUE;
-  resp.cause <= {4'h8,FLT_TLBMISS};
+  resp.cause <= FLT_TLBMISS;
 	resp.tid <= req.tid;
   resp.badAddr <= req.adr;
   resp.wr <= TRUE;
@@ -2866,12 +2739,12 @@ endtask
 // cannot be found.
 
 task tPageFault;
-input [7:0] typ;
+input CauseCode typ;
 input Address ba;
 begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
-  memresp.cause <= {4'h8,typ};
+  memresp.cause <= typ;
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.wr <= TRUE;
@@ -2887,7 +2760,7 @@ input Address ba;
 begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
-  memresp.cause <= {4'h8,FLT_WRV};
+  memresp.cause <= FLT_WRV;
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.wr <= TRUE;
@@ -2903,7 +2776,7 @@ input Address ba;
 begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
-  memresp.cause <= {4'h8,FLT_RDV};
+  memresp.cause <= FLT_RDV;
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.wr <= TRUE;
@@ -2919,7 +2792,7 @@ input Address ba;
 begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
-  memresp.cause <= {4'h8,FLT_KEY};
+  memresp.cause <= FLT_KEY;
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.wr <= TRUE;
@@ -2945,7 +2818,7 @@ begin
 	if (memreq.func==MR_CACHE)
   	tPMAEA();
   if (adr_o[31:16]==IO_KEY_ADR) begin
-		memresp.cause <= 12'h0;
+		memresp.cause <= FLT_NONE;
   	memresp.step <= memreq.step;
   	memresp.cmt <= TRUE;
   	memresp.res <= io_keys[adr_o[12:2]];

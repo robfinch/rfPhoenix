@@ -67,67 +67,35 @@ typedef struct packed
 typedef struct packed
 {
 	rfPhoenixPkg::Address adr;
-	rfPhoenixPkg::Address pmtadr;
-	// PMT info
-	// 256 bits follow
-	logic vm;
-	logic n;
-	logic pm;
-	logic [9:0] pad10b;
-	logic e;
-	logic [1:0] al;
-	logic [15:0] pci;
-	logic [7:0] pl;
-	logic [23:0] key;
-	logic [31:0] access_count;
-	logic [15:0] acl;
-	logic [15:0] share_count;
-	
-	logic [31:0] vpnphi;
-	logic [31:0] ppnhi;
-	logic [9:0] asid;
-	logic g;
-	logic [3:0] bc;
-	logic pad1b;
-	logic [15:0] vpn;
-//	logic [9:0] pad10a;	
+	logic [31:0] vpn;
 	logic v;
 	logic [2:0] lvl;
-	logic [2:0] mb;
-	logic [2:0] me;
+	logic g;
+	logic [2:0] pad1;
 	logic m;
 	logic [2:0] rwx;
 	logic a;
 	logic c;
-	logic [15:0] ppn;
-} TLBE;	// 288 bits
-
-// Small Page Table Entry
-typedef struct packed
-{
-	logic v;
-	logic [2:0] lvl;
-	logic [2:0] mb;
-	logic [2:0] me;
-	logic m;
-	logic [2:0] rwx;
-	logic c;
-	logic [15:0] ppn;
-} SPTE;	// 32 bits
+	logic [9:0] asid;
+	logic [39:0] ppn;
+} TLBE;	// 128 bits
 
 // Page Table Entry
 typedef struct packed
 {
-	logic [31:0] ppnhi;
 	logic v;
 	logic [2:0] lvl;
-	logic [2:0] mb;
-	logic [2:0] me;
+	logic g;
+	logic [2:0] pad1;
 	logic m;
 	logic [2:0] rwx;
+	logic a;
 	logic c;
-	logic [15:0] ppn;
-} PTE;	// 32 bits
+	logic [9:0] asid;
+	logic [39:0] ppn;
+} PTE;	// 64 bits
+
+typedef PTE PDE;
 
 // Small Hash Page Table Entry
 typedef struct packed
@@ -169,33 +137,6 @@ typedef struct packed
 	logic [15:0] ppn;
 } HPTE;	// 64 bits
 
-// Small Page Table Entry
-typedef struct packed
-{
-	logic v;
-	logic [2:0] lvl;
-	logic [9:0] pad10a;
-	logic c;
-	logic [15:0] ppn;
-} SPDE;	// 32 bits + address
-
-typedef struct packed
-{
-	logic [31:0] ppnhi;
-	logic v;
-	logic [2:0] lvl;
-	logic [9:0] pad10a;
-	logic c;
-	logic [15:0] ppn;
-} PDE;	// 64 bits + address
-
-typedef struct packed
-{
-	logic v;
-	rfPhoenixPkg::Address adr;
-	SPDE pde;
-} SPDCE;
-
 typedef struct packed
 {
 	logic v;
@@ -228,101 +169,104 @@ typedef struct packed
 } PTGCE;
 parameter PTGC_DEP = 8;
 
-parameter MEMORY_INIT = 7'd0;
-parameter MEMORY_IDLE = 7'd1;
-parameter MEMORY_DISPATCH = 7'd2;
-parameter MEMORY3 = 7'd3;
-parameter MEMORY4 = 7'd4;
-parameter MEMORY5 = 7'd5;
-parameter MEMORY_ACKLO = 7'd6;
-parameter MEMORY_NACKLO = 7'd7;
-parameter MEMORY8 = 7'd8;
-parameter MEMORY9 = 7'd9;
-parameter MEMORY10 = 7'd10;
-parameter MEMORY11 = 7'd11;
-parameter MEMORY_ACKHI = 7'd12;
-parameter MEMORY13 = 7'd13;
-parameter DATA_ALIGN = 7'd14;
-parameter MEMORY_KEYCHK1 = 7'd15;
-parameter MEMORY_KEYCHK2 = 7'd16;
-parameter KEYCHK_ERR = 7'd17;
-parameter TLB1 = 7'd21;
-parameter TLB2 = 7'd22;
-parameter TLB3 = 7'd23;
-parameter RGN1 = 7'd25;
-parameter RGN2 = 7'd26;
-parameter RGN3 = 7'd27;
-parameter IFETCH0 = 7'd30;
-parameter IFETCH1 = 7'd31;
-parameter IFETCH2 = 7'd32;
-parameter IFETCH3 = 7'd33;
-parameter IFETCH4 = 7'd34;
-parameter IFETCH5 = 7'd35;
-parameter IFETCH6 = 7'd36;
-parameter IFETCH1a = 7'd37;
-parameter IFETCH1b = 7'd38;
-parameter IFETCH3a = 7'd39;
-parameter DFETCH2 = 7'd42;
-parameter DFETCH3 = 7'd43;
-parameter DFETCH4 = 7'd44;
-parameter DFETCH5 = 7'd45;
-parameter DFETCH6 = 7'd46;
-parameter DFETCH7 = 7'd47;
-parameter DFETCH8 = 7'd48;
-parameter DFETCH9 = 7'd49;
-parameter KYLD = 7'd51;
-parameter KYLD2 = 7'd52;
-parameter KYLD3 = 7'd53;
-parameter KYLD4 = 7'd54;
-parameter KYLD5 = 7'd55;
-parameter KYLD6 = 7'd56;
-parameter KYLD7 = 7'd57;
-parameter MEMORY1 = 7'd60;
-parameter MFSEL1 = 7'd61;
-parameter MEMORY_ACTIVATE_LO = 7'd62;
-parameter MEMORY_ACTIVATE_HI = 7'd63;
-parameter IPT_FETCH1 = 7'd64;
-parameter IPT_FETCH2 = 7'd65;
-parameter IPT_FETCH3 = 7'd66;
-parameter IPT_FETCH4 = 7'd67;
-parameter IPT_FETCH5 = 7'd68;
-parameter IPT_RW_PTG2 = 7'd69;
-parameter IPT_RW_PTG3 = 7'd70;
-parameter IPT_RW_PTG4 = 7'd71;
-parameter IPT_RW_PTG5 = 7'd72;
-parameter IPT_RW_PTG6 = 7'd73;
-parameter IPT_WRITE_PTE = 7'd75;
-parameter IPT_IDLE = 7'd76;
-parameter MEMORY5a = 7'd77;
-parameter PT_FETCH1 = 7'd81;
-parameter PT_FETCH2 = 7'd82;
-parameter PT_FETCH3 = 7'd83;
-parameter PT_FETCH4 = 7'd84;
-parameter PT_FETCH5 = 7'd85;
-parameter PT_FETCH6 = 7'd86;
-parameter PT_RW_PTE1 = 7'd92;
-parameter PT_RW_PTE2 = 7'd93;
-parameter PT_RW_PTE3 = 7'd94;
-parameter PT_RW_PTE4 = 7'd95;
-parameter PT_RW_PTE5 = 7'd96;
-parameter PT_RW_PTE6 = 7'd97;
-parameter PT_RW_PTE7 = 7'd98;
-parameter PT_WRITE_PTE = 7'd99;
-parameter PMT_FETCH1 = 7'd101;
-parameter PMT_FETCH2 = 7'd102;
-parameter PMT_FETCH3 = 7'd103;
-parameter PMT_FETCH4 = 7'd104;
-parameter PMT_FETCH5 = 7'd105;
-parameter PT_RW_PDE1 = 7'd108;
-parameter PT_RW_PDE2 = 7'd109;
-parameter PT_RW_PDE3 = 7'd110;
-parameter PT_RW_PDE4 = 7'd111;
-parameter PT_RW_PDE5 = 7'd112;
-parameter PT_RW_PDE6 = 7'd113;
-parameter PT_RW_PDE7 = 7'd114;
-parameter PTG1 = 7'd115;
-parameter PTG2 = 7'd116;
-parameter PTG3 = 7'd117;
+typedef enum logic [6:0] {
+	MEMORY_INIT = 7'd0,
+	MEMORY_IDLE = 7'd1,
+	MEMORY_DISPATCH = 7'd2,
+	MEMORY3 = 7'd3,
+	MEMORY4 = 7'd4,
+	MEMORY5 = 7'd5,
+	MEMORY_ACKLO = 7'd6,
+	MEMORY_NACKLO = 7'd7,
+	MEMORY8 = 7'd8,
+	MEMORY9 = 7'd9,
+	MEMORY10 = 7'd10,
+	MEMORY11 = 7'd11,
+	MEMORY_ACKHI = 7'd12,
+	MEMORY13 = 7'd13,
+	DATA_ALIGN = 7'd14,
+	MEMORY_KEYCHK1 = 7'd15,
+	MEMORY_KEYCHK2 = 7'd16,
+	KEYCHK_ERR = 7'd17,
+	TLB1 = 7'd21,
+	TLB2 = 7'd22,
+	TLB3 = 7'd23,
+	RGN1 = 7'd25,
+	RGN2 = 7'd26,
+	RGN3 = 7'd27,
+	IFETCH0 = 7'd30,
+	IFETCH1 = 7'd31,
+	IFETCH2 = 7'd32,
+	IFETCH3 = 7'd33,
+	IFETCH4 = 7'd34,
+	IFETCH5 = 7'd35,
+	IFETCH6 = 7'd36,
+	IFETCH1a = 7'd37,
+	IFETCH1b = 7'd38,
+	IFETCH3a = 7'd39,
+	DFETCH2 = 7'd42,
+	DFETCH3 = 7'd43,
+	DFETCH4 = 7'd44,
+	DFETCH5 = 7'd45,
+	DFETCH6 = 7'd46,
+	DFETCH7 = 7'd47,
+	DFETCH8 = 7'd48,
+	DFETCH9 = 7'd49,
+	KYLD = 7'd51,
+	KYLD2 = 7'd52,
+	KYLD3 = 7'd53,
+	KYLD4 = 7'd54,
+	KYLD5 = 7'd55,
+	KYLD6 = 7'd56,
+	KYLD7 = 7'd57,
+	MEMORY1 = 7'd60,
+	MFSEL1 = 7'd61,
+	MEMORY_ACTIVATE_LO = 7'd62,
+	MEMORY_ACTIVATE_HI = 7'd63,
+	IPT_FETCH1 = 7'd64,
+	IPT_FETCH2 = 7'd65,
+	IPT_FETCH3 = 7'd66,
+	IPT_FETCH4 = 7'd67,
+	IPT_FETCH5 = 7'd68,
+	IPT_RW_PTG2 = 7'd69,
+	IPT_RW_PTG3 = 7'd70,
+	IPT_RW_PTG4 = 7'd71,
+	IPT_RW_PTG5 = 7'd72,
+	IPT_RW_PTG6 = 7'd73,
+	IPT_WRITE_PTE = 7'd75,
+	IPT_IDLE = 7'd76,
+	MEMORY5a = 7'd77,
+	PT_FETCH1 = 7'd81,
+	PT_FETCH2 = 7'd82,
+	PT_FETCH3 = 7'd83,
+	PT_FETCH4 = 7'd84,
+	PT_FETCH5 = 7'd85,
+	PT_FETCH6 = 7'd86,
+	PT_RW_PTE1 = 7'd92,
+	PT_RW_PTE2 = 7'd93,
+	PT_RW_PTE3 = 7'd94,
+	PT_RW_PTE4 = 7'd95,
+	PT_RW_PTE5 = 7'd96,
+	PT_RW_PTE6 = 7'd97,
+	PT_RW_PTE7 = 7'd98,
+	PT_WRITE_PTE = 7'd99,
+	PMT_FETCH1 = 7'd101,
+	PMT_FETCH2 = 7'd102,
+	PMT_FETCH3 = 7'd103,
+	PMT_FETCH4 = 7'd104,
+	PMT_FETCH5 = 7'd105,
+	PT_RW_PDE1 = 7'd108,
+	PT_RW_PDE2 = 7'd109,
+	PT_RW_PDE3 = 7'd110,
+	PT_RW_PDE4 = 7'd111,
+	PT_RW_PDE5 = 7'd112,
+	PT_RW_PDE6 = 7'd113,
+	PT_RW_PDE7 = 7'd114,
+	PTG1 = 7'd115,
+	PTG2 = 7'd116,
+	PTG3 = 7'd117
+} mem_state_t;
+
 parameter IPT_CLOCK1 = 7'd1;
 parameter IPT_CLOCK2 = 7'd2;
 parameter IPT_CLOCK3 = 7'd3;

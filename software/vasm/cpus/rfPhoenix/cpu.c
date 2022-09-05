@@ -81,12 +81,12 @@ mnemonic mnemonics[]={
 //	"bbs",	{OP_LK,OP_REG,OP_IMM,OP_IMM,0}, {BL,CPU_ALL,0,0x00001F000822LL,6},
 	"bbs",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(4)|OP(28),5},
 
-	"beq",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(6)|OP(28),5},
-	"bge",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(1)|OP(28),5},
-	"bgeu",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(3)|OP(28),5},
-	"blt",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(0)|OP(28),5},
-	"bltu",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(2)|OP(28),5},
-	"bne",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(7)|OP(28),5},
+	"beq",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(6)|OP(28),5},
+	"bge",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(1)|OP(28),5},
+	"bgeu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(3)|OP(28),5},
+	"blt",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(0)|OP(28),5},
+	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(2)|OP(28),5},
+	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(7)|OP(28),5},
 	
 	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25),5},
 
@@ -1252,10 +1252,11 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
         addend = (btype == BASE_PCREL) ? val + disp : val;
       	switch(op->format) {
       	/* Conditional jump */
+      	case B:
       	case J:
       	case JL:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                           23,17,0,0x1ffffLL);
+                           23,16,0,0xffffLL);
           break;
       	/* Unconditional jump */
         case J2:
@@ -1384,11 +1385,9 @@ static void encode_reg(uint64_t* insn, operand *op, mnemonic* mnemo, int i)
 		case B:
 		case J:
 			if (i==0)
-				*insn = *insn| (RA(op->basereg));
+				*insn = *insn| (RT(op->basereg));
 			else if (i==1)
-				*insn = *insn| (RB(op->basereg ));
-			else if (i==2)
-				*insn = *insn| (RC(op->basereg ));
+				*insn = *insn| (RA(op->basereg ));
 			break;
 		case B3:
 		case J3:
@@ -1458,7 +1457,7 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 			if (!is_nbit(hval,16)) {
 				if (postfix)
 					*postfix = OP(1) | ((val >> 16LL) << 8);
-				isize = (5<<8)|3;
+				isize = (5<<8)|5;
 			}
 			if (insn) {
 				*insn = *insn | ((val & 0xffffLL) << 23LL);
@@ -1497,7 +1496,7 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 			if (!is_nbit(hval,16)) {
 				if (postfix)
 					*postfix = OP(1) | ((val >> 16LL) << 8LL);
-				isize = (5<<8)|3;
+				isize = (5<<8)|5;
 			}
 			if (insn) {
 				*insn = *insn | ((val & 0xffffLL) << 23LL);
@@ -1542,7 +1541,8 @@ j2:	;
 */
 static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t val, int* isize, int i)
 {
-	*isize = 5;
+	if (isize)
+		*isize = 5;
 
 	TRACE("evb:");
 	switch(mnemo->ext.format) {
@@ -1552,11 +1552,11 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 			if (insn) {
 				switch(i) {
 				case 1:
-					*insn |= RB(val>>2)|((val & 3LL) << 12);
+					*insn |= RT(val & 0x3fLL);
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 23LL);
+		  		tgt = ((val & 0xffffLL) << 23LL);
 		  		*insn |= tgt;
 			  	break;
 				}
@@ -1643,7 +1643,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_IMM) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		tgt = ((val & 0x1ffffLL) << 23LL);
+	  		tgt = ((val & 0xffffffffLL) << 8LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1946,7 +1946,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	    		if (!is_nbit(val,16) && abits > 16) {
 	    			if (postfix)
 							*postfix = OP(1) | ((val >> 16LL) << 8LL);
-						isize = (5<<8)|3;
+						isize = (5<<8)|5;
 					}
   		}
   		else {
@@ -1961,7 +1961,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
     		if (!is_nbit(val,16) && abits > 16) {
     			if (postfix)
 						*postfix = OP(1) | ((val >> 16LL) << 8LL);
-					isize = (5<<8)|3;
+					isize = (5<<8)|5;
 				}
   		}
     }

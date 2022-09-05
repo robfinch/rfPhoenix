@@ -42,8 +42,7 @@ module rfPhoenix_tlb(rst_i, clk_i, clock, al_i, rdy_o, asid_i, sys_mode_i,xlaten
 	we_i,stptr_i,
 	dadr_i,next_i,iacc_i,dacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,
 	tlbmiss_o, tlbmiss_adr_o, tlbkey_o,
-	m_cyc_o, m_ack_i, m_adr_o, m_dat_o,
-	pmt_we, pmt_adr, pmt_din, pmt_dout);
+	m_cyc_o, m_ack_i, m_adr_o, m_dat_o);
 parameter ASSOC = 5;	// MAX assoc = 15
 parameter AWID=32;
 parameter RSTIP = 32'hFFFD0000;
@@ -76,10 +75,6 @@ output reg m_cyc_o;
 input m_ack_i;
 output Address m_adr_o;
 output reg [127:0] m_dat_o;
-output reg pmt_we;
-output reg [13:0] pmt_adr;
-output PMTE pmt_dout;
-input PMTE pmt_din;
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
 
@@ -89,18 +84,16 @@ Address last_ladr, last_iadr;
 
 reg [1:0] al;
 reg LRU;
-reg [3:0] state = 'd0;
-parameter ST_RST = 4'd0;
-parameter ST_RUN = 4'd1;
-parameter ST_AGE1 = 4'd2;
-parameter ST_AGE2 = 4'd3;
-parameter ST_AGE3 = 4'd4;
-parameter ST_AGE4 = 4'd5;
-parameter ST_WRITE_PTE = 4'd6;
-parameter ST_WRITE_PMT = 4'd7;
-parameter ST_READ_PMT1 = 4'd8;
-parameter ST_READ_PMT2 = 4'd9;
-parameter ST_READ_PMT3 = 4'd10;
+typedef enum logic [3:0] {
+	ST_RST = 4'd0,
+	ST_RUN = 4'd1,
+	ST_AGE1 = 4'd2,
+	ST_AGE2 = 4'd3,
+	ST_AGE3 = 4'd4,
+	ST_AGE4 = 4'd5,
+	ST_WRITE_PTE = 4'd6
+} tlb_state_t;
+tlb_state_t state = ST_RST;
 
 wire [AWID-1:0] rstip = RSTIP;
 reg [3:0] randway;
@@ -215,7 +208,7 @@ TLBE tlbdat_rst;
 TLBE [ASSOC-1:0] tlbdati;
 TLBE tlbdati_r;
 reg [9:0] tlbadri_r;
-reg [12:0] count;
+reg [5:0] count;
 reg [ASSOC-1:0] tlbwrr;
 reg [ASSOC-1:0] tlbwr_r;
 reg tlbeni;
@@ -243,47 +236,44 @@ if (rst_i) begin
 	state <= ST_RST;
 	tlbeni <= 1'b1;		// forces ready low
 	tlbwrr <= 'd0;
-	count <= 13'h0FC0;	// Map only last 256kB
+	count <= 6'h0;		// Map only last 256kB
 	clock_r <= 1'b0;
 	m_cyc_o <= 1'b0;
 	m_dat_o <= 'd0;
-	pmt_we <= 1'b0;
 end
 else begin
 tlbeni  <= 1'b0;
 tlbwrr <= 'd0;
-pmt_we <= 1'b0;
 if (pe_clock)
 	clock_r <= 1'b1;
 case(state)
+	
+// Setup the last 256kB/32 pages of memory to point to the ROM BIOS.
 ST_RST:
 	begin
 		tlbeni <= 1'b1;
 		tlbwrr <= 'd0;
-		casez(count[12:10])
+		case(count[5])
 //		13'b000: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b001: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b010: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
-		13'b011:
+		1'b0:
 			begin
 				tlbwrr[ASSOC-1] <= 1'b1; 
 				tlbdat_rst <= 'd0;
-				tlbdat_rst.asid <= 12'h00;
-				tlbdat_rst.bc <= 4'h0;
+				tlbdat_rst.asid <= 'd0;
 				tlbdat_rst.g <= 1'b1;
 				tlbdat_rst.v <= 1'b1;
 				tlbdat_rst.m <= 1'b1;
 				tlbdat_rst.rwx <= 3'd7;
 				tlbdat_rst.c <= 1'b1;
 				// FFFC0000
-				// 1111_1111_11_ 11_1100_0000 _0000_0000_0000
-				tlbdat_rst.vpn <= {44'h000FF,count[7:0]};
-				tlbdat_rst.ppn <= {44'h000FF,count[7:0]};
-				tlbdat_rst.mb <= 3'd0;
-				tlbdat_rst.me <= 3'd7;
-				rcount <= count[9:0];
+				// 1111_1111_ 11_11_1100_000 0_0000_0000_0000
+				tlbdat_rst.vpn <= {27'h003FFF,count[4:0]};
+				tlbdat_rst.ppn <= {35'h003FFF,count[4:0]};
+				rcount <= {5'h1F,count[4:0]};
 			end // Map 16MB ROM/IO area
-		13'b1??: begin state <= ST_RUN; tlbwrr[ASSOC-1] <= 1'd1; end
+		1'b1: begin state <= ST_RUN; tlbwrr[ASSOC-1] <= 1'd1; end
 		default:	;
 		endcase
 		count <= count + 2'd1;
@@ -292,10 +282,7 @@ ST_RUN:
 	begin
 		wrtlb <= next_wrtlb;
 		if (|next_wrtlb) begin
-			if (tlbdat_i.ppn < 16'd16384) begin
-				pmt_adr <= tlbdat_i.ppn;
-				state <= ST_READ_PMT1;
-			end
+			;
 		end
 		else if (dumped_entry.m && |dumped_entry.adr) begin
 			wrtlb <= 'd0;
@@ -334,40 +321,14 @@ ST_WRITE_PTE:
 		m_cyc_o <= 1'b1;
 		m_adr_o <= dumped_entry.adr;
 		m_dat_o <= dumped_entry;
-		m_dat_o[21] <= 1'b0;	// modified bit
+		m_dat_o[55] <= 1'b0;	// modified bit
 		if (m_ack_i) begin
 			m_cyc_o <= 1'b0;
-			state <= ST_WRITE_PMT;
+			state <= ST_RUN;
 		end
 	end
 	else
 		state <= ST_RUN;
-ST_WRITE_PMT:
-	begin
-		if (|dumped_entry.pmtadr) begin
-			m_cyc_o <= 1'b1;
-			m_adr_o <= dumped_entry.pmtadr;
-			m_dat_o <= dumped_entry[255:128];
-			if (m_ack_i) begin
-				m_cyc_o <= 1'b0;
-				state <= ST_RUN;
-				pmt_we <= 1'b0;
-				pmt_adr <= dumped_entry.pmtadr;
-				pmt_dout <= dumped_entry[255:128];
-			end
-		end
-		else
-			state <= ST_RUN;
-	end
-ST_READ_PMT1:
-	state <= ST_READ_PMT2;
-ST_READ_PMT2:
-	state <= ST_READ_PMT3;
-ST_READ_PMT3:
-	begin
-		wrtlb <= tlbwr_r;
-		state <= ST_RUN;
-	end
 default:
 	state <= ST_RUN;
 endcase
@@ -407,17 +368,8 @@ begin
 			tlbadri <= rcount;
 			for (n2 = 0; n2 < ASSOC; n2 = n2 + 1) begin
 				tlbdati[n2] <= tlbdato[n2];
-				tlbdati[n2].access_count <= {1'b0,tlbdato[n2].access_count[31:1]};
 			end
 		end
-ST_READ_PMT3:
-	begin
-		tlbadri <= tlbadri_r;
-		for (n2 = 0; n2 < ASSOC; n2 = n2 + 1) begin
-			tlbdati[n2] <= tlbdati_r;
-			tlbdati[n2][255:128] <= pmt_din;
-		end
-	end
 	default:
 		begin
 			tlbadri <= tlbadr_i[15:5];
@@ -457,7 +409,6 @@ begin
 	  			if (wed)
 	  				tentryi[0].m <= 1'b1;
 	  			//tentryi[0].a <= 1'b1;
-	  			tentryi[0].access_count <= tentryo2[n1].access_count + 2'd1;
 //					if (stptr)
 //						tentryo[0].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
   			end
@@ -466,7 +417,6 @@ begin
 	  			if (wed)
 	  				tentryi[n1].m <= 1'b1;
 	  			//tentryi[n1].a <= 1'b1;
-	  			tentryi[n1].access_count <= tentryo2[n1].access_count + 2'd1;
 //					if (stptr)
 //						tentryo[n1].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
 	  			wr[n1] <= 1'b1;
@@ -489,7 +439,7 @@ for (g = 0; g < ASSOC; g = g + 1)
 	  .clkb(clk_g),    // input wire clkb
 	  .enb(xlaten_i),      // input wire enb
 	  .web(wr[g]),      // input wire [0 : 0] web
-	  .addrb(adr_i[25:16]),  // input wire [9 : 0] addrb
+	  .addrb(adr_i[23:13]),  // input wire [9 : 0] addrb
 	  .dinb(tentryi[g]),    // input wire [63 : 0] dinb
 	  .doutb(tentryo[g])  // output wire [63 : 0] doutb
 	);
@@ -515,28 +465,20 @@ else begin
   else begin
 		if (!xlatend) begin
 	    tlbmiss_o <= FALSE;
-	  	padr_o[15:0] <= iadrd[15:0];
-	    padr_o[31:16] <= iadrd[31:16];
+	  	padr_o[31:0] <= iadrd[31:0];
 	    acr_o <= 4'hF;
-			tlbkey_o <= 32'hFFFFFFFF;
 		end
 		else begin
 			tlbmiss_o <= dli[4] & ~cd_iadr;
 			tlbmiss_adr_o <= iadrd;
-			tlbkey_o <= 32'hFFFFFFFF;
 			hit <= 4'd15;
 			acr_o <= 4'h0;
 			for (n = 0; n < ASSOC; n = n + 1) begin
 				tentryo2[n] <= tentryo[n];
-				if (tentryo[n].vpn[15:10]==iadrd[31:26] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
-			  	padr_o[9:0] <= iadrd[9:0];
-			  	padr_o[15:10] <= iadrd[15:10] + tentryo[n].mb;
-					padr_o[31:16] <= tentryo[n].ppn;
-					if (iadrd[15:10] + tentryo[n].mb <= tentryo[n].me)
-						acr_o <= {tentryo[n].ppn < 16'h0FFF || tentryo[n].ppn==16'hFFFC,tentryo[n].rwx};
-					else
-						acr_o <= 4'h0;
-					tlbkey_o <= tentryo[n].key;
+				if (tentryo[n].vpn[18:10]==iadrd[31:23] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
+			  	padr_o[12:0] <= iadrd[12:0];
+					padr_o[31:13] <= tentryo[n].ppn[18:0];
+					acr_o <= {tentryo[n].ppn < 19'h07FFF || tentryo[n].ppn > 19'h7FFE0,tentryo[n].rwx};
 					tlbmiss_o <= FALSE;
 					hit <= n;
 				end
