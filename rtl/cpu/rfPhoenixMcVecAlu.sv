@@ -46,8 +46,8 @@ input VecValue c;
 input Value imm;
 output VecValue o;
 output reg done;
-input [3:0] ridi;
-output [3:0] rido;
+input Tid ridi;
+output Tid rido;
 
 integer n;
 genvar g;
@@ -69,7 +69,8 @@ generate begin
 end
 endgenerate
 
-ft_delay #(.WID(4), .DEP(7)) uftd1 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
+//ft_delay #(.WID(4), .DEP(7)) uftd1 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
+vtdl #(.WID($bits(Tid)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd8), .d(ridi), .q(rido));
 
 always_comb
 	done <= &don;

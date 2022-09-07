@@ -59,46 +59,11 @@ output Value o2;
 output Value o3;
 output Value o4;
 
-integer n,j,k;
-Regspec ra0r, ra1r, ra2r, ra3r, ra4r;
-Tid rthreadr;
-
-(* ram_style = "block" *)
-Value [NTHREADS*NREGS-1:0] regfile;
-
-initial begin
-	for (j = 0; j < NTHREADS; j = j + 1 ) begin
-		for (n = 0; n < NREGS; n = n + 1) begin
-			regfile[j*NREGS+n] <= 32'd0;
-		end
-	end
-end
-
-always_ff @(posedge clk)
-	if (wr)
-		regfile[{wthread,wa.num}] <= i;
-always_ff @(posedge clk)
-	rthreadr <= rthread;
-always_ff @(posedge clk)
-	ra0r <= ra0;
-always_ff @(posedge clk)
-	ra1r <= ra1;
-always_ff @(posedge clk)
-	ra2r <= ra2;
-always_ff @(posedge clk)
-	ra3r <= ra3;
-always_ff @(posedge clk)
-	ra4r <= ra4;
-	
-always_comb
-	o0 <= regfile[{rthreadr,ra0r.num}];
-always_comb
-	o1 <= regfile[{rthreadr,ra1r.num}];
-always_comb
-	o2 <= regfile[{rthreadr,ra2r.num}];
-always_comb
-	o3 <= regfile[{rthreadr,ra3r.num}];
-always_comb
-	o4 <= regfile[{rthreadr,ra4r.num}];
+gpr_regfile ugpr0 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra0.num}), .o(o0));
+gpr_regfile ugpr1 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra1.num}), .o(o1));
+gpr_regfile ugpr2 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra2.num}), .o(o2));
+gpr_regfile ugpr3 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra3.num}), .o(o3));
+gpr_regfile ugpr4 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra4.num}), .o(o4));
 
 endmodule
+

@@ -59,7 +59,7 @@ input CodeAddress ip;
 output CodeAddress ip_o;
 output reg ihit;
 input ifStall;
-output [pL1ICacheLineSize-1:0] ic_line;
+output ICacheLine ic_line;
 output reg ic_valid;
 output reg [AWID-7:0] ic_tag;
 // Fifo controls
@@ -154,8 +154,8 @@ reg xlaten;
 reg [31:0] memreq_sel;
 CodeAddress last_cadr;
 PDCE ptc;
+PhysicalAddress padrd1,padrd2,padrd3;
 
-Address vadr;		// virtual address
 MemoryRequest memreq,imemreq;
 reg memreq_rd = 0;
 MemoryResponse memresp;
@@ -165,6 +165,8 @@ Value movdat;
 wire [127:0] rb_bitmap1;
 reg [127:0] rb_bitmap2, rb_bitmap3, rb_bitmap4;
 reg [127:0] rb_bitmaps2 [0:NTHREADS-1];
+reg [1023:0] dc_linein;
+wire [1023:0] stmask;
 
 // 0,1: PTE
 // 2,3: PMT
@@ -218,10 +220,8 @@ wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 `endif
 
 // Build an insert mask for data cache store operations.
-wire [1023:0] stmask;
 
 rfPhoenix_stmask ustmsk (memr.sel, memr.badAddr[5:0], stmask);
-reg [1023:0] dc_linein;
 always_comb
 	dc_linein = (dc_line & ~stmask) | ((memr.res << {memr.badAddr[5:0],3'b0}) & stmask);
 
@@ -349,7 +349,9 @@ rfPhoenix_mem_resp_fifo uofifo2
 // Instruction cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+ICacheLine [pL1ICacheWays-1:0] ic_lin;
 reg [1:0] ic_rway,ic_wway;
+reg [pL1ICacheWays-1:0] icache_w;
 reg icache_wr;
 always_comb icache_wr = state==IFETCH3;
 reg ic_invline,ic_invall;
@@ -360,7 +362,7 @@ wire [512/4-1:0] icvalid [0:3];
 reg [639:0] ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
 reg [2:0] vcn;
-reg [pL1ICacheLineSize-1:0] ivcache [0:4];
+ICacheLine [4:0] ivcache;
 reg [AWID-1:6] ivtag [0:4];
 reg [4:0] ivvalid;
 wire ihit2;
@@ -382,12 +384,12 @@ always_ff @(posedge clk)
 always_ff @(posedge clk)
 	ihit3 <= ihit2;
 always_ff @(posedge clk)
-	ihit <= ihit3;
+	ihit <= ihit2;
 always_ff @(posedge clk)
 	ic_valid3 <= ic_valid2;
 always_ff @(posedge clk)
-	ic_valid <= ic_valid3;
-assign ip_o = ip5;
+	ic_valid <= ic_valid2;
+assign ip_o = ip3;
 always_ff @(posedge clk)
 	ic_tag3 <= ic_tag2;
 always_ff @(posedge clk)
@@ -396,7 +398,7 @@ always_ff @(posedge clk)
 // 552 wide x 512 deep, uses output register so there is a 2 cycle read latency.
 icache_blkmem uicm (
   .clka(clk),    // input wire clka
-  .ena(1'b1),      // input wire ena
+  .ena(icache_wr),      // input wire ena
   .wea(icache_wr),      // input wire [0 : 0] wea
   .addra({ic_wway,ipo[12:6]}),  // input wire [8 : 0] addra
   .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [551 : 0] dina
@@ -419,7 +421,7 @@ uictag1
 	.ipo(ipo),
 	.way(ic_wway),
 	.rclk(clk),
-	.ip(ip),
+	.ip(padr),
 	.tag(ictag)
 );
 
@@ -500,11 +502,15 @@ always_comb
 // Data Cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 wire [3:0] tlbacr;
+reg [3:0] tlbacrd;
+always_ff @(posedge clk)
+	tlbacrd <= tlbacr;
 
 reg [2:0] dwait;		// wait state counter for dcache
 Address dadr;
-reg [511:0] dci;		// 512 + 120 bit overflow area
-wire [511:0] dc_eline, dc_oline;
+DCacheLine dci;
+DCacheLine [pL1DCacheWays-1:0] dc_eline, dc_oline;
+DCacheLine [pL1DCacheWays-1:0] dc_elin, dc_olin;
 reg [1023:0] dc_line;
 reg [1023:0] datil;
 reg dcachable;
@@ -512,54 +518,58 @@ reg [1:0] dc_erway,prev_dc_erway;
 reg [1:0] dc_orway,prev_dc_orway;
 wire [1:0] dc_ewway;
 wire [1:0] dc_owway;
-reg dcache_ewr, dcache_owr;
+reg [pL1DCacheWays-1:0] dcache_ewr, dcache_owr;
+wire dc_ewr, dc_owr;
 reg dc_invline,dc_invall;
 
 dcache_blkmem udcb1e (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
-  .wea(dcache_ewr),      // input wire [0 : 0] wea
-  .addra({dc_ewway,dadr[13:7]+adr_o[6]}),  // input wire [8 : 0] addra
+  .wea(dc_ewr),      // input wire [0 : 0] wea
+  .addra({dc_ewway,dadr[13:7]+dadr[6]}),  // input wire [8 : 0] addra
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_erway,vadr[13:7]+vadr[6]}),  // input wire [8 : 0] addrb
+  .addrb({dc_erway,padrd1[13:7]+padrd1[6]}),  // input wire [8 : 0] addrb
   .doutb(dc_eline)  // output wire [511 : 0] doutb
 );
 
 dcache_blkmem udcb1o (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
-  .wea(dcache_owr),      // input wire [0 : 0] wea
+  .wea(dc_owr),      // input wire [0 : 0] wea
   .addra({dc_owway,dadr[13:7]}),  // input wire [8 : 0] addra
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_orway,vadr[13:7]}),  // input wire [8 : 0] addrb
+  .addrb({dc_orway,padrd1[13:7]}),  // input wire [8 : 0] addrb
   .doutb(dc_oline)  // output wire [511 : 0] doutb
 );
 
 always_comb
-	case(vadr[6])
+	case(padrd1[6])
 	1'b0:	dc_line = {dc_oline,dc_eline};
 	1'b1:	dc_line = {dc_eline,dc_oline};
 	endcase
 
 wire [AWID-7:0] dc_etag [3:0];
 wire [127:0] dc_evalid [0:3];
-wire [3:0] dhit1e;
+wire [3:0] dhit1e;	// debugging
+wire [3:0] dhit1o;
 wire [AWID-7:0] dc_otag [3:0];
 wire [127:0] dc_ovalid [0:3];
-wire [3:0] dhit1o;
 wire dhito,dhite;
-
+Address vadr2e;
+always_comb
+	vadr2e <= padr[13:7]+padr[6];
+	
 rfPhoenix_dchit udchite
 (
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_etag),
-	.ndx(vadr[13:7]+vadr[6]),
-	.adr(vadr),
+	.ndx(vadr2e),
+	.adr(padr),
 	.valid(dc_evalid),
 	.hits(dhit1e),
 	.hit(dhite),
@@ -571,8 +581,8 @@ rfPhoenix_dchit udchito
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_otag),
-	.ndx(vadr[13:7]),
-	.adr(vadr),
+	.ndx(padr[13:7]),
+	.adr(padr),
 	.valid(dc_ovalid),
 	.hits(dhit1o),
 	.hit(dhito),
@@ -581,7 +591,7 @@ rfPhoenix_dchit udchito
 
 reg dhit;
 always_comb
-	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && vadr[5:0] < 6'd61) : (dhite && vadr[5:0] < 6'd61));
+	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && padrd1[5:0] < 6'd61) : (dhite && padrd1[5:0] < 6'd61));
 
 rfPhoenix_dctag
 #(
@@ -596,7 +606,7 @@ udcotag
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(vadr[13:7]),
+	.ndx(padrd1[13:7]),
 	.tag(dc_otag)
 );
 
@@ -613,7 +623,7 @@ udcetag
 	.adr(dadr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(vadr[13:7]+vadr[6]),
+	.ndx(padrd1[13:7]+padrd1[6]),
 	.tag(dc_etag)
 );
 
@@ -670,7 +680,7 @@ rfPhoenix_dcache_wr udcwre
 	.acr(memr.acr),
 	.eaeo(~memr.badAddr[6]),
 	.daeo(~adr_o[6]),
-	.wr(dcache_ewr)
+	.wr(dc_ewr)
 );
 
 rfPhoenix_dcache_wr udcwro
@@ -686,7 +696,7 @@ rfPhoenix_dcache_wr udcwro
 	.acr(memr.acr),
 	.eaeo(memr.badAddr[6]),
 	.daeo(adr_o[6]),
-	.wr(dcache_owr)
+	.wr(dc_owr)
 );
 
 rfPhoenix_dcache_way udcwaye
@@ -765,15 +775,15 @@ rfPhoenix_tlb utlb
   .al_i(ptbr[7:6]),
   .clock(clock),
   .rdy_o(tlbrdy),
-  .asid_i(mem_resp[1].asid),
+  .asid_i(mem_resp[0].asid),
   .sys_mode_i(vpa_o ? ~UserMode : ~MUserMode),
   .xlaten_i(xlaten),
   .we_i(we_o),
   .dadr_i(dadr),
   .next_i(inext),
-  .iacc_i(mem_resp[1].v),//iaccess|daccess),
+  .iacc_i(mem_resp[0].v),//iaccess|daccess),
   .dacc_i(1'b0),
-  .iadr_i(mem_resp[1].badAddr),
+  .iadr_i(mem_resp[0].badAddr),
   .padr_o(padr),
   .acr_o(tlbacr),
   .tlben_i(tlben),
@@ -788,6 +798,13 @@ rfPhoenix_tlb utlb
   .m_adr_o(tlb_adr),
   .m_dat_o(tlb_dat)
 );
+
+always_ff @(posedge clk)	// delay for data tag lookup
+	padrd1 <= padr;
+always_ff @(posedge clk)	// two cycle delay for data fetch
+	padrd2 <= padrd1;
+always_ff @(posedge clk)
+	padrd3 <= padrd2;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // IPT
@@ -2091,6 +2108,7 @@ endtask
 task tStage0;
 begin
 	memreq_rd <= FALSE;
+	xlaten <= FALSE;
 	if (!fifoToCtrl_empty && tlbrdy)
 		memreq_rd <= TRUE;
 	mem_resp[0] <= 'd0;
@@ -2103,28 +2121,24 @@ begin
 			end
 			else if (fifoToCtrl_v) begin
 				waycnt <= waycnt + 2'd1;
-				if (imemreq.func!=MR_ICACHE_LOAD || last_cadr != imemreq.adr) begin
-					if (imemreq.func==MR_ICACHE_LOAD)
-						last_cadr <= imemreq.adr;
-					mem_resp[0].v <= 1'b1;
-					mem_resp[0].ip <= imemreq.ip;
-					mem_resp[0].tid <= imemreq.tid;
-					mem_resp[0].thread <= imemreq.thread;
-					mem_resp[0].omode <= imemreq.omode;
-					mem_resp[0].func <= imemreq.func;
-					mem_resp[0].func2 <= imemreq.func2;
-					mem_resp[0].step <= imemreq.step;
-					mem_resp[0].asid <= imemreq.asid;
-					mem_resp[0].badAddr <= imemreq.adr;
-					vadr <= imemreq.adr;	// Begin d$ lookup
-					mem_resp[0].vcadr <= imemreq.vcadr;
-					mem_resp[0].res <= imemreq.dat;
-					mem_resp[0].dat <= imemreq.dat;
-					mem_resp[0].sz <= imemreq.sz;
-					mem_resp[0].sel <= imemreq.sel;
-					mem_resp[0].tgt <= imemreq.tgt;
-					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
-				end
+				xlaten <= TRUE;
+				mem_resp[0].v <= 1'b1;
+				mem_resp[0].ip <= imemreq.ip;
+				mem_resp[0].tid <= imemreq.tid;
+				mem_resp[0].thread <= imemreq.thread;
+				mem_resp[0].omode <= imemreq.omode;
+				mem_resp[0].func <= imemreq.func;
+				mem_resp[0].func2 <= imemreq.func2;
+				mem_resp[0].step <= imemreq.step;
+				mem_resp[0].asid <= imemreq.asid;
+				mem_resp[0].badAddr <= imemreq.adr;
+				mem_resp[0].vcadr <= imemreq.vcadr;
+				mem_resp[0].res <= imemreq.dat;
+				mem_resp[0].dat <= imemreq.dat;
+				mem_resp[0].sz <= imemreq.sz;
+				mem_resp[0].sel <= imemreq.sel;
+				mem_resp[0].tgt <= imemreq.tgt;
+				rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
 			end
 		end
 	end
@@ -2138,8 +2152,6 @@ begin
 	ptgram_en <= 1'b0;
 	mem_resp[1] <= mem_resp[0];
 	mem_resp[1].cause <= FLT_NONE;
-	iaccess <= FALSE;
-	xlaten <= FALSE;
 	if (mem_resp[0].func==MR_CACHE) begin
 		ic_invline <= mem_resp[0].dat[2:0]==3'd1;
 		ic_invall	<= mem_resp[0].dat[2:0]==3'd2;
@@ -2156,8 +2168,6 @@ begin
 	else if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || 
 		mem_resp[0].func==MR_TLBRD || mem_resp[0].func==MR_TLBRW ||
 		mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
-		iaccess <= TRUE;
-		xlaten <= TRUE;
     mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].badAddr[3:0];
 		casez(mem_resp[0].badAddr)
 		32'hFF9F????:
@@ -2208,32 +2218,33 @@ endtask
 
 task tAddressXlat;
 begin
+	// VLOOKUP1 is in line with the output of the TLB
 	mem_resp[VLOOKUP1] <= mem_resp[1];				// tag lookup
 	if (mem_resp[VLOOKUP1].func==MR_TLBRW || mem_resp[VLOOKUP1].func==MR_TLBRD)
 		mem_resp[VLOOKUP1].res <= tlbdato;
-	mem_resp[VLOOKUP2] <= mem_resp[VLOOKUP1];	// address lookup 1
-	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP2];	// address lookup 1
-	mem_resp[PADR_SET] <= mem_resp[VLOOKUP2];
+	mem_resp[VLOOKUP1].acr <= tlbacr;
+	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP1];	// data tag lookup
+//	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP2];	// data fetch 1
+	mem_resp[PADR_SET] <= mem_resp[VLOOKUP3];	// data fetch 2
 	// No address translations for machine mode
-	if (mem_resp[VLOOKUP2].omode!=2'd3) begin
-		mem_resp[PADR_SET].badAddr <= padr;
-		mem_resp[PADR_SET].acr <= tlbacr;
+	if (mem_resp[VLOOKUP3].omode!=2'd3) begin
+		mem_resp[PADR_SET].badAddr <= padrd1;
 	end
 	else
 		mem_resp[PADR_SET].acr <= region.at[3:0];
-	if (mem_resp[VLOOKUP2].v) begin
-	  if (!region.at[0] && mem_resp[VLOOKUP2].func==MR_ICACHE_LOAD)
+	if (mem_resp[VLOOKUP3].v) begin
+	  if (!region.at[0] && mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
 	    mem_resp[PADR_SET].cause <= FLT_PMA;
 	 	//we_o <= wr & tlbwr & region.at[1];
-	  if (mem_resp[VLOOKUP2].func==MR_STORE && !region.at[1])
+	  if (mem_resp[VLOOKUP3].func==MR_STORE && !region.at[1])
 		  mem_resp[PADR_SET].cause <= FLT_WRV;
-	  else if (mem_resp[VLOOKUP2].func!=MR_STORE && !region.at[2])
+	  else if (mem_resp[VLOOKUP3].func!=MR_STORE && !region.at[2])
 		  mem_resp[PADR_SET].cause <= FLT_RDV;
 	   // TLB miss has higher precedence than PMA
 	   // No TLB miss in machine mode
-		if (tlbmiss && mem_resp[VLOOKUP2].omode!=2'd3)
+		if (tlbmiss && mem_resp[VLOOKUP3].omode!=2'd3)
 			mem_resp[PADR_SET].cause <= FLT_TLBMISS;
-	 	if (!tlbacr[2] && (mem_resp[VLOOKUP2].func==MR_LOAD || mem_resp[VLOOKUP2].func==MR_LOADZ)) begin
+	 	if (!tlbacr[2] && (mem_resp[VLOOKUP3].func==MR_LOAD || mem_resp[VLOOKUP3].func==MR_LOADZ)) begin
 	 		mem_resp[PADR_SET].cause <= FLT_RDV;
 	 		//tReadViolation(mem_resp[4].badAddr);
 //		if (tlbacr[3])
@@ -2250,46 +2261,46 @@ endtask
 
 task tCacheAccess;
 begin
-	if (mem_resp[VLOOKUP2].v) begin
+	if (mem_resp[VLOOKUP3].v) begin
 `ifdef SUPPORT_HASHPT
 	if (ptg_fault) begin
 		clr_ptg_fault <= 1'b1;
-		if (mem_resp[VLOOKUP2].func==MR_ICACHE_LOAD)
+		if (mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
 			mem_resp[PADR_SET].cause <= {4'h8,FLT_CPF};
 		else
 			mem_resp[PADR_SET].cause <= {4'h8,FLT_DPF};
 	end
 `endif
-	mem_resp[PADR_SET].dchit <= dhit & mem_resp[VLOOKUP2].acr[3];	// hit and cachable data
-	case(mem_resp[VLOOKUP2].func)
+	mem_resp[PADR_SET].dchit <= dhit & mem_resp[VLOOKUP3].acr[3];	// hit and cachable data
+	case(mem_resp[VLOOKUP3].func)
 	MR_TLBRW,MR_TLBRD:
 		mem_resp[PADR_SET].wr <= TRUE;
 	MR_ICACHE_LOAD:
 		mem_resp[PADR_SET].wr <= TRUE;
 	MR_LOAD,MR_LOADZ:
 		case(1'b1)
-		mem_resp[VLOOKUP2].tlb_access:	begin mem_resp[PADR_SET].res <= tlbdato; end
-		mem_resp[VLOOKUP2].ptgram_en:		begin mem_resp[PADR_SET].res <= ptgram_dato; end
-		mem_resp[VLOOKUP2].rgn_en:			begin mem_resp[PADR_SET].res <= rgn_dat_o; end
+		mem_resp[VLOOKUP3].tlb_access:	begin mem_resp[PADR_SET].res <= tlbdato; end
+		mem_resp[VLOOKUP3].ptgram_en:		begin mem_resp[PADR_SET].res <= ptgram_dato; end
+		mem_resp[VLOOKUP3].rgn_en:			begin mem_resp[PADR_SET].res <= rgn_dat_o; end
 		default:		
 			begin
 				mem_resp[PADR_SET].res <= dc_line;
-				mem_resp[PADR_SET].wr <= !dce & dhit & mem_resp[VLOOKUP2].acr[3];
+				mem_resp[PADR_SET].wr <= !dce & dhit & mem_resp[VLOOKUP3].acr[3];
 				mem_resp[PADR_SET].hit <= {dhito,dhite};
-				if (!(dce & dhit & mem_resp[VLOOKUP2].acr[3]))
+				if (!(dce & dhit & mem_resp[VLOOKUP3].acr[3]))
 					mem_resp[PADR_SET].cause <= FLT_DCM;
 			end
 	  endcase
 	MR_STORE:	
 		begin
 			mem_resp[PADR_SET].wr <= TRUE;
-			case(mem_resp[VLOOKUP2].sz)
+			case(mem_resp[VLOOKUP3].sz)
 			byt:	;	// Cant be unaligned
-			wyde:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd62)	mem_resp[PADR_SET].cause <= FLT_ALN;
-			tetra:if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
-			default:	if (mem_resp[VLOOKUP2].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
+			wyde:	if (mem_resp[VLOOKUP3].badAddr[5:0] > 6'd62)	mem_resp[PADR_SET].cause <= FLT_ALN;
+			tetra:if (mem_resp[VLOOKUP3].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
+			default:	if (mem_resp[VLOOKUP3].badAddr[5:0] > 6'd60)	mem_resp[PADR_SET].cause <= FLT_ALN;
 			endcase
- 			mem_resp[PADR_SET].res <= (dc_line & ~stmask) | ((mem_resp[VLOOKUP2].res << {mem_resp[VLOOKUP2].badAddr[6:0],3'b0}) & stmask);
+ 			mem_resp[PADR_SET].res <= (dc_line & ~stmask) | ((mem_resp[VLOOKUP3].res << {mem_resp[VLOOKUP3].badAddr[6:0],3'b0}) & stmask);
 		end
 	default:	;
 	endcase
@@ -2302,7 +2313,13 @@ task tCacheDataAlign;
 begin
 	rb_bitmaps2[mem_resp[DATA_ALN].thread][mem_resp[DATA_ALN].tgt] <= 1'b0;
 	mem_resp[DATA_ALN] <= mem_resp[PADR_SET];
-	mem_resp[DATA_ALN].wr <= mem_resp[PADR_SET].wr & mem_resp[PADR_SET].v;
+	if (mem_resp[PADR_SET].func!=MR_ICACHE_LOAD || last_cadr != mem_resp[PADR_SET].badAddr) begin
+		if (mem_resp[PADR_SET].func==MR_ICACHE_LOAD)
+			last_cadr <= mem_resp[PADR_SET].badAddr;
+		mem_resp[DATA_ALN].wr <= mem_resp[PADR_SET].wr & mem_resp[PADR_SET].v;
+	end
+	else
+		mem_resp[DATA_ALN].wr <= 1'b0;
 	if (mem_resp[PADR_SET].v) begin
 		memresp.wr <= TRUE;			// always send something back
 		memresp <= mem_resp[PADR_SET];

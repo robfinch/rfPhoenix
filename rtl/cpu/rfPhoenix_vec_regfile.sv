@@ -73,27 +73,3 @@ end
 endgenerate
 
 endmodule
-
-module gpr_regfile(clk, wr, wa, i, ra, o);
-input clk;
-input wr;
-input [9:0] wa;
-input Value i;
-input [89:0] ra;
-output Value o;
-
-integer k;
-Value mem [0:NTHREADS*NREGS-1];
-initial begin
-	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
-		mem[k] <= 32'd0;
-end
-reg [9:0] rar;
-always_ff @(posedge clk)
-	rar <= ra;
-always_ff @(posedge clk)
-	if (wr) mem[wa] <= i;
-always_ff @(posedge clk)
-	o <= mem[rar];
-
-endmodule

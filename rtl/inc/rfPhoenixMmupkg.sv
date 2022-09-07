@@ -41,6 +41,16 @@ package rfPhoenixMmupkg;
 
 typedef struct packed
 {
+	logic [511:0] data;
+} DCacheLine;
+
+typedef struct packed
+{
+	logic [583:0] data;
+} ICacheLine;
+
+typedef struct packed
+{
 	logic [19:0] at;
 	rfPhoenixPkg::Address cta;
 	rfPhoenixPkg::Address pmt;
@@ -64,38 +74,31 @@ typedef struct packed
 	logic [15:0] share_count;
 } PMTE;	// 128 bits
 
-typedef struct packed
-{
-	rfPhoenixPkg::Address adr;
-	logic [31:0] vpn;
-	logic v;
-	logic [2:0] lvl;
-	logic g;
-	logic [2:0] pad1;
-	logic m;
-	logic [2:0] rwx;
-	logic a;
-	logic c;
-	logic [9:0] asid;
-	logic [39:0] ppn;
-} TLBE;	// 128 bits
-
 // Page Table Entry
 typedef struct packed
 {
-	logic v;
-	logic [2:0] lvl;
-	logic g;
-	logic [2:0] pad1;
+	logic [18:0] ppn;
+	logic [1:0] sw;
 	logic m;
-	logic [2:0] rwx;
 	logic a;
+	logic g;
 	logic c;
-	logic [9:0] asid;
-	logic [39:0] ppn;
-} PTE;	// 64 bits
+	logic [2:0] rwx;
+	logic [2:0] lvl;
+	logic v;
+} PTE;	// 32 bits
 
 typedef PTE PDE;
+
+typedef struct packed
+{
+	logic [31:0] resv3;
+	logic [31:0] adr;
+	logic [18:0] vpn;
+	logic resv1;
+	logic [11:0] asid;
+	PTE		pte;
+} TLBE;	// 128 bits
 
 // Small Hash Page Table Entry
 typedef struct packed

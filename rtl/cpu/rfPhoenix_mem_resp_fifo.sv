@@ -56,17 +56,17 @@ input rollback;
 input [3:0] rollback_thread;
 output reg [127:0] rollback_bitmap;
 
+(* ram_style = "distributed" *)
 reg [127:0] rollback_bitmaps [0:NTHREADS];
 
 reg [5:0] wr_ptr;
 reg [5:0] rd_ptr;
+(* ram_style = "distributed" *)
 MemoryResponse  [DEP-1:0] mem;
 integer n,n2;
 
 always_ff @(posedge clk)
 	if (rst) begin
-		for (n = 0; n < NTHREADS; n = n + 1)
-			rollback_bitmaps[n] <= 'd0;
 		wr_ptr <= 'd0;
 		rd_ptr <= 'd0;
 		for (n = 0; n < DEP; n = n + 1)
@@ -75,30 +75,47 @@ always_ff @(posedge clk)
 	else begin
 		if (rd & wr) begin
 			mem[wr_ptr] <= di;
-			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
 		end
 		else if (wr) begin
 			mem[wr_ptr] <= di;
-			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
 			wr_ptr <= wr_ptr + 2'd1;
 		end
 		else if (rd) begin
 			rd_ptr <= rd_ptr + 2'd1;
-			rollback_bitmaps[dout.thread][dout.tgt] <= 1'b0;
 		end
 		dout <= mem[rd_ptr[5:0]];
 		if (rollback) begin
 			for (n = 0; n < DEP; n = n + 1)
 				if (mem[n].thread==rollback_thread)	
 					mem[n].v <= 1'b0;
-			rollback_bitmaps[rollback_thread] <= 'd0;
 		end
 	end
+
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;
 	else
 		cnt = wr_ptr + (DEP - rd_ptr);
+
+always_ff @(posedge clk)
+	if (rst) begin
+		for (n = 0; n < NTHREADS; n = n + 1)
+			rollback_bitmaps[n] <= 'd0;
+	end
+	else begin
+		if (rd & wr) begin
+			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
+		end
+		else if (wr) begin
+			rollback_bitmaps[di.thread][di.tgt] <= 1'b1;
+		end
+		else if (rd) begin
+			rollback_bitmaps[dout.thread][dout.tgt] <= 1'b0;
+		end
+		if (rollback) begin
+			rollback_bitmaps[rollback_thread] <= 'd0;
+		end
+	end
 
 always_comb
 	full = cnt==DEP-1;

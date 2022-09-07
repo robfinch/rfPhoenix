@@ -47,7 +47,7 @@ input [6:0] ndx;
 input PhysicalAddress adr;
 input [127:0] valid [0:3];
 output reg [3:0] hits;
-output hit;
+output reg hit;
 output reg [1:0] rway;
 
 reg [1:0] prev_rway;
@@ -60,9 +60,10 @@ always_comb	//(posedge clk_g)
   hits[2] <= tags[2'd2]==adr[AWID-1:6] && valid[2][ndx];
 always_comb	//(posedge clk_g)
   hits[3] <= tags[2'd3]==adr[AWID-1:6] && valid[3][ndx];
-wire hit = |hits;
+always_ff @(posedge clk)
+	hit <= |hits;
 
-always_comb
+always_ff @(posedge clk)
 begin
   case(1'b1)
   hits[0]: rway <= 2'b00;

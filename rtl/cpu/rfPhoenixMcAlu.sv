@@ -126,6 +126,7 @@ fpRes32 ufres1
 	.o(fres1_o)
 );
 
+`ifdef SIGMOID
 fpSigmoid32 ufsig1
 (
 	.clk(clk),
@@ -134,14 +135,27 @@ fpSigmoid32 ufsig1
 	.o(sig1_o)
 );
 
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl5 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fsig1_o), .q(fsig_o));
+`endif
+
+/*
+	uftd1 used 13,624 LUTs!
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd0 (.clk(clk), .ce(1'b1), .i(i2f1_o), .o(i2f_o));
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd1 (.clk(clk), .ce(1'b1), .i(f2i1_o), .o(f2i_o));
 ft_delay #(.WID($bits(Value)), .DEP(6)) uftd2 (.clk(clk), .ce(1'b1), .i(ftrunc1_o), .o(ftrunc_o));
 ft_delay #(.WID($bits(Value)), .DEP(4)) uftd3 (.clk(clk), .ce(1'b1), .i(frsqrte1_o), .o(frsqrte_o));
 ft_delay #(.WID($bits(Value)), .DEP(4)) uftd4 (.clk(clk), .ce(1'b1), .i(fres1_o), .o(fres_o));
 ft_delay #(.WID($bits(Value)), .DEP(4)) uftd5 (.clk(clk), .ce(1'b1), .i(fsig1_o), .o(fsig_o));
+*/
 
-fpFMA32nrL7 ufma1 (
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl0 (.clk(clk), .ce(1'b1), .a(4'd7), .d(i2f1_o), .q(i2f_o));
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd7), .d(f2i1_o), .q(f2i_o));
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl2 (.clk(clk), .ce(1'b1), .a(4'd7), .d(ftrunc1_o), .q(ftrunc_o));
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl3 (.clk(clk), .ce(1'b1), .a(4'd5), .d(frsqrte1_o), .q(frsqrte_o));
+vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl4 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fres1_o), .q(fres_o));
+
+
+fpFMA32nrL8 ufma1 (
 	.clk(clk),
 	.ce(1'b1),
 	.op(fms|fsub),
@@ -170,7 +184,7 @@ else begin
 	fma_pipe[0] <= fma_o1;
 end
 */
-ft_delay #(.WID(4), .DEP(7)) uftd7 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
+ft_delay #(.WID(4), .DEP(8)) uftd7 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
 
 always_comb
 case(ir.any.opcode)

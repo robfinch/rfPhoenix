@@ -36,11 +36,13 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixVecAlu(ir, a, b, c, Tt, imm, asid, hmask, o);
+module rfPhoenixVecAlu(ir, a, b, c, Ta, Tb, Tt, imm, asid, hmask, o);
 input Instruction ir;
 input VecValue a;
 input VecValue b;
 input VecValue c;
+input Ta;
+input Tb;
 input Tt;
 input Value imm;
 input ASID asid;
@@ -70,9 +72,9 @@ reg [31:0] ptendx;
 integer n2;
 always_comb begin
 	ptendx = 32'hFFFFFFFF;
-	for (n2 = 0; n2 < 8; n2 = n2 + 1)
-		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[n2*2+1][21]))
-			ptendx = n2;
+//for (n2 = 0; n2 < 8; n2 = n2 + 1)
+//		if (a[0][31:16]==b[n2*2+1][15:0] && (asid==b[n2*2+1][31:22]||b[n2*2+1][21]))
+//			ptendx = n2;
 end
 
 always_comb
@@ -84,10 +86,12 @@ always_comb
 		CMP_LTU,CMP_GEU,CMP_LEU,CMP_GTU:
 			if (Tt)
 				o = o1;
-			else begin
+			else if (Ta|Tb) begin
 				for (n = 0; n < NLANES; n = n + 1)
 					o[0][n] = o1[n];
 			end
+			else
+				o = o1;
 		VEX:	o = {NLANES{a[imm[3:0]]}};
 //		VEINS:
 		VSHUF:
@@ -105,10 +109,12 @@ always_comb
 	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
 		if (Tt)
 			o = o1;
-		else begin
+		else if (Ta) begin
 			for (n = 0; n < NLANES; n = n + 1)
 				o[0][n] = o1[n];
 		end
+		else
+			o = o1;
 	default:	o = o1;
 	endcase
 

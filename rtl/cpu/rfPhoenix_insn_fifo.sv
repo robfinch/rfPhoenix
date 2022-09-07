@@ -56,7 +56,9 @@ output reg v = 'd0;
 
 reg [5:0] wr_ptr;
 reg [5:0] rd_ptr;
+(* ram_style = "distributed" *)
 DecodeBus [DEP-1:0] decmem;
+(* ram_style = "distributed" *)
 InstructionFetchbuf [DEP-1:0] ifbmem;
 integer n;
 

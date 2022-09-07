@@ -34,7 +34,7 @@
 //                                                                          
 // ============================================================================
 
-`define IS_SIM	1'b1
+//`define IS_SIM	1'b1
 
 import rfPhoenixPkg::*;
 
@@ -77,6 +77,8 @@ output [5:0] state_o;
 output reg trigger_o;
 output CauseCode wcause;
 
+parameter IC_LATENCY = 3;
+
 wire clk_g = clk_i;
 ExecuteBuffer [NTHREADS-1:0] eb;
 ExecuteBuffer ebq [0:NTHREADS-1];
@@ -87,8 +89,8 @@ reg [NTHREADS-1:0] rz;
 reg [NTHREADS-1:0] gie;
 Tid xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 wire dcndx_v,exndx_v,oundx_v,wbndx_v,itndx_v;
-reg [NTHREADS-1:0] rfndx1_v;
-Tid dcndx,rfndx,itndx,exndx,oundx,wbndx,rfndx1;
+reg [NTHREADS-1:0] rfndx1_v, rfndx2_v;
+Tid dcndx,rfndx,itndx,exndx,oundx,wbndx,rfndx1,rfndx2;
 reg xrid_v;
 reg [NTHREADS-1:0] rfndx_v;
 Tid mcv_ridi, mcv_rido;
@@ -99,7 +101,7 @@ reg [15:0] commit_mask;
 Regspec commit_tgt;
 VecValue commit_bus;
 Tid ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
-reg [31:0] ips [0:NTHREADS-1];
+ThreadInfo_t [NTHREADS-1:0] thread;
 reg [31:0] ip, ip2, ip3, ip4;
 reg [NTHREADS-1:0] thread_busy;
 CodeAddress iip, dip, ip_icline, ip_insn;
@@ -114,7 +116,7 @@ Value ximm,mcimm;
 ASID xasid;
 VecValue vrfo0, vrfo1, vrfo2, vrfo3, vrfo4;
 VecValue xa,xb,xc,xt,xm;
-reg xtt;
+reg xta,xtb,xtt;
 VecValue mca,mcb,mcc,mct,mcm;
 VecValue mca1,mcb1,mcc1,mct1,mcm1;
 VecValue mca2,mcb2,mcc2,mct2,mcm2;
@@ -164,11 +166,16 @@ ExecuteBuffer [NTHREADS-1:0] mceb;
 reg [NTHREADS-1:0] mem_rollback, ou_rollback, rollback;
 Tid mem_rollback_thread;
 Tid ou_rollback_thread;
+Tid rollback_thread;
 wire [127:0] mem_rollback_bitmap;
 reg [127:0] ou_rollback_bitmap [0:NTHREADS-1];
 reg [127:0] rollback_bitmap;
 reg [NTHREADS-1:0] sb_will_issue, sb_issue;
 wire [NTHREADS-1:0] sb_can_issue;
+reg [NTHREADS-1:0] clr_ififo;
+wire [NTHREADS-1:0] ififo_empty;
+InstructionFetchbuf ic_ifb;
+InstructionFetchbuf [NTHREADS-1:0] dc_ifb, dc1_ifb;
 
 // CSRs
 reg [31:0] cr0;
@@ -235,21 +242,21 @@ initial begin
 	ir = NOP;//_INSN;
 	xir = NOP;//_INSN;
 	mir = NOP;//_INSN;
-	xa = 'd0;
-	xb = 'd0;
-	xc = 'd0;
+	for (n = 0; n < NLANES; n = n + 1) begin
+		xa[n] = 'd0;
+		xb[n] = 'd0;
+		xc[n] = 'd0;
+		mca[n] = 'd0;
+		mcb[n] = 'd0;
+		mcc[n] = 'd0;
+	end
 	ximm = 'd0;
-	mca = 'd0;
-	mcb = 'd0;
-	mcc = 'd0;
 	mcimm = 'd0;
-	for (n = 0; n < NTHREADS; n = n + 1)
-		ips[n] = RSTIP;
 	ithread = 'd0;
 	ip_thread = 'd0;
 	mca_busy = 'd0;
 	thread_busy = 'd0;
-	for (n = 0; n < REB_ENTRIES; n = n + 1)
+	for (n = 0; n < NTHREADS; n = n + 1)
 		eb[n] = 'd0;
 	rthread_v = 'd0;
 	dthread_v = 'd0;
@@ -329,12 +336,14 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
 	begin
 		rollback[g] <= 'd0;
-		rollback_bitmap[g] = 'd0;
+		rollback_bitmap[g] <= 'd0;
 		if (mem_rollback[g] && g==mem_rollback_thread) begin
-			rollback[g] = 1'b1;
-			rollback_bitmap[g] = mem_rollback_bitmap;
+			rollback_thread <= mem_rollback_thread;
+			rollback[g] <= 1'b1;
+			rollback_bitmap[g] <= mem_rollback_bitmap;
 		end
 		else if (ou_rollback[g]) begin
+			rollback_thread <= ou_rollback_thread;
 			rollback[g] <= 1'b1;
 			rollback_bitmap[g] <= ou_rollback_bitmap[g];
 		end
@@ -414,6 +423,8 @@ rfPhoenixVecAlu uvalu1 (
 	.b(xb),
 	.c(xc),
 	.imm(ximm),
+	.Ta(xta),
+	.Tb(xtb),
 	.Tt(xtt),
 	.asid(xasid),
 	.hmask(xhmask),
@@ -446,14 +457,14 @@ begin
 		if ((n % NREGS)==0)
 			$display("  Thread:%d", n / NREGS);
 		$display("%s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  ",
-			fnRegName(n), ugprs1.regfile[n],
-			fnRegName(n+1), ugprs1.regfile[n+1],
-			fnRegName(n+2), ugprs1.regfile[n+2],
-			fnRegName(n+3), ugprs1.regfile[n+3],
-			fnRegName(n+4), ugprs1.regfile[n+4],
-			fnRegName(n+5), ugprs1.regfile[n+5],
-			fnRegName(n+6), ugprs1.regfile[n+6],
-			fnRegName(n+7), ugprs1.regfile[n+7]
+			fnRegName(n), ugprs1.ugpr0.mem[n],
+			fnRegName(n+1), ugprs1.ugpr0.mem[n+1],
+			fnRegName(n+2), ugprs1.ugpr0.mem[n+2],
+			fnRegName(n+3), ugprs1.ugpr0.mem[n+3],
+			fnRegName(n+4), ugprs1.ugpr0.mem[n+4],
+			fnRegName(n+5), ugprs1.ugpr0.mem[n+5],
+			fnRegName(n+6), ugprs1.ugpr0.mem[n+6],
+			fnRegName(n+7), ugprs1.ugpr0.mem[n+7]
 			);
 	end
 	$display("");
@@ -485,17 +496,21 @@ begin
 end
 endtask
 
-reg [NTHREADS-1:0] clr_ififo;
-wire [NTHREADS-1:0] ififo_empty;
-InstructionFetchbuf ic_ifb;
-InstructionFetchbuf [NTHREADS-1:0] dc_ifb, dc1_ifb;
-
 always_ff @(posedge clk_g)
 begin
-	{ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
-	ic_ifb.ip <= ip_icline;
-	ic_ifb.v <= 1'b1;
-	ic_ifb.sp_sel <= sp_sel[ip_thread5];
+	if (ip_thread5==rollback_thread) begin
+		ic_ifb.pfx <= NOP;
+		ic_ifb.insn <= NOP;
+		ic_ifb.ip <= thread[rollback_thread].ip;
+		ic_ifb.sp_sel <= sp_sel[ip_thread5];
+		ic_ifb.v <= 1'b0;
+	end
+	else begin
+		{ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
+		ic_ifb.ip <= ip_icline;
+		ic_ifb.v <= 1'b1;
+		ic_ifb.sp_sel <= sp_sel[ip_thread5];
+	end
 	if (irq_i > pmStack[ip_thread5][3:1] && gie[ip_thread5])
 		ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_BRK);
 	else
@@ -513,13 +528,13 @@ reg [NTHREADS-1:0] wr_ififo;
 generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
-		clr_ififo[g] = rollback[g];
+		clr_ififo[g] <= rollback[g];
 	always_comb
 		sb_will_issue[g] = g==dcndx && dcndx_v && !ififo_empty[g] && !sb_issue[g];
 	always_ff @(posedge clk_g)
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
-		wr_ififo[g] = ihit2 && ip_thread5==g;
+		wr_ififo[g] <= ihit2 && ip_thread5==g;
 
 	rfPhoenix_insn_fifo #(.DEP(16)) ufifo1
 	(
@@ -547,19 +562,8 @@ ffo12 uffo1 (.i({12'd0,sb_will_issue}), .o(issue_num));
 assign rthread = issue_num[2:0];
 
 integer n10;
-always_ff @(posedge clk_g)
-if (rst_i) begin
-	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1) begin
-		eb[n10] <= 'd0;
-		rfndx1_v[n10] <= 1'b0;
-	end
-	ra0 <= 'd0;
-	ra1 <= 'd0;
-	ra2 <= 'd0;
-	ra3 <= 'd0;
-	ra4 <= 'd0;
-end
-else begin
+task tDecode;
+begin
 	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1)
 		rfndx1_v[n10] <= 1'b0;
 	if (issue_num != 4'd15) begin
@@ -578,12 +582,17 @@ else begin
 		rfndx1 <= rthread;
 		rfndx1_v[rthread] <= 1'b1;
 	end
-end		
+end
+endtask
 
 always_ff @(posedge clk_g)
-	rfndx <= rfndx1;
+	rfndx2 <= rfndx1;
 always_ff @(posedge clk_g)
-	rfndx_v <= rfndx1_v;
+	rfndx <= rfndx2;
+always_ff @(posedge clk_g)
+	rfndx2_v <= rfndx1_v;
+always_ff @(posedge clk_g)
+	rfndx_v <= rfndx2_v;
 
 always_ff @(posedge clk_g)
 if (rst_i) begin
@@ -600,6 +609,7 @@ else begin
 	tDisplayEb();
 	tOnce();
 	tInsnFetch();
+	tDecode();
 	tRegfetch();
 	tExecute();
 	tOut();
@@ -620,16 +630,18 @@ begin
 	ir <= NOP;//_INSN;
 	xir <= NOP;//_INSN;
 	mir <= NOP;//_INSN;
-	xa <= 'd0;
-	xb <= 'd0;
-	xc <= 'd0;
+
 	ximm <= 'd0;
-	mca <= 'd0;
-	mcb <= 'd0;
-	mcc <= 'd0;
 	mcimm <= 'd0;
+	for (n = 0; n < NLANES; n = n + 1) begin
+		xa[n] <= 'd0;
+		xb[n] <= 'd0;
+		xc[n] <= 'd0;
+		mca[n] <= 'd0;
+		mcb[n] <= 'd0;
+		mcc[n] <= 'd0;
+	end
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		ips[n] <= RSTIP;
 		cause[n][0] <= FLT_NONE;
 		cause[n][1] <= FLT_NONE;
 		cause[n][2] <= FLT_NONE;
@@ -657,7 +669,23 @@ begin
 	commit_wr <= 1'b0;
 	commit_wrv <= 1'b0;
 	commit_tgt <= 6'b0;
-	commit_bus <= 'd0;
+	for (n10 = 0; n10 < NLANES; n10 = n10 + 1)
+		commit_bus[n10] <= 'd0;
+	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1) begin
+		thread[n10].imiss <= 1'b0;
+		thread[n10].ip <= RSTIP;
+		rfndx1_v[n10] <= 1'b0;
+	end
+	ra0 <= 'd0;
+	ra1 <= 'd0;
+	ra2 <= 'd0;
+	ra3 <= 'd0;
+	ra4 <= 'd0;
+	ip_thread1 <= 'd0;
+	ip_thread2 <= 'd0;
+	ip_thread3 <= 'd0;
+	ip_thread4 <= 'd0;
+	ip_thread5 <= 'd0;
 end
 endtask
 
@@ -699,11 +727,19 @@ endtask
 // The following selectors use round-robin selection.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+reg [NTHREADS-1:0] itsel;
+generate begin : gItsel
+	for (g = 0; g < NTHREADS; g = g + 1)
+		always_comb
+			itsel[g] = ~ififo_almost_full[g] & ~rollback[g];// & ~thread[g].imiss;
+end
+endgenerate
+
 rfPhoenix_round_robin_select rr1
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(~ififo_almost_full),
+	.i(itsel),
 	.o(itndx),
 	.ov(itndx_v)
 );
@@ -796,31 +832,61 @@ begin
 		// 1 for tag lookup and way determination
 		// 2 for cache line lookup
 		if (itndx_v) begin
-			ip <= ips[itndx];
-			ips[itndx] <= ips[itndx] + 4'd5;
+			ip <= thread[itndx].ip;
+			thread[itndx].ip <= thread[itndx].ip + 4'd5;
 		end
-		ip_thread1 <= itndx;
-		ip_thread2 <= ip_thread1;
-		ip_thread3 <= ip_thread2;
+		ip_thread1 <= itndx;			// tag lookup
+		ip_thread2 <= ip_thread1;	// data fetch
+		ip_thread3 <= ip_thread2;	// align insn.
+		case(IC_LATENCY)
+		2:	ip_thread4 <= ip_thread1;
+		3:	ip_thread4 <= ip_thread2;
+		4:	ip_thread4 <= ip_thread3;
+		default:	ip_thread4 <= ip_thread2;
+		endcase
 		ip_thread4 <= ip_thread3;
 		ip_thread5 <= ip_thread4;
-		if (!ihit2)
-			ips[ip_thread5] <= ic_ifb.ip;
+		// Repeat fetch if cache miss
+		if (!ihit2) begin
+			if (!thread[ip_thread4].imiss || 1'b1) begin
+				thread[ip_thread4].imiss <= 1'b1;
+				thread[ip_thread4].ip <= ip_icline;
+				$display(" IMiss thread=%d ip=%h,", ip_thread4, ip_icline);
+				ic_ifb.v <= INV;
+			end
+		end
 		$display("Insn Fetch %d:", ip_thread5);
-		$display("  ip_insn=%h  insn=%h postfix=%h", ip_icline, ic_ifb.insn, ic_ifb.pfx);
+		$display("  ip_insn=%h  insn=%h postfix=%h", ic_ifb.ip, ic_ifb.insn, ic_ifb.pfx);
 		$display("  ip_thread5=%h", ip_thread5);
 		for (n = 0; n < NTHREADS; n = n + 1)
-			$display("  ips[%d]=%h", n[3:0], ips[n]);
+			$display("  thread[%d].ip=%h", n[3:0], thread[n].ip);
 		// On a miss, request a cache line load from the memory system. This
 		// should eventually cause a hit for the thread.
-		// Suppress consecutive requests for the same cache line load.
 		// The old cache line is passed back for the victim buffer.
 		if (!ihit && !memreq_full) begin
-			if (ip_icline[31:6] != last_adr[31:6]) begin
+			//if (ip_icline[31:6] != last_adr[31:6])
+			begin
 				last_adr <= ip_icline;
 				tid <= tid + 2'd1;
 				memreq.tid <= tid;
-				memreq.thread <= ip_thread4;
+				case(IC_LATENCY)
+				2:
+					begin
+						memreq.thread <= ip_thread2;
+						thread[ip_thread2].imiss <= 1'b1;
+					end
+				3:
+					begin	
+						memreq.thread <= ip_thread3;
+						thread[ip_thread3].imiss <= 1'b1;
+					end
+				4:
+					begin	
+						memreq.thread <= ip_thread4;
+						thread[ip_thread4].imiss <= 1'b1;
+					end
+				default:	memreq.thread <= ip_thread3;
+				endcase
 				memreq.wr <= 1'b1;
 				memreq.func <= MR_ICACHE_LOAD;
 				memreq.adr <= {ip_icline[31:6],6'd0};
@@ -998,6 +1064,8 @@ begin
 			xb <= eb[exndx].b;
 			xc <= eb[exndx].c;
 			xt <= eb[exndx].t;
+			xta <= eb[exndx].dec.Ta;
+			xtb <= eb[exndx].dec.Tb;
 			xtt <= eb[exndx].dec.Tt;
 			xm <= eb[exndx].ifb.insn.r2.m ? eb[exndx].mask : 16'hFFFF;
 			ximm <= eb[exndx].dec.imm;
@@ -1039,21 +1107,19 @@ begin
 			eb[xrid].out <= 1'b0;
 			eb[xrid].executed <= 1'b1;
 			case(eb[xrid].ifb.insn.any.opcode)
-			NOP:				ips[eb[xrid].thread] <= ips[eb[xrid].thread] - 4'd4;
-			CALLA,JMP:
+			NOP:				thread[eb[xrid].thread].ip <= thread[eb[xrid].thread].ip - 4'd4;
+			CALLA:
 				begin
-					ips[eb[xrid].thread] <= eb[xrid].ifb.insn.call.target;
-					if (eb[xrid].dec.rfwr)
-						eb[xrid].res <= eb[xrid].ifb.ip + 4'd5;
+					thread[eb[xrid].thread].ip <= eb[xrid].ifb.insn.call.target;
+					eb[xrid].res <= eb[xrid].ifb.ip + 4'd5;
 					ou_rollback[xrid] <= 1'b1;
 					ou_rollback_bitmap[eb[xrid].dec.Rt] <= 1'b1;
 					ou_rollback_thread[xrid] <= xrid;
 				end
-			CALLR,BRA:
+			CALLR:
 				begin
-					ips[eb[xrid].thread] <= eb[xrid].ifb.insn.call.target + eb[xrid].ifb.ip;
-					if (eb[xrid].dec.rfwr)
-						eb[xrid].res <= eb[xrid].ifb.ip + 4'd5;
+					thread[eb[xrid].thread].ip <= eb[xrid].ifb.insn.call.target + eb[xrid].ifb.ip;
+					eb[xrid].res <= eb[xrid].ifb.ip + 4'd5;
 					ou_rollback[xrid] <= 1'b1;
 					ou_rollback_bitmap[eb[xrid].dec.Rt] <= 1'b1;
 					ou_rollback_thread[xrid] <= xrid;
@@ -1073,7 +1139,7 @@ begin
 			eb[xrid].executed <= 1'b1;
 			if (eb[xrid].dec.br) begin
 				if (takb) begin
-					ips[eb[xrid].thread] <= eb[xrid].ifb.ip + eb[xrid].dec.imm;
+					thread[eb[xrid].thread].ip <= eb[xrid].ifb.ip + eb[xrid].dec.imm;
 					ou_rollback[xrid] <= 1'b1;
 					ou_rollback_thread[xrid] <= xrid;
 				end
@@ -1120,36 +1186,47 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 task tMemory;
+integer n;
 begin
 	if (memresp_fifo_v) begin
-		eb[memresp.thread].out <= 1'b0;
-		if (eb[memresp.thread].out) begin
-			eb[memresp.thread].executed <= 1'b1;
-			// If a gather load
-			if (eb[memresp.thread].dec.loadn && eb[memresp.thread].dec.memsz==vect) begin
-				if (eb[memresp.thread].step!=NLANES-1) begin
-					eb[memresp.thread].out <= 1'b1;
-					eb[memresp.thread].executed <= 1'b0;
+		// Clear the imiss status. The thread might still miss again if the I$
+		// has not updated before the thread is selected again, but at least
+		// it can be prevented from being selected for a few cycles while the
+		// imiss request is processed.
+		if (memresp.func==MR_ICACHE_LOAD)
+			for (n = 0; n < NTHREADS; n = n + 1)
+				thread[n].imiss <= 1'b0;
+		else begin
+			eb[memresp.thread].out <= 1'b0;
+			if (eb[memresp.thread].out) begin
+				eb[memresp.thread].executed <= 1'b1;
+				// If a gather load
+				if (eb[memresp.thread].dec.loadn && eb[memresp.thread].dec.memsz==vect) begin
+					if (eb[memresp.thread].step!=NLANES-1) begin
+						eb[memresp.thread].out <= 1'b1;
+						eb[memresp.thread].executed <= 1'b0;
+					end
+					eb[memresp.thread].res[memresp.step] <= memresp.res;
 				end
-				eb[memresp.thread].res[memresp.step] <= memresp.res;
-			end
-			// Other load
-			else if (eb[memresp.thread].dec.load)
-				eb[memresp.thread].res <= memresp.res;
-			// Scatter store
-			else if (eb[memresp.thread].dec.storen && eb[memresp.thread].dec.memsz==vect) begin
-				if (eb[memresp.thread].step!=NLANES-1) begin
-					eb[memresp.thread].out <= 1'b1;
-					eb[memresp.thread].executed <= 1'b0;
+				// Other load
+				else if (eb[memresp.thread].dec.load) begin
+					eb[memresp.thread].res <= memresp.res;
 				end
-			end
-			else if (eb[memresp.thread].dec.storer && eb[memresp.thread].dec.memsz==vect) begin
-				if (eb[memresp.thread].step!=NLANES-4) begin
-					eb[memresp.thread].out <= 1'b1;
-					eb[memresp.thread].executed <= 1'b0;
+				// Scatter store
+				else if (eb[memresp.thread].dec.storen && eb[memresp.thread].dec.memsz==vect) begin
+					if (eb[memresp.thread].step!=NLANES-1) begin
+						eb[memresp.thread].out <= 1'b1;
+						eb[memresp.thread].executed <= 1'b0;
+					end
 				end
+				else if (eb[memresp.thread].dec.storer && eb[memresp.thread].dec.memsz==vect) begin
+					if (eb[memresp.thread].step!=NLANES-4) begin
+						eb[memresp.thread].out <= 1'b1;
+						eb[memresp.thread].executed <= 1'b0;
+					end
+				end
+				// Other store / Other Op
 			end
-			// Other store / Other Op
 		end
 	end
 end
@@ -1166,7 +1243,7 @@ begin
 		pmStack[wbndx] <= {8'hCE,pmStack[wbndx][63:8]};	// restore operating mode, irq level
 		plStack[wbndx] <= {8'hFF,plStack[wbndx][63:8]};	// restore privilege level
 		ipStack[wbndx] <= {RSTIP,ipStack[wbndx][255:32]};
-		ips[wbndx] <= ipStack[wbndx][31:0];
+		thread[wbndx].ip <= ipStack[wbndx][31:0];
 		istk_depth[wbndx] <= istk_depth[wbndx] - 2'd1;
 		case(pmStack[wbndx][15:14])
 		2'd0:	sp_sel[wbndx] <= 3'd0;
@@ -1194,7 +1271,7 @@ begin
 		ipStack[wbndx] <= ipStack[wbndx] << 32;
 		ipStack[wbndx][31:0] <= ip;
 		istk_depth[wbndx] <= istk_depth[wbndx] + 2'd1;
-		ips[wbndx] <= tvec[2'd3];
+		thread[wbndx].ip <= tvec[2'd3];
 		cause[wbndx][omode[wbndx]] <= cc;
 		badaddr[wbndx][omode[wbndx]] <= eb[wbndx].badAddr;
 		eb[wbndx].cause <= FLT_NONE;

@@ -1,23 +1,46 @@
 package rfPhoenixPkg;
 
-parameter NLANES = 16;
+`define TRUE	1
+`define FALSE	0
+`define VAL		1
+`define INV		0
+
+// Comment out to remove the sigmoid approximate function
+//`define SIGMOID	1
+
+parameter VAL = `VAL;
+parameter INV = `INV;
+
+`define NLANES	16
+`define NTHREADS	4
+`define NREGS		64
+
+`define L1CacheLines	512
+`define L1CacheLineSize		512
+
+`define L1ICacheLineSize	584
+`define L1ICacheLines	512
+`define L1ICacheWays 4
+
+`define L1DCacheWays 4
+
+parameter  NLANES = `NLANES;
 // The following thread count carefully choosen.
 // It cannot be over 13 as that makes the vector register file too big for
 // synthesis to handle.
-// It also needs to be greater than the latency of the icache read (5).
-parameter NTHREADS = 8;
-parameter NREGS = 64;
-parameter REB_ENTRIES = 4;
+parameter NTHREADS = `NTHREADS;
+parameter NREGS = `NREGS;
 
-parameter RSTIP	= 32'hFFFD0000;
-
-parameter pL1CacheLines = 64;
-parameter pL1LineSize = 512;
-parameter pL1ICacheLines = 512;
+parameter pL1CacheLines = `L1CacheLines;
+parameter pL1LineSize = `L1CacheLineSize;
+parameter pL1ICacheLines = `L1CacheLines;
 // The following arrived at as 512+32 bits for word at end of cache line, plus
 // 40 bits for a possible constant postfix
-parameter pL1ICacheLineSize = 584;
-localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
+parameter pL1ICacheLineSize = `L1ICacheLineSize;
+parameter pL1Imsb = $clog2(`L1ICacheLines-1)-1+6;
+parameter pL1ICacheWays = `L1ICacheWays;
+parameter pL1DCacheWays = `L1DCacheWays;
+parameter TidMSB = $clog2(`NTHREADS)-1;
 
 typedef enum logic [5:0] {
 	BRK			= 6'h00,
@@ -44,8 +67,7 @@ typedef enum logic [5:0] {
 	CMP_GTUI	= 6'h17,
 	CALLA		= 6'h18,
 	CALLR		= 6'h19,
-	JMP			= 6'h1A,
-	BRA			= 6'h1B,
+	JMPR		= 6'h1A,
 	Bcc			= 6'h1C,
 	FBcc		= 6'h1D,
 	FCMP_EQI	= 6'h1E,
@@ -242,7 +264,7 @@ typedef enum logic [2:0] {
 	vect = 3'd5
 } memsz_t;
 
-typedef logic [2:0] Tid;
+typedef logic [TidMSB:0] Tid;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
 typedef logic [31:0] VirtualAddress;
@@ -250,7 +272,7 @@ typedef logic [31:0] PhysicalAddress;
 typedef logic [31:0] CodeAddress;
 typedef logic [31:0] Value;
 typedef logic [63:0] DoubleValue;
-typedef Value [15:0] VecValue;
+typedef Value [NLANES-1:0] VecValue;
 typedef logic [5:0] Func;
 
 typedef struct packed
@@ -402,6 +424,8 @@ typedef struct packed
 	Regspec Rc;
 	Regspec Rm;
 	Regspec Rt;
+	logic Ta;
+	logic Tb;
 	logic Tt;
 	logic hasRa;
 	logic hasRb;
@@ -461,6 +485,11 @@ typedef struct packed
 	Value mask;
 	VecValue res;
 } ExecuteBuffer;
+
+typedef struct packed {
+	logic imiss;
+	CodeAddress ip;
+} ThreadInfo_t;
 
 // No unsigned codes!
 parameter MR_LDB	= 4'd0;
@@ -540,5 +569,7 @@ typedef struct packed
 	logic pmtram_ena;
 	Regspec tgt;				// target register
 } MemoryResponse;		//
+
+const CodeAddress RSTIP	= 32'hFFFD0000;
 
 endpackage

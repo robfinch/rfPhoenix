@@ -53,6 +53,8 @@ begin
 	deco.Rb = ifb.insn.r2.Rb;
 	deco.Rc = ifb.insn.f3.Rc;
 	deco.Rm = {3'b100,ifb.insn.r2.Rm};
+	deco.Ta = ifb.insn.r2.Ra.vec;
+	deco.Tb = ifb.insn.r2.Rb.vec;
 
 	// Rt
 	case(ifb.insn.any.opcode)
@@ -71,7 +73,7 @@ begin
 	FMA,FMS,FNMA,FNMS:	begin deco.Rt = ifb.insn.f3.Rt; deco.Rt.vec = ifb.insn.f3.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	NOP:
 		begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
-	CALLA,CALLR,JMP,BRA:
+	CALLA,CALLR:
 		begin deco.Rt = {ifb.insn.call.Rt==2'b0} ? 'd0 : {4'b1010,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	STB,STW,STT:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
 	CSR:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.ri.Rt.vec; end
@@ -143,7 +145,7 @@ begin
 	FMA,FMS,FNMA,FNMS:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	NOP:
 		begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
-	CALLA,CALLR,JMP,BRA:
+	CALLA,CALLR:
 		begin deco.rfwr = ifb.insn.call.Rt!=2'b00; end
 	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
@@ -199,7 +201,7 @@ begin
 	endcase
 
 	deco.br = ifb.insn.any.opcode==Bcc || ifb.insn.any.opcode==FBcc;
-	deco.cjb = ifb.insn.any.opcode==CALLA || ifb.insn.any.opcode==CALLR || ifb.insn.any.opcode==JMP || ifb.insn.any.opcode==BRA;
+	deco.cjb = ifb.insn.any.opcode==CALLA || ifb.insn.any.opcode==CALLR || ifb.insn.any.opcode==JMPR;
 	deco.storer = ifb.insn.any.opcode==STB || ifb.insn.any.opcode==STW || ifb.insn.any.opcode==STT;
 	deco.store = deco.storer|deco.storen;
 	deco.stc = ifb.insn.any.opcode==STC || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==STCX);

@@ -262,15 +262,15 @@ ST_RST:
 				tlbwrr[ASSOC-1] <= 1'b1; 
 				tlbdat_rst <= 'd0;
 				tlbdat_rst.asid <= 'd0;
-				tlbdat_rst.g <= 1'b1;
-				tlbdat_rst.v <= 1'b1;
-				tlbdat_rst.m <= 1'b1;
-				tlbdat_rst.rwx <= 3'd7;
-				tlbdat_rst.c <= 1'b1;
+				tlbdat_rst.pte.g <= 1'b1;
+				tlbdat_rst.pte.v <= 1'b1;
+				tlbdat_rst.pte.m <= 1'b1;
+				tlbdat_rst.pte.rwx <= 3'd7;
+				tlbdat_rst.pte.c <= 1'b1;
 				// FFFC0000
 				// 1111_1111_ 11_11_1100_000 0_0000_0000_0000
-				tlbdat_rst.vpn <= {27'h003FFF,count[4:0]};
-				tlbdat_rst.ppn <= {35'h003FFF,count[4:0]};
+				tlbdat_rst.vpn <= {14'h3FFF,count[4:0]};
+				tlbdat_rst.pte.ppn <= {14'h3FFF,count[4:0]};
 				rcount <= {5'h1F,count[4:0]};
 			end // Map 16MB ROM/IO area
 		1'b1: begin state <= ST_RUN; tlbwrr[ASSOC-1] <= 1'd1; end
@@ -284,7 +284,7 @@ ST_RUN:
 		if (|next_wrtlb) begin
 			;
 		end
-		else if (dumped_entry.m && |dumped_entry.adr) begin
+		else if (dumped_entry.pte.m && |dumped_entry.adr) begin
 			wrtlb <= 'd0;
 			state <= ST_WRITE_PTE;
 		end
@@ -377,7 +377,7 @@ begin
 				tlbdati[n2] <= tlbdat_i;
 		end
 	endcase
-	if (tlbdati[4].ppn=='d0 && tlbdati[4].vpn != 'd0) begin
+	if (tlbdati[4].pte.ppn=='d0 && tlbdati[4].vpn != 'd0) begin
 		$display("PPN zero");
 	end
 end
@@ -407,7 +407,7 @@ begin
   				end
 	  			tentryi[0] <= tentryo2[n1];
 	  			if (wed)
-	  				tentryi[0].m <= 1'b1;
+	  				tentryi[0].pte.m <= 1'b1;
 	  			//tentryi[0].a <= 1'b1;
 //					if (stptr)
 //						tentryo[0].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
@@ -415,7 +415,7 @@ begin
   			else begin
 	  			tentryi[n1] <= tentryo2[n1];
 	  			if (wed)
-	  				tentryi[n1].m <= 1'b1;
+	  				tentryi[n1].pte.m <= 1'b1;
 	  			//tentryi[n1].a <= 1'b1;
 //					if (stptr)
 //						tentryo[n1].cards[(tentryo[n1].vpn >> ({tentryo[n1].lvl-2'd1,3'd0} + 2'd3)) & 5'h1F] <= 1'b1;
@@ -475,10 +475,10 @@ else begin
 			acr_o <= 4'h0;
 			for (n = 0; n < ASSOC; n = n + 1) begin
 				tentryo2[n] <= tentryo[n];
-				if (tentryo[n].vpn[18:10]==iadrd[31:23] && (tentryo[n].asid==asid_i || tentryo[n].g) && tentryo[n].v) begin
+				if (tentryo[n].vpn[18:10]==iadrd[31:23] && (tentryo[n].asid==asid_i || tentryo[n].pte.g) && tentryo[n].pte.v) begin
 			  	padr_o[12:0] <= iadrd[12:0];
-					padr_o[31:13] <= tentryo[n].ppn[18:0];
-					acr_o <= {tentryo[n].ppn < 19'h07FFF || tentryo[n].ppn > 19'h7FFE0,tentryo[n].rwx};
+					padr_o[31:13] <= tentryo[n].pte.ppn[18:0];
+					acr_o <= {tentryo[n].pte.ppn < 19'h07FFF || tentryo[n].pte.ppn > 19'h7FFE0,tentryo[n].pte.rwx};
 					tlbmiss_o <= FALSE;
 					hit <= n;
 				end

@@ -47,7 +47,7 @@ input [AWID-1:0] ip;
 input [AWID-1:6] tag [0:3];
 input [LINES-1:0] valid [0:WAYS-1];
 output reg ihit;
-output reg [1:0] rway;
+output [1:0] rway;
 output reg [AWID-7:0] vtag;	// victim tag
 output reg icv;
 
@@ -56,6 +56,7 @@ reg [1:0] prev_rway = 'd0;
 reg [WAYS-1:0] ihit1;
 reg ihit2;
 reg icv2, icv1;
+reg [1:0] rway1;
 
 integer k;
 always_ff @(posedge clk)
@@ -75,9 +76,9 @@ end
 integer n;
 always_comb
 begin
-	rway = prev_rway;
+	rway1 = prev_rway;
 	for (n = 0; n < WAYS; n = n + 1)	
-		if (ihit1[n]) rway = n;
+		if (ihit1[n]) rway1 = n;
 end
 
 // For victim cache update
@@ -91,7 +92,8 @@ end
 
 
 always_ff @(posedge clk)
-	prev_rway <= rway;
+	prev_rway <= rway1;
+assign rway = rway1;
 
 always_ff @(posedge clk)
 	ihit = |ihit1;
