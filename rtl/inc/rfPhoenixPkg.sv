@@ -1,5 +1,7 @@
 package rfPhoenixPkg;
 
+`define IS_SIM	1
+
 `define TRUE	1
 `define FALSE	0
 `define VAL		1
@@ -11,7 +13,7 @@ package rfPhoenixPkg;
 parameter VAL = `VAL;
 parameter INV = `INV;
 
-`define NLANES	16
+`define NLANES	12
 `define NTHREADS	4
 `define NREGS		64
 
@@ -99,6 +101,7 @@ typedef enum logic [5:0] {
 	VEX			= 6'h03,
 	ADD			= 6'h04,
 	SUB			= 6'h05,
+	MUL			= 6'h06,
 	TLBRW		= 6'h07,
 	AND			= 6'h08,
 	OR			= 6'h09,
@@ -408,6 +411,7 @@ typedef union packed
 
 typedef struct packed
 {
+	Tid thread;
 	logic v;
 	CodeAddress ip;
 	Instruction insn;
@@ -489,6 +493,7 @@ typedef struct packed
 typedef struct packed {
 	logic imiss;
 	CodeAddress ip;
+	CodeAddress miss_ip;
 } ThreadInfo_t;
 
 // No unsigned codes!

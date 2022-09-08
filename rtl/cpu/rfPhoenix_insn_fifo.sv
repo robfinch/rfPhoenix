@@ -48,14 +48,14 @@ output DecodeBus decout;
 input InstructionFetchbuf ifbin;
 output InstructionFetchbuf ifbout;
 input rd;
-output reg [5:0] cnt = 'd0;
+output reg [$clog2(DEP)-1:0] cnt = 'd0;
 output reg almost_full = 'd0;
 output reg full = 'd0;
 output reg empty = 'd0;
 output reg v = 'd0;
 
-reg [5:0] wr_ptr;
-reg [5:0] rd_ptr;
+reg [$clog2(DEP)-1:0] wr_ptr;
+reg [$clog2(DEP)-1:0] rd_ptr;
 (* ram_style = "distributed" *)
 DecodeBus [DEP-1:0] decmem;
 (* ram_style = "distributed" *)

@@ -49,6 +49,24 @@ output Value o;
 
 integer k;
 
+
+
+(* ram_style = "block" *)
+Value [NTHREADS*NREGS-1:0] mem;
+initial begin
+	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
+		mem[k] <= 32'd0;
+end
+reg [5+TidMSB+1:0] rar;
+always_ff @(posedge clk)
+	rar <= ra;
+always_ff @(posedge clk)
+	if (wr) mem[wa] <= i;
+always_ff @(posedge clk)
+	o <= mem[rar];
+
+/*
+
 generate begin : gRegfile
 case(NTHREADS)
 1,2,3,4:
@@ -100,20 +118,6 @@ blk_mem1024x32 bmem2 (
 endcase
 end
 endgenerate
-
-/*
-(* ram_style = "block" *)
-Value [NTHREADS*NREGS-1:0] mem;
-initial begin
-	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
-		mem[k] <= 32'd0;
-end
-reg [5+TidMSB+1:0] rar;
-always_ff @(posedge clk)
-	rar <= ra;
-always_ff @(posedge clk)
-	if (wr) mem[wa] <= i;
-always_ff @(posedge clk)
-	o <= mem[rar];
 */
+
 endmodule

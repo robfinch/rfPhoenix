@@ -39,7 +39,7 @@
 import rfPhoenixPkg::*;
 
 module rfPhoenix_mem_resp_fifo(rst, clk, wr, di, rd, dout, cnt, full, empty, v, 
-	rollback, rollback_thread, rollback_bitmap);
+	rollback, rollback_bitmaps);
 parameter WID=3;
 parameter DEP=16;
 input rst;
@@ -48,19 +48,15 @@ input wr;
 input MemoryResponse di;
 input rd;
 output MemoryResponse dout;
-output reg [5:0] cnt;
+output reg [$clog2(DEP)-1:0] cnt;
 output reg full;
 output reg empty;
 output reg v;
-input rollback;
-input [3:0] rollback_thread;
-output reg [127:0] rollback_bitmap;
+input [NTHREADS-1:0] rollback;
+output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
-(* ram_style = "distributed" *)
-reg [127:0] rollback_bitmaps [0:NTHREADS];
-
-reg [5:0] wr_ptr;
-reg [5:0] rd_ptr;
+reg [$clog2(DEP)-1:0] wr_ptr;
+reg [$clog2(DEP)-1:0] rd_ptr;
 (* ram_style = "distributed" *)
 MemoryResponse  [DEP-1:0] mem;
 integer n,n2;
@@ -83,12 +79,10 @@ always_ff @(posedge clk)
 		else if (rd) begin
 			rd_ptr <= rd_ptr + 2'd1;
 		end
-		dout <= mem[rd_ptr[5:0]];
-		if (rollback) begin
-			for (n = 0; n < DEP; n = n + 1)
-				if (mem[n].thread==rollback_thread)	
-					mem[n].v <= 1'b0;
-		end
+		dout <= mem[rd_ptr];
+		for (n = 0; n < DEP; n = n + 1)
+			if (rollback[mem[n].thread])
+				mem[n].v <= 1'b0;
 	end
 
 always_comb
@@ -99,8 +93,8 @@ always_comb
 
 always_ff @(posedge clk)
 	if (rst) begin
-		for (n = 0; n < NTHREADS; n = n + 1)
-			rollback_bitmaps[n] <= 'd0;
+		for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1)
+			rollback_bitmaps[n2] <= 'd0;
 	end
 	else begin
 		if (rd & wr) begin
@@ -112,9 +106,9 @@ always_ff @(posedge clk)
 		else if (rd) begin
 			rollback_bitmaps[dout.thread][dout.tgt] <= 1'b0;
 		end
-		if (rollback) begin
-			rollback_bitmaps[rollback_thread] <= 'd0;
-		end
+		for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1)
+			if (rollback[n2])
+				rollback_bitmaps[n2] <= 'd0;
 	end
 
 always_comb
@@ -123,8 +117,5 @@ always_comb
 	empty = cnt=='d0;
 always_comb
 	v = cnt > 'd0;
-
-always_comb
-	rollback_bitmap = rollback_bitmaps[rollback_thread];
 
 endmodule

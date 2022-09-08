@@ -47,8 +47,8 @@ input Value c;
 input Value imm;
 output Value o;
 output reg done;
-input [3:0] ridi;
-output [3:0] rido;
+input Tid ridi;
+output Tid rido;
 
 integer n;
 
@@ -57,6 +57,7 @@ wire fnm = ir.any.opcode==FNMA || ir.any.opcode==FNMS;
 wire fmul = ir.any.opcode==R2 && ir.r2.func==FMUL;
 wire fadd = ir.any.opcode==R2 && ir.r2.func==FADD;
 wire fsub = ir.any.opcode==R2 && ir.r2.func==FSUB;
+wire mul = ir.any.opcode==R2 && ir.r2.func==MUL;
 
 Value fma_o, fma_o1;
 Value fcmp_o;
@@ -66,17 +67,19 @@ Value ftrunc_o,ftrunc1_o;
 Value frsqrte_o,frsqrte1_o;
 Value fres_o,fres1_o;
 Value fsig_o,fsig1_o;
-DoubleValue muli_o,muli1_o;
+DoubleValue muli_o,muli1_o,muli2_o;
 
 mult32x32 uimul1(
 	.clk(clk),
 	.ce(1'b1),
 	.a(a),
-	.b(imm),
-	.o(muli1_o)
+	.b(mul ? b : imm),
+	.o(muli2_o)
 );
 
-// Multiply takes only six cycles, add a cycle.
+// Multiply takes only six cycles, add two cycles.
+always_ff @(posedge clk)
+	muli1_o <= muli2_o;
 always_ff @(posedge clk)
 	muli_o <= muli1_o;
 
@@ -184,7 +187,7 @@ else begin
 	fma_pipe[0] <= fma_o1;
 end
 */
-ft_delay #(.WID(4), .DEP(8)) uftd7 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
+vtdl #(.WID($bits(Tid)), .DEP(16)) uvtdl7 (.clk(clk), .ce(1'b1), .a(4'd8), .d(ridi), .q(rido));
 
 always_comb
 case(ir.any.opcode)
@@ -200,6 +203,7 @@ R2:
 		FSIGMOID:	o = fsig_o;
 		default:	o = 'd0;
 		endcase
+	MUL:	o = muli_o[31:0];
 	FADD,FSUB,FMUL:	o = fma_o;
 	default:	o = 'd0;
 	endcase

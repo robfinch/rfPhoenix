@@ -40,7 +40,7 @@ import rfPhoenixMmupkg::*;
 
 module rfPhoenix_mem_req_queue(rst, clk, wr0, wr_ack0, i0, wr1, wr_ack1, i1,
 	rd, o, valid, empty, ldo0, found0, ldo1, found1, full,
-	rollback, rollback_thread, rollback_bitmap);
+	rollback, rollback_bitmaps);
 parameter AWID = 32;
 parameter QDEP = 8;
 input rst;
@@ -60,11 +60,9 @@ output reg found0;
 output MemoryRequest ldo1;
 output reg found1;
 output reg full;
-input rollback;
-input [3:0] rollback_thread;
-output reg [127:0] rollback_bitmap;
+input [NTHREADS-1:0] rollback;
+output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
-reg [127:0] rb_bitmaps [0:NTHREADS-1];
 reg [4:0] qndx = 'd0;
 MemoryRequest [QDEP-1:0] que;
 reg [QDEP-1:0] valid_bits = 'd0;
@@ -200,6 +198,8 @@ if (rst) begin
 	wr_ack1 <= 1'b0;
 	last_tid <= 8'd255;
 	qndx <= 'd0;
+	for (n3 = 0; n3 < NTHREADS; n3 = n3 + 1)
+		rollback_bitmaps[n3] <= 'd0;
 end
 else begin
 	wr_ack0 <= 1'b0;
@@ -219,8 +219,8 @@ else begin
 		valid_bits[QDEP-1] <= 1'b0;
 		wr_ack0 <= 1'b1;
 		if (last_tid != i0.tid) begin
-			rb_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
-			rb_bitmaps[i0.thread][i0.tgt] <= 1'b1;
+			rollback_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
+			rollback_bitmaps[i0.thread][i0.tgt] <= 1'b1;
 			que[qndx-1] <= i0;
 			qsel[qndx-1] <= fnSel(i0.sz) << i0.adr[3:0];
 			last_tid <= i0.tid;
@@ -238,8 +238,8 @@ else begin
 		valid_bits[QDEP-1] <= 1'b0;
 		wr_ack1 <= 1'b1;
 		if (last_tid != i1.tid) begin
-			rb_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
-			rb_bitmaps[i1.thread][i1.tgt] <= 1'b1;
+			rollback_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
+			rollback_bitmaps[i1.thread][i1.tgt] <= 1'b1;
 			que[qndx-1] <= i1;
 			qsel[qndx-1] <= fnSel(i1.sz) << i1.adr[3:0];
 			valid_bits[qndx-1] <= 1'b1;
@@ -251,7 +251,7 @@ else begin
 	else if (wr0 && !foundst0) begin
 		if (qndx < QDEP) begin
 			if (last_tid != i0.tid) begin
-				rb_bitmaps[i0.thread][i0.tgt] <= 1'b1;
+				rollback_bitmaps[i0.thread][i0.tgt] <= 1'b1;
 				que[qndx] <= i0;
 				qsel[qndx] <= fnSel(i0.sz) << i0.adr[3:0];
 				valid_bits[qndx] <= 1'b1;
@@ -264,7 +264,7 @@ else begin
 	else if (wr1 & !foundst1) begin
 		if (qndx < QDEP) begin
 			if (last_tid != i1.tid) begin
-				rb_bitmaps[i1.thread][i1.tgt] <= 1'b1;
+				rollback_bitmaps[i1.thread][i1.tgt] <= 1'b1;
 				que[qndx] <= i1;
 				qsel[qndx] <= fnSel(i1.sz) << i1.adr[3:0];
 				valid_bits[qndx] <= 1'b1;
@@ -281,15 +281,16 @@ else begin
 			que[n3-1] <= que[n3];
 			qsel[n3-1] <= qsel[n3];
 			valid_bits[n3-1] <= valid_bits[n3];
-			rb_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
+			rollback_bitmaps[que[0].thread][que[0].tgt] <= 1'b0;
 		end
 		valid_bits[QDEP-1] <= 1'b0;
 	end
-	if (rollback) begin
+	if (|rollback) begin
 		for (n3 = 0; n3 < QDEP; n3 = n3 + 1)
-			if (que[n3].thread==rollback_thread)
+			if (rollback[que[n3].thread]) begin
 				que[n3].v <= 1'b0;
-		rb_bitmaps[rollback_thread] <= 'd0;
+				rollback_bitmaps[que[n3].thread] <= 'd0;
+			end
 	end
 end
 
@@ -301,8 +302,5 @@ always_comb
 	valid = valid_bits[0];
 always_comb
 	full = qndx==QDEP-1;
-
-always_comb
-	rollback_bitmap = rb_bitmaps[rollback_thread];
 
 endmodule

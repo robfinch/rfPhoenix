@@ -44,7 +44,7 @@ module rfPhoenixBiu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
 	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
-	itlbmiss, clr_itlbmiss, rollback, rollback_thread, rollback_bitmap);
+	itlbmiss, clr_itlbmiss, rollback, rollback_bitmaps);
 parameter AWID=32;
 input rst;
 input clk;
@@ -96,9 +96,8 @@ output reg ipage_fault;
 input clr_ipage_fault;
 output reg itlbmiss;
 input clr_itlbmiss;
-input rollback;
-input Tid rollback_thread;
-output reg [127:0] rollback_bitmap;
+input [NTHREADS-1:0] rollback;
+output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
@@ -162,9 +161,10 @@ MemoryResponse memresp;
 MemoryResponse [6:0] mem_resp;	// memory pipeline
 reg zero_data = 0;
 Value movdat;
-wire [127:0] rb_bitmap1;
-reg [127:0] rb_bitmap2, rb_bitmap3, rb_bitmap4;
+reg [127:0] rb_bitmaps1 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps2 [0:NTHREADS-1];
+reg [127:0] rb_bitmaps3 [0:NTHREADS-1];
+reg [127:0] rb_bitmaps4 [0:NTHREADS-1];
 reg [1023:0] dc_linein;
 wire [1023:0] stmask;
 
@@ -225,11 +225,10 @@ rfPhoenix_stmask ustmsk (memr.sel, memr.badAddr[5:0], stmask);
 always_comb
 	dc_linein = (dc_line & ~stmask) | ((memr.res << {memr.badAddr[5:0],3'b0}) & stmask);
 
+integer n10;
 always_comb
-	rb_bitmap2 = rb_bitmaps2[rollback_thread];
-
-always_comb
-	rollback_bitmap = rb_bitmap1|rb_bitmap2|rb_bitmap3|rb_bitmap4;
+	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1)
+		rollback_bitmaps[n10] = rb_bitmaps1[n10]|rb_bitmaps2[n10]|rb_bitmaps3[n10]|rb_bitmaps4[n10];
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // PMA Checker
@@ -295,9 +294,8 @@ rfPhoenix_mem_req_queue umreqq
 	.ldo1(),
 	.found1(),
   .full(fifoToCtrl_full_o),
-  .rollback(),
-  .rollback_thread(rollback_thread),
-  .rollback_bitmap(rb_bitmap1)
+  .rollback(rollback),
+  .rollback_bitmaps(rb_bitmaps1)
 );
 
 wire memresp_full;
@@ -318,8 +316,7 @@ rfPhoenix_mem_resp_fifo uofifo1
 	.full(memresp_full),
 	.v(fifoFromCtrl_v),
 	.rollback(rollback),
-	.rollback_thread(rollback_thread),
-	.rollback_bitmap(rb_bitmap3)
+	.rollback_bitmaps(rb_bitmaps3)
 );
 
 // This fifo sits between the output of the data cache lookup memory pipe and
@@ -341,8 +338,7 @@ rfPhoenix_mem_resp_fifo uofifo2
 	.full(),
 	.v(memq_v),
 	.rollback(rollback),
-	.rollback_thread(rollback_thread),
-	.rollback_bitmap(rb_bitmap4)
+	.rollback_bitmaps(rb_bitmaps4)
 );
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -383,7 +379,7 @@ always_ff @(posedge clk)
 // line up ihit output with cache line output.
 always_ff @(posedge clk)
 	ihit3 <= ihit2;
-always_ff @(posedge clk)
+always_comb
 	ihit <= ihit2;
 always_ff @(posedge clk)
 	ic_valid3 <= ic_valid2;
@@ -1154,11 +1150,14 @@ if (rst) begin
 	mem_resp[6] <= 'd0;
 	last_tid <= 'd0;
 	last_cadr <= 'd0;
-	for (n = 0; n < 7; n = n + 1)
+	for (n = 0; n < NTHREADS; n = n + 1)
 		rb_bitmaps2[n] <= 'd0;
 	goto (MEMORY_INIT);
 end
 else begin
+	for (n = 0; n < NTHREADS; n = n + 1)
+		if (rollback[n])
+			rb_bitmaps2[n] <= 'd0;
 	dcachable <= TRUE;
 	inext <= FALSE;
 //	memreq_rd <= FALSE;
@@ -1182,12 +1181,11 @@ else begin
 	tCacheAccess();
 	tCacheDataAlign();
 
-	if (rollback) begin
 		for (n5 = 0; n5 < 7; n5 = n5 + 1)
-			if (mem_resp[n5].thread==rollback_thread)
+			if (rollback[mem_resp[n5].thread]) begin
 				mem_resp[n5].v <= 1'b0;
-		rb_bitmaps2[rollback_thread] <= 'd0;
-	end
+				rb_bitmaps2[mem_resp[n5].thread][mem_resp[n5].tgt] <= 1'b1;
+			end
 
 	case(state)
 	MEMORY_INIT:

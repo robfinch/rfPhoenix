@@ -72,7 +72,7 @@ always_comb
 */
 reg [2:0] amt;
 reg [15:0] ishift;
-reg [7:0] irot;
+reg [NTHREADS*2-1:0] irot;
 wire [3:0] ffoo;
 genvar g;
 
@@ -93,7 +93,7 @@ always_ff @(posedge clk)
 
 always_ff @(posedge clk)
 if (rst)
-	amt = 'd0;
+	amt <= 'd0;
 else begin
 	if (ffoo!=4'd15) begin
 		amt <= amt + 3'd1;

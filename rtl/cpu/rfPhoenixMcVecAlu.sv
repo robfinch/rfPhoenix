@@ -64,7 +64,9 @@ generate begin
 			.c(c[g]),
 			.imm(imm),
 			.o(o[g]),
-			.done(don[g])
+			.done(don[g]),
+			.ridi('d0),
+			.rido()
 		);
 end
 endgenerate
