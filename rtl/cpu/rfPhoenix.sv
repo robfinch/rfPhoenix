@@ -190,7 +190,7 @@ reg [63:0] plStack [0:NTHREADS-1];
 reg [63:0] pmStack [0:NTHREADS-1];
 reg [255:0] ipStack [0:NTHREADS-1];
 reg [95:0] status [0:NTHREADS-1];
-reg [2:0] ipl [0:NTHREADS-1][0:3];
+reg [2:0] ipl [0:NTHREADS-1];
 reg [NTHREADS-1:0] mprv;
 reg [NTHREADS-1:0] uie;
 reg [NTHREADS-1:0] sie;
@@ -676,7 +676,7 @@ if (rst_i) begin
 	trace_ptr <= 'd0;
 end
 else begin
-	if (itndx_v[itndx] && trace_en[itndx]) begin
+	if (itndx_v && trace_en[itndx]) begin
 		trace_buf[trace_ptr] <= thread[itndx].ip;
 		trace_ptr <= trace_ptr + 1;
 	end
@@ -954,19 +954,19 @@ begin
 		// External interrupt has highest priority.
 		if (irq_i > status[ip_thread2][7:5] && gie[ip_thread2] && status[ip_thread2][3])
 			ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_BRK);
-		else if (dbg_cr[0] && dbg[9:8]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==ip_icline) begin
+		else if (dbg_cr[0] && dbg_cr[9:8]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[0] <= 1'b1;
 		end
-		else if (dbg_cr[1] && dbg[13:12]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==ip_icline) begin
+		else if (dbg_cr[1] && dbg_cr[13:12]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[1] <= 1'b1;
 		end
-		else if (dbg_cr[2] && dbg[17:16]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==ip_icline) begin
+		else if (dbg_cr[2] && dbg_cr[17:16]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[2] <= 1'b1;
 		end
-		else if (dbg_cr[3] && dbg[21:20]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==ip_icline) begin
+		else if (dbg_cr[3] && dbg_cr[21:20]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[3] <= 1'b1;
 		end
@@ -1163,19 +1163,19 @@ end
 task tOuLoad;
 begin
 	if (eb[xrid].dec.load && eb[xrid].agen) begin
-		if (dbg_cr[0] && dbg[9:8]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
+		if (dbg_cr[0] && dbg_cr[9:8]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[0] <= 1'b1;
 		end
-		else if (dbg_cr[1] && dbg[13:12]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
+		else if (dbg_cr[1] && dbg_cr[13:12]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[1] <= 1'b1;
 		end
-		else if (dbg_cr[2] && dbg[17:16]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
+		else if (dbg_cr[2] && dbg_cr[17:16]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[2] <= 1'b1;
 		end
-		else if (dbg_cr[3] && dbg[21:20]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
+		else if (dbg_cr[3] && dbg_cr[21:20]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[3] <= 1'b1;
 		end
@@ -1213,19 +1213,19 @@ endtask
 task tOuStore;
 begin
 	if (eb[xrid].dec.store & eb[xrid].agen) begin
-		if (dbg_cr[0] && dbg[8]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
+		if (dbg_cr[0] && dbg_cr[8]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[0] <= 1'b1;
 		end
-		else if (dbg_cr[1] && dbg[12]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
+		else if (dbg_cr[1] && dbg_cr[12]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[1] <= 1'b1;
 		end
-		else if (dbg_cr[2] && dbg[16]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
+		else if (dbg_cr[2] && dbg_cr[16]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[2] <= 1'b1;
 		end
-		else if (dbg_cr[3] && dbg[20]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
+		else if (dbg_cr[3] && dbg_cr[20]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
 			eb[xrid].cause <= FLT_DBG;
 			dbg_sr[3] <= 1'b1;
 		end
@@ -1448,15 +1448,15 @@ endtask
 task tWbRex;
 begin
 	// Exception if trying to switch to higher mode
-	if (omode <= eb[wbndx].ir[7:6]) begin
+	if (omode[wbndx] <= eb[wbndx].ifb.insn[7:6]) begin
 		tWbException(eb[wbndx].ifb.ip,FLT_PRIV,1);
 	end
 	else begin
-		status[wbndx][11:10] <= eb[wbndx].ir[7:6];	// omode
-		plStack <= {plStack[63:8],eb[wbndx].a[7:0]};
-		cause[wbndx][eb[wbndx].ir[7:6]] <= cause[wbndx][2'd3];
-		badaddr[wbndx][eb[wbndx].ir[7:6]] <= badaddr[wbndx][2'd3];
-		ip <= tvec[eb[wbndx].ir[7:6]] + {omode[wbndx],6'h00};
+		status[wbndx][11:10] <= eb[wbndx].ifb.insn[7:6];	// omode
+		plStack[wbndx] <= {plStack[wbndx][63:8],eb[wbndx].a[0][7:0]};
+		cause[wbndx][eb[wbndx].ifb.insn[7:6]] <= cause[wbndx][2'd3];
+		badaddr[wbndx][eb[wbndx].ifb.insn[7:6]] <= badaddr[wbndx][2'd3];
+		ip <= tvec[eb[wbndx].ifb.insn[7:6]] + {omode[wbndx],6'h00};
 		// Don't allow stack redirection for interrupt processing.
 		if (sp_sel[wbndx] != 3'd4)
 			case(pmStack[wbndx][15:14])
@@ -1585,13 +1585,6 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
-		CSR_IE:				
-			case(regno[13:12])
-			2'd0:	res = ie_reg[thread][0];
-			2'd1: res = ie_reg[thread][1:0];
-			2'd2:	res = ie_reg[thread][2:0];
-			2'd3:	res = {ie_reg[thread][4],pmStack[thread][0],ie_reg[thread][2:0]};
-			endcase
 		CSR_MHARTID: res = {hartid_i[31:3],thread};
 //		CSR_MCR0:	res = cr0|(dce << 5'd30);
 		CSR_PTBR:	res = ptbr[thread];
@@ -1608,8 +1601,8 @@ begin
 		CSR_MPMSTACK:	res = pmStack[thread];
 		CSR_TIME:	res = wc_time[31:0];
 		CSR_USTATUS:	res = status[thread][0];
-		CSR_SSTATUS:	res = {2'b01,8'h00,status[thread][1:0];
-		CSR_HSTATUS:	res = {2'b10,7'h00,status[thread][2:0];
+		CSR_SSTATUS:	res = {2'b01,8'h00,status[thread][1:0]};
+		CSR_HSTATUS:	res = {2'b10,7'h00,status[thread][2:0]};
 		CSR_MSTATUS:	res = status[thread];
 		CSR_MDBAD:		res = dbg_adr[regno[1:0]];
 		CSR_MDBCR:		res = dbg_cr;
@@ -1629,19 +1622,6 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
-		/*
-		CSR_IE:			ie_reg[thread] <= val;
-			case(regno[13:12])
-			2'd0:	ie_reg[thread][0] <= val[0];
-			2'd1: ie_reg[thread][1:0] <= val[1:0];
-			2'd2:	ie_reg[thread][2:0] <= val[2:0];
-			2'd3:	
-				begin
-					ie_reg[thread][4:0] <= val[4:0];
-					pmStack[thread][0] <= val[3];
-				end
-			endcase
-		*/
 		CSR_MCR0:		cr0 <= val;
 		CSR_PTBR:		ptbr[thread] <= val;
 //		CSR_HMASK:	hmask <= val;
@@ -1675,15 +1655,6 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
-		/*
-		CSR_IE:
-			case(regno[13:12])
-			2'd0:	ie_reg[thread][0] <= ie_reg[thread][0] | val[0];
-			2'd1: ie_reg[thread][1:0] <= ie_reg[thread][1:0] | val[1:0];
-			2'd2:	ie_reg[thread][2:0] <= ie_reg[thread][2:0] | val[2:0];
-			2'd3:	ie_reg[thread][4:0] <= ie_reg[thread][4:0] | val[4:0];
-			endcase
-		*/
 		CSR_MCR0:			cr0[val[5:0]] <= 1'b1;
 		CSR_USTATUS:	status[thread][0] <= status[thread][0] | val[0];
 		CSR_SSTATUS:	status[thread][1:0] <= status[thread][1:0] | val[1:0];

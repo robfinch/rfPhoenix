@@ -241,6 +241,7 @@ typedef enum logic [11:0] {
 	FLT_NONE	= 12'h000,
 	FLT_TLBMISS = 12'h04,
 	FLT_DCM		= 12'h005,
+	FLT_SSM		= 12'h020,
 	FLT_DBG		= 12'h021,
 	FLT_IADR	= 12'h022,
 	FLT_CHK		= 12'h027,
@@ -471,6 +472,7 @@ typedef struct packed
 	logic irq;
 	logic rti;
 	logic flt;
+	logic rex;
 	logic pfx;
 } DecodeBus;
 
@@ -480,6 +482,7 @@ typedef struct packed
 	logic decoded;
 	logic regfetched;
 	logic out;
+	logic agen;
 	logic executed;
 	logic memory;
 	logic imiss;
