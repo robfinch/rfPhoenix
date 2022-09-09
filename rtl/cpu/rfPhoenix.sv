@@ -189,11 +189,38 @@ CodeAddress tvec [0:3];
 reg [63:0] plStack [0:NTHREADS-1];
 reg [63:0] pmStack [0:NTHREADS-1];
 reg [255:0] ipStack [0:NTHREADS-1];
-reg [31:0] status;
+reg [95:0] status [0:NTHREADS-1];
+reg [2:0] ipl [0:NTHREADS-1][0:3];
+reg [NTHREADS-1:0] mprv;
+reg [NTHREADS-1:0] uie;
+reg [NTHREADS-1:0] sie;
+reg [NTHREADS-1:0] hie;
+reg [NTHREADS-1:0] mie;
+reg [NTHREADS-1:0] die;
+reg [NTHREADS-1:0] trace_en;
+integer n11;
+always_comb
+	for (n11 = 0; n11 < NTHREADS; n11 = n11 + 1) begin
+		mprv[n11] = status[n11][17];
+		uie[n11] = status[n11][0];
+		sie[n11] = status[n11][1];
+		hie[n11] = status[n11][2];
+		mie[n11] = status[n11][3];
+		die[n11] = status[n11][4];
+		omode[n11] = status[n11][11:10];
+		trace_en[n11] = status[n11][9];
+		ipl[n11] = status[n11][7:5];
+	end
 reg [31:0] tick;
 reg [63:0] wc_time;
 reg [31:0] wc_time_dat;
 reg ld_time, clr_wc_time_irq;
+reg [31:0] dbg_cr;
+reg [31:0] dbg_sr;
+Address [3:0] dbg_adr;
+
+CodeAddress [8191:0] trace_buf;
+reg [12:0] trace_ptr;
 
 genvar g;
 
@@ -228,7 +255,6 @@ lfsr ulfs1
 integer n5;
 always_comb
 	for (n5 = 0; n5 < NTHREADS; n5 = n5 + 1) begin
-		omode[n5] = pmStack[n5][7:6];
 		Usermode[n5] = omode[n5]==2'b00;
 		MUsermode[n5] = omode[n5]==2'b00;
 	end
@@ -506,8 +532,6 @@ begin
 end
 endtask
 
-always_ff @(posedge clk_g)
-begin
 	/*
 	if (rollback_ipv[ip_thread5]) begin//|rolledback1[ip_thread5]|rolledback2[ip_thread5]) begin
 		ic_ifb.pfx <= NOP;
@@ -519,18 +543,6 @@ begin
 	end
 	else
 	*/
-	begin
-		{ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
-		ic_ifb.ip <= ip_icline;
-		ic_ifb.v <= ihit2;
-		ic_ifb.sp_sel <= sp_sel[ip_thread2];
-		ic_ifb.thread <= ip_thread2;
-	end
-	if (irq_i > pmStack[ip_thread2][3:1] && gie[ip_thread2])
-		ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_BRK);
-	else
-		ic_ifb.cause <= FLT_NONE;
-end
 
 always_ff @(posedge clk_g)
 	ic_line2 <= ic_line;
@@ -546,7 +558,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
 		clr_ififo[g] <= rollback[g];
 	always_comb
-		sb_will_issue[g] = g==dcndx && dcndx_v && !ififo_empty[g] && !sb_issue[g];
+		sb_will_issue[g] = g==dcndx && dcndx_v;
 	always_ff @(posedge clk_g)
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
@@ -661,6 +673,17 @@ always_ff @(posedge clk_g)
 
 always_ff @(posedge clk_g)
 if (rst_i) begin
+	trace_ptr <= 'd0;
+end
+else begin
+	if (itndx_v[itndx] && trace_en[itndx]) begin
+		trace_buf[trace_ptr] <= thread[itndx].ip;
+		trace_ptr <= trace_ptr + 1;
+	end
+end
+
+always_ff @(posedge clk_g)
+if (rst_i) begin
 	tReset();
 end
 else begin
@@ -708,6 +731,7 @@ begin
 		mcc[n] <= 'd0;
 	end
 	for (n = 0; n < NTHREADS; n = n + 1) begin
+		istk_depth[n] <= 3'd1;
 		cause[n][0] <= FLT_NONE;
 		cause[n][1] <= FLT_NONE;
 		cause[n][2] <= FLT_NONE;
@@ -754,6 +778,9 @@ begin
 	ip_thread3 <= 'd0;
 	ip_thread4 <= 'd0;
 	ip_thread5 <= 'd0;
+	trace_ptr <= 'd0;
+	dbg_cr <= 'd0;
+	dbg_sr <= 'd0;
 end
 endtask
 
@@ -795,6 +822,12 @@ endtask
 // The following selectors use round-robin selection.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+// itndx selects which thread will fetch the instruction. Usually the select
+// will circle around through all the threads due to the round-robin select.
+// However if an instruction fifo is almost full it will not be selected.
+// The fifo might become full if the thread is executing long running
+// operations.
+
 reg [NTHREADS-1:0] itsel;
 generate begin : gItsel
 	for (g = 0; g < NTHREADS; g = g + 1)
@@ -812,11 +845,23 @@ rfPhoenix_round_robin_select rr1
 	.ov(itndx1_v)
 );
 
+// dcndx selects a decoded instruction from the fifo for register fetch.
+// The execution buffer for the thread must be empty and the scoreboard
+// must indicate there are no dependencies on the instruction. There also
+// must be an instruction in the fifo. dcndx will not issue to the same
+// thread in two consecutive clock cycles to allow the thread status to
+// update. It will also not issue if the fifo is being updated.
+// dcndx is also used indirectly to select the thread for register fetch
+// as the decoded register select signals are fed to the register file.
+// Two cycles later the register file values are available the thread to
+// update will have been dcndx delayed by two cycles. 
+
 reg [NTHREADS-1:0] dcsel;
 generate begin : gDcsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			dcsel[g] = sb_can_issue[g] & ~eb[g].decoded & ~eb[g].v;
+			dcsel[g] = sb_can_issue[g] & ~eb[g].v & ~ififo_empty[g] &
+								~sb_issue[g] & ~wr_ififo[g];
 end
 endgenerate
 
@@ -828,6 +873,10 @@ rfPhoenix_round_robin_select rr2
 	.o(dcndx),
 	.ov(dcndx_v)
 );
+
+// exndx selects the thread to move to the execution stage. To be selected the
+// register file values must have been fetched and the instruction not out being
+// executed already.
 
 reg [NTHREADS-1:0] exsel;
 generate begin : gExsel
@@ -867,7 +916,8 @@ rfPhoenix_round_robin_select rr4
 );
 
 
-// Pick a finished rob entry.
+// Pick a finished instruction. wbndx selects which thread is written back to
+// the register file and will be marked available for reuse.
 
 // Copy into a bus, just wires.
 reg [NTHREADS-1:0] ebfin;
@@ -896,6 +946,34 @@ task tInsnFetch;
 integer n;
 begin
 	begin
+		{ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
+		ic_ifb.ip <= ip_icline;
+		ic_ifb.v <= ihit2;
+		ic_ifb.sp_sel <= sp_sel[ip_thread2];
+		ic_ifb.thread <= ip_thread2;
+		// External interrupt has highest priority.
+		if (irq_i > status[ip_thread2][7:5] && gie[ip_thread2] && status[ip_thread2][3])
+			ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_BRK);
+		else if (dbg_cr[0] && dbg[9:8]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==ip_icline) begin
+			ic_ifb.cause <= FLT_DBG;
+			dbg_sr[0] <= 1'b1;
+		end
+		else if (dbg_cr[1] && dbg[13:12]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==ip_icline) begin
+			ic_ifb.cause <= FLT_DBG;
+			dbg_sr[1] <= 1'b1;
+		end
+		else if (dbg_cr[2] && dbg[17:16]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==ip_icline) begin
+			ic_ifb.cause <= FLT_DBG;
+			dbg_sr[2] <= 1'b1;
+		end
+		else if (dbg_cr[3] && dbg[21:20]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==ip_icline) begin
+			ic_ifb.cause <= FLT_DBG;
+			dbg_sr[3] <= 1'b1;
+		end
+		else if (status[ip_thread2][8])
+			ic_ifb.cause <= FLT_SSM;
+		else
+			ic_ifb.cause <= FLT_NONE;
 		// 2 cycle pipeline delay reading the I$.
 		// 1 for tag lookup and way determination
 		// 1 for cache line lookup
@@ -1002,7 +1080,7 @@ begin
 			eb[rfndx].executed <= 1'b0;
 		end
 		else if (rollback_ipv[rfndx] && eb[rfndx].ifb.ip == rollback_ip[rfndx]) begin
-			rollback_ipv <= 1'b0;
+			rollback_ipv[rfndx] <= 1'b0;
 			tRegf();
 		end
 		else if ((eb[rfndx].decoded && !eb[rfndx].regfetched) || 1'b1) begin
@@ -1015,106 +1093,6 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // EX stage 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-task tExLoad;
-begin
-	if (eb[exndx].dec.load) begin
-		tid <= tid + 2'd1;
-		memreq.tid <= tid;
-		memreq.wr <= 1'b1;
-		memreq.func <= eb[exndx].dec.loadu ? MR_LOADZ : MR_LOAD;
-		if (eb[exndx].dec.ldr)
-			memreq.func2 <= MR_LDR;
-		memreq.sz <= eb[exndx].dec.memsz;
-		memreq.asid = asid[exndx];
-		case(eb[exndx].dec.memsz)
-		byt:	memreq.sel <= 64'h1;
-		wyde:	memreq.sel <= 64'h3;
-		tetra:	memreq.sel <= 64'hF;
-		vect:	memreq.sel <= 64'hFFFFFFFFFFFFFFFF;
-		default:	memreq.sel <= 64'hF;
-		endcase
-		if (eb[exndx].dec.memsz==vect) begin
-			if (eb[exndx].dec.loadr) begin
-				memreq.func2 <= MR_LDV;
-				memreq.sel <= 64'hFFFFFFFFFFFFFFFF;
-				memreq.adr <= eb[exndx].a[0] + eb[exndx].dec.imm;
-			end
-			else begin
-				memreq.sel <= 64'hF;
-				memreq.adr <= eb[exndx].a[0] + eb[exndx].b[eb[exndx].step];
-				if (eb[exndx].step != NLANES-1 && eb[exndx].dec.loadn)
-					eb[exndx].step <= eb[exndx].step + 2'd1;
-			end
-		end
-		else
-			memreq.adr <= eb[exndx].dec.loadr ? eb[exndx].a[0] + eb[exndx].dec.imm : eb[exndx].a[0] + eb[exndx].b[0];
-	end
-end
-endtask
-
-task tExStore;
-begin
-	if (eb[exndx].dec.store) begin
-		tid <= tid + 2'd1;
-		memreq.tid <= tid;
-		memreq.wr <= 1'b1;
-		memreq.func <= MR_STORE;
-		if (eb[exndx].dec.stc)
-			memreq.func2 <= MR_STC;
-		memreq.sz <= eb[exndx].dec.memsz;
-		memreq.asid = asid[exndx];
-		memreq.dat <= eb[exndx].t;
-		case(eb[exndx].dec.memsz)
-		byt:	memreq.sel <= 64'h1;
-		wyde:	memreq.sel <= 64'h3;
-		tetra:	memreq.sel <= 64'hF;
-		default:	memreq.sel <= 64'hF;
-		endcase
-		// BIU works with 128-bit chunks for stores.
-		if (eb[exndx].dec.memsz==vect) begin
-			memreq.sel <= eb[exndx].ifb.insn.r2.m ? (
-				{	{4{eb[exndx].mask[15]}},
-					{4{eb[exndx].mask[14]}},
-					{4{eb[exndx].mask[13]}},
-					{4{eb[exndx].mask[12]}},
-					{4{eb[exndx].mask[11]}},
-					{4{eb[exndx].mask[10]}},
-					{4{eb[exndx].mask[9]}},
-					{4{eb[exndx].mask[8]}},
-					{4{eb[exndx].mask[7]}},
-					{4{eb[exndx].mask[6]}},
-					{4{eb[exndx].mask[5]}},
-					{4{eb[exndx].mask[4]}},
-					{4{eb[exndx].mask[3]}},
-					{4{eb[exndx].mask[2]}},
-					{4{eb[exndx].mask[1]}},
-					{4{eb[exndx].mask[0]}}} >> {eb[exndx].step,2'h0}) & 64'hFFFF
-				 	: 64'hFFFF;
-			if (eb[exndx].dec.storen)
-				memreq.sz <= tetra;
-			memreq.adr <= eb[exndx].dec.storer ? 
-				eb[exndx].a[0] + eb[exndx].dec.imm + {eb[exndx].step,5'b0} :
-				eb[exndx].a[0] + eb[exndx].b[eb[exndx].step];
-			// For a scatter store select the current vector element, otherwise select entire vector (set above).
-			if (eb[exndx].dec.storen) begin
-				memreq.sel <= 64'h000000000000000F;	// 32 bit at a time
-				// Dont bother storing if masked
-				if (eb[exndx].ifb.insn.r2.m && !eb[exndx].mask[eb[exndx].step])
-					memreq.wr <= 1'b0;
-				memreq.dat <= eb[exndx].t[eb[exndx].step];
-			end
-			if (eb[exndx].step!=NLANES-4 && eb[exndx].dec.storer)
-				eb[exndx].step <= eb[exndx].step + 2'd4;
-			// For scatter increment step
-			if (eb[exndx].step!=NLANES-1 && eb[exndx].dec.storen)
-				eb[exndx].step <= eb[exndx].step + 2'd1;
-		end
-		else
-			memreq.adr <= eb[exndx].dec.storer ? eb[exndx].a[0] + eb[exndx].dec.imm : eb[exndx].a[0] + eb[exndx].b[0];
-	end
-end
-endtask
 
 task tExecute;
 begin
@@ -1151,19 +1129,6 @@ begin
 			xhmask <= hmask;
 			$display("Execute %d:", exndx);
 			$display("  insn=%h a=%h b=%h c=%h i=%h", eb[exndx].ifb.insn, eb[exndx].a, eb[exndx].b, eb[exndx].c, eb[exndx].dec.imm);
-			if (!memreq_full && ihit) begin
-				tExLoad();
-				tExStore();
-			end
-			// If the load/store could not be queued backout the decoded and out
-			// indicators so the instruction will be reselected for execution.
-			else begin
-				if (eb[exndx].dec.load|eb[exndx].dec.store) begin
-					eb[exndx].decoded <= 1'b1;
-					eb[exndx].regfetched <= 1'b1;
-					eb[exndx].out <= 1'b0;
-				end
-			end
 		end
 	end
 	if (mcv_rido < NTHREADS) begin
@@ -1177,6 +1142,148 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // OU stage 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+// Address generation
+
+Address tmpadr;
+always_ff @(posedge clk_g)
+begin
+	eb[xrid].agen <= 1'b1;
+	if (eb[xrid].dec.memsz==vect) begin
+			tmpadr <= 
+				eb[xrid].dec.loadr ? eb[xrid].a[0] + eb[xrid].dec.imm :
+				eb[xrid].dec.storer ? 
+					eb[xrid].a[0] + eb[xrid].dec.imm + {eb[xrid].step,5'b0} :
+					eb[xrid].a[0] + eb[xrid].b[eb[xrid].step];
+	end
+	else
+		tmpadr <= (eb[xrid].dec.storer|eb[xrid].dec.loadr) ? eb[xrid].a[0] + eb[xrid].dec.imm : eb[xrid].a[0] + eb[xrid].b[0];
+end
+
+task tOuLoad;
+begin
+	if (eb[xrid].dec.load && eb[xrid].agen) begin
+		if (dbg_cr[0] && dbg[9:8]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[0] <= 1'b1;
+		end
+		else if (dbg_cr[1] && dbg[13:12]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[1] <= 1'b1;
+		end
+		else if (dbg_cr[2] && dbg[17:16]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[2] <= 1'b1;
+		end
+		else if (dbg_cr[3] && dbg[21:20]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[3] <= 1'b1;
+		end
+		tid <= tid + 2'd1;
+		memreq.tid <= tid;
+		memreq.wr <= 1'b1;
+		memreq.func <= eb[xrid].dec.loadu ? MR_LOADZ : MR_LOAD;
+		if (eb[xrid].dec.ldr)
+			memreq.func2 <= MR_LDR;
+		memreq.sz <= eb[xrid].dec.memsz;
+		memreq.asid = asid[xrid];
+		memreq.adr <= tmpadr;
+		case(eb[xrid].dec.memsz)
+		byt:	memreq.sel <= 64'h1;
+		wyde:	memreq.sel <= 64'h3;
+		tetra:	memreq.sel <= 64'hF;
+		vect:	memreq.sel <= 64'hFFFFFFFFFFFFFFFF;
+		default:	memreq.sel <= 64'hF;
+		endcase
+		if (eb[xrid].dec.memsz==vect) begin
+			if (eb[xrid].dec.loadr) begin
+				memreq.func2 <= MR_LDV;
+				memreq.sel <= 64'hFFFFFFFFFFFFFFFF;
+			end
+			else begin
+				memreq.sel <= 64'hF;
+				if (eb[xrid].step != NLANES-1 && eb[xrid].dec.loadn)
+					eb[xrid].step <= eb[xrid].step + 2'd1;
+			end
+		end
+	end
+end
+endtask
+
+task tOuStore;
+begin
+	if (eb[xrid].dec.store & eb[xrid].agen) begin
+		if (dbg_cr[0] && dbg[8]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[0] <= 1'b1;
+		end
+		else if (dbg_cr[1] && dbg[12]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[1]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[1] <= 1'b1;
+		end
+		else if (dbg_cr[2] && dbg[16]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[2]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[2] <= 1'b1;
+		end
+		else if (dbg_cr[3] && dbg[20]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[3]==tmpadr) begin
+			eb[xrid].cause <= FLT_DBG;
+			dbg_sr[3] <= 1'b1;
+		end
+		tid <= tid + 2'd1;
+		memreq.tid <= tid;
+		memreq.wr <= 1'b1;
+		memreq.func <= MR_STORE;
+		if (eb[xrid].dec.stc)
+			memreq.func2 <= MR_STC;
+		memreq.sz <= eb[xrid].dec.memsz;
+		memreq.asid = asid[xrid];
+		memreq.adr <= tmpadr;
+		memreq.dat <= eb[xrid].t;
+		case(eb[xrid].dec.memsz)
+		byt:	memreq.sel <= 64'h1;
+		wyde:	memreq.sel <= 64'h3;
+		tetra:	memreq.sel <= 64'hF;
+		default:	memreq.sel <= 64'hF;
+		endcase
+		// BIU works with 128-bit chunks for stores.
+		if (eb[xrid].dec.memsz==vect) begin
+			memreq.sel <= eb[xrid].ifb.insn.r2.m ? (
+				{	{4{eb[xrid].mask[15]}},
+					{4{eb[xrid].mask[14]}},
+					{4{eb[xrid].mask[13]}},
+					{4{eb[xrid].mask[12]}},
+					{4{eb[xrid].mask[11]}},
+					{4{eb[xrid].mask[10]}},
+					{4{eb[xrid].mask[9]}},
+					{4{eb[xrid].mask[8]}},
+					{4{eb[xrid].mask[7]}},
+					{4{eb[xrid].mask[6]}},
+					{4{eb[xrid].mask[5]}},
+					{4{eb[xrid].mask[4]}},
+					{4{eb[xrid].mask[3]}},
+					{4{eb[xrid].mask[2]}},
+					{4{eb[xrid].mask[1]}},
+					{4{eb[xrid].mask[0]}}} >> {eb[xrid].step,2'h0}) & 64'hFFFF
+				 	: 64'hFFFF;
+			if (eb[xrid].dec.storen)
+				memreq.sz <= tetra;
+			// For a scatter store select the current vector element, otherwise select entire vector (set above).
+			if (eb[xrid].dec.storen) begin
+				memreq.sel <= 64'h000000000000000F;	// 32 bit at a time
+				// Dont bother storing if masked
+				if (eb[xrid].ifb.insn.r2.m && !eb[xrid].mask[eb[xrid].step])
+					memreq.wr <= 1'b0;
+				memreq.dat <= eb[xrid].t[eb[xrid].step];
+			end
+			if (eb[xrid].step!=NLANES-4 && eb[xrid].dec.storer)
+				eb[xrid].step <= eb[xrid].step + 2'd4;
+			// For scatter increment step
+			if (eb[xrid].step!=NLANES-1 && eb[xrid].dec.storen)
+				eb[xrid].step <= eb[xrid].step + 2'd1;
+		end
+	end
+end
+endtask
 
 task tOuCall;
 begin
@@ -1235,15 +1342,32 @@ begin
 	tOuCall();
 	tOuBranch();
 	if (xrid_v) begin
-		eb[xrid].out <= 1'b0;
-		eb[xrid].executed <= 1'b1;
+		eb[xrid].out <= (eb[xrid].dec.load|eb[xrid].dec.store) ? ~eb[xrid].agen : 1'b0;
+		eb[xrid].executed <= (eb[xrid].dec.load|eb[xrid].dec.store) ? eb[xrid].agen : 1'b1;
 		if (eb[xrid].dec.storen && eb[xrid].dec.memsz==vect) begin
 			if (eb[xrid].step!=NLANES-1) begin
 				eb[xrid].out <= 1'b1;
+				eb[xrid].agen <= 1'b0;
 				eb[xrid].executed <= 1'b0;
 			end
 		end
 		eb[xrid].res <= vres;
+		if (eb[xrid].agen) begin
+			if (!memreq_full && ihit) begin
+				tOuLoad();
+				tOuStore();
+			end
+			// If the load/store could not be queued backout the decoded and out
+			// indicators so the instruction will be reselected for execution.
+			else begin
+				if (eb[xrid].dec.load|eb[xrid].dec.store) begin
+					eb[xrid].decoded <= 1'b1;
+					eb[xrid].regfetched <= 1'b1;
+					eb[xrid].out <= 1'b0;
+					eb[xrid].agen <= 1'b0;
+				end
+			end
+		end
 		$display("Out %d:", xrid);
 		$display("  res=%h",vres);
 	end
@@ -1270,6 +1394,8 @@ task tMemory;
 integer n;
 begin
 	if (memresp_fifo_v) begin
+		if (|memresp.cause && eb[memresp.thread].cause=='d0)
+			eb[memresp.thread].cause <= memresp.cause;
 		// Clear the imiss status. The thread might still miss again if the I$
 		// has not updated before the thread is selected again, but at least
 		// it can be prevented from being selected for a few cycles while the
@@ -1317,11 +1443,37 @@ endtask
 // WB Stage
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+// REX instruction
+
+task tWbRex;
+begin
+	// Exception if trying to switch to higher mode
+	if (omode <= eb[wbndx].ir[7:6]) begin
+		tWbException(eb[wbndx].ifb.ip,FLT_PRIV,1);
+	end
+	else begin
+		status[wbndx][11:10] <= eb[wbndx].ir[7:6];	// omode
+		plStack <= {plStack[63:8],eb[wbndx].a[7:0]};
+		cause[wbndx][eb[wbndx].ir[7:6]] <= cause[wbndx][2'd3];
+		badaddr[wbndx][eb[wbndx].ir[7:6]] <= badaddr[wbndx][2'd3];
+		ip <= tvec[eb[wbndx].ir[7:6]] + {omode[wbndx],6'h00};
+		// Don't allow stack redirection for interrupt processing.
+		if (sp_sel[wbndx] != 3'd4)
+			case(pmStack[wbndx][15:14])
+			2'd0:	sp_sel[wbndx] <= 3'd0;
+			2'd1:	sp_sel[wbndx] <= 3'd1;
+			2'd2:	sp_sel[wbndx] <= 3'd2;
+			2'd3:	sp_sel[wbndx] <= 3'd3;
+			endcase
+	end
+end
+endtask
+
 // RTI processing at the WB stage.
 task tWbRti;
 begin
 	if (|istk_depth[wbndx]) begin
-		pmStack[wbndx] <= {8'hCE,pmStack[wbndx][63:8]};	// restore operating mode, irq level
+		status[wbndx] <= {12'hCE0,status[wbndx][63:12]};	// restore operating mode, irq level
 		plStack[wbndx] <= {8'hFF,plStack[wbndx][63:8]};	// restore privilege level
 		ipStack[wbndx] <= {RSTIP,ipStack[wbndx][255:32]};
 		thread[wbndx].ip <= ipStack[wbndx][31:0];
@@ -1334,19 +1486,24 @@ begin
 		endcase
 	end
 	else
-		tWbException(eb[wbndx].ifb.ip,FLT_RTI);
+		tWbException(eb[wbndx].ifb.ip,FLT_RTI,1);
 end
 endtask
 
 task tWbException;
 input CodeAddress ip;
 input CauseCode cc;
+input keepIrq;
 begin
 	if (istk_depth[wbndx] < 3'd7) begin
-		pmStack[wbndx] <= pmStack[wbndx] << 8;
-		pmStack[wbndx][7:6] <= 2'b11;		// select machine operating mode
-		pmStack[wbndx][3:1] <= cause[wbndx][omode[wbndx]][10:8];
-		pmStack[wbndx][0] <= 1'b0;			// disable all irqs
+		status[wbndx] <= status[wbndx] << 12;
+		status[wbndx][11:10] <= 2'b11;		// select machine operating mode
+		status[wbndx][9:8] <= 2'b00;
+		if (keepIrq || cc[10:8]==3'd0)
+			status[wbndx][7:5] <= status[wbndx][7:5];
+		else
+			status[wbndx][7:5] <= cc[10:8];
+		status[wbndx][4:0] <= 'b0;			// disable all irqs
 		plStack[wbndx] <= plStack[wbndx] << 8;
 		plStack[wbndx][7:0] <= 8'hFF;		// select max priv level
 		ipStack[wbndx] <= ipStack[wbndx] << 32;
@@ -1375,9 +1532,13 @@ task tWriteback;
 begin
 	if (wbndx_v) begin
 		$display("Writeback %d:", wbndx);
-		if (|eb[wbndx].cause)
-			tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);
+		// Normally we do not want to update the machine state on an exception.
+		// However for single-step mode we do.
+		if (|eb[wbndx].cause && eb[wbndx].cause != FLT_SSM)
+			tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause,0);
 		else begin
+			if (eb[wbndx].cause==FLT_SSM)
+				tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause,1);
 			$display("  ip=%h ir=%h", eb[wbndx].ifb.ip, eb[wbndx].ifb.insn);
 			if (eb[wbndx].dec.rfwr)
 				$display("  %s=%h", fnRegName(eb[wbndx].dec.Rt), eb[wbndx].res);
@@ -1388,16 +1549,20 @@ begin
 			commit_tgt <= eb[wbndx].dec.Rt;
 			commit_bus <= eb[wbndx].res;
 			case(1'b1)
-			eb[wbndx].dec.brk:	tWbException(eb[wbndx].ifb.ip + 4'd5,eb[wbndx].cause);	// BRK instruction
-			eb[wbndx].dec.irq: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// hardware irq
-			eb[wbndx].dec.flt: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// processing fault (divide by zero, tlb miss, ...)
+			eb[wbndx].dec.brk:	tWbException(eb[wbndx].ifb.ip + 4'd5,eb[wbndx].cause,1);	// BRK instruction
+			//eb[wbndx].dec.irq: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// hardware irq
+			//eb[wbndx].dec.flt: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// processing fault (divide by zero, tlb miss, ...)
 			eb[wbndx].dec.rti:	tWbRti();
+			eb[wbndx].dec.rex:	tWbRex();
 			eb[wbndx].dec.csrrw:	tWriteCSR(eb[wbndx].a,wbndx,eb[wbndx].dec.imm[13:0]);
 			eb[wbndx].dec.csrrc:	tClrbitCSR(eb[wbndx].a,wbndx,eb[wbndx].dec.imm[13:0]);
 			eb[wbndx].dec.csrrs:	tSetbitCSR(eb[wbndx].a,wbndx,eb[wbndx].dec.imm[13:0]);
 			endcase
 			if (eb[wbndx].dec.Rt=='d0 && eb[wbndx].dec.rfwr)
 				rz[wbndx] <= 1'b1;
+			// Writing to machine stack pointer globally enables interrupts.
+			if (eb[wbndx].dec.Rt==7'd47 && eb[wbndx].dec.rfwr)
+				gie[wbndx] <= 1'b1;
 		end
 		if (wbndx != rthread)
 			eb[wbndx] <= 'd0;
@@ -1420,6 +1585,13 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
+		CSR_IE:				
+			case(regno[13:12])
+			2'd0:	res = ie_reg[thread][0];
+			2'd1: res = ie_reg[thread][1:0];
+			2'd2:	res = ie_reg[thread][2:0];
+			2'd3:	res = {ie_reg[thread][4],pmStack[thread][0],ie_reg[thread][2:0]};
+			endcase
 		CSR_MHARTID: res = {hartid_i[31:3],thread};
 //		CSR_MCR0:	res = cr0|(dce << 5'd30);
 		CSR_PTBR:	res = ptbr[thread];
@@ -1435,7 +1607,13 @@ begin
 		CSR_MPLSTACK:	res = plStack[thread];
 		CSR_MPMSTACK:	res = pmStack[thread];
 		CSR_TIME:	res = wc_time[31:0];
-		CSR_MSTATUS:	res = status[3];
+		CSR_USTATUS:	res = status[thread][0];
+		CSR_SSTATUS:	res = {2'b01,8'h00,status[thread][1:0];
+		CSR_HSTATUS:	res = {2'b10,7'h00,status[thread][2:0];
+		CSR_MSTATUS:	res = status[thread];
+		CSR_MDBAD:		res = dbg_adr[regno[1:0]];
+		CSR_MDBCR:		res = dbg_cr;
+		CSR_MDBSR:		res = dbg_sr;
 		default:	res = 'd0;
 		endcase
 	end
@@ -1451,6 +1629,19 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
+		/*
+		CSR_IE:			ie_reg[thread] <= val;
+			case(regno[13:12])
+			2'd0:	ie_reg[thread][0] <= val[0];
+			2'd1: ie_reg[thread][1:0] <= val[1:0];
+			2'd2:	ie_reg[thread][2:0] <= val[2:0];
+			2'd3:	
+				begin
+					ie_reg[thread][4:0] <= val[4:0];
+					pmStack[thread][0] <= val[3];
+				end
+			endcase
+		*/
 		CSR_MCR0:		cr0 <= val;
 		CSR_PTBR:		ptbr[thread] <= val;
 //		CSR_HMASK:	hmask <= val;
@@ -1464,7 +1655,13 @@ begin
 		CSR_MPLSTACK:	plStack[thread] <= val;
 		CSR_MPMSTACK:	pmStack[thread] <= val;
 		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= 1'b1; end
-		CSR_MSTATUS:	status[3] <= val;
+		CSR_USTATUS:	status[thread][0] <= val[0];
+		CSR_SSTATUS:	status[thread][1:0] <= val[1:0];
+		CSR_HSTATUS:	status[thread][2:0] <= val[2:0];
+		CSR_MSTATUS:	status[thread] <= val;
+		CSR_MDBAD:		dbg_adr[regno[1:0]] <= val;
+		CSR_MDBCR:		dbg_cr <= val;
+		CSR_MDBSR:		dbg_sr <= val;
 		default:	;
 		endcase
 	end
@@ -1478,9 +1675,22 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
+		/*
+		CSR_IE:
+			case(regno[13:12])
+			2'd0:	ie_reg[thread][0] <= ie_reg[thread][0] | val[0];
+			2'd1: ie_reg[thread][1:0] <= ie_reg[thread][1:0] | val[1:0];
+			2'd2:	ie_reg[thread][2:0] <= ie_reg[thread][2:0] | val[2:0];
+			2'd3:	ie_reg[thread][4:0] <= ie_reg[thread][4:0] | val[4:0];
+			endcase
+		*/
 		CSR_MCR0:			cr0[val[5:0]] <= 1'b1;
-		CSR_MPMSTACK:	pmStack[thread] <= pmStack[thread] | val;
-		CSR_MSTATUS:	status[3] <= status[3] | val;
+		CSR_USTATUS:	status[thread][0] <= status[thread][0] | val[0];
+		CSR_SSTATUS:	status[thread][1:0] <= status[thread][1:0] | val[1:0];
+		CSR_HSTATUS:	status[thread][2:0] <= status[thread][2:0] | val[2:0];
+		CSR_MSTATUS:	status[thread] <= status[thread] | val;
+		CSR_MDBCR:		dbg_cr <= dbg_cr | val;
+		CSR_MDBSR:		dbg_sr <= dbg_sr | val;
 		default:	;
 		endcase
 	end
@@ -1494,9 +1704,22 @@ input [13:0] regno;
 begin
 	if (regno[13:12] <= omode[thread]) begin
 		casez({2'b00,regno[13:0]})
+		/*
+		CSR_IE:
+			case(regno[13:12])
+			2'd0:	ie_reg[thread][0] <= ie_reg[thread][0] & ~val[0];
+			2'd1: ie_reg[thread][1:0] <= ie_reg[thread][1:0] & ~val[1:0];
+			2'd2:	ie_reg[thread][2:0] <= ie_reg[thread][2:0] & ~val[2:0];
+			2'd3:	ie_reg[thread][4:0] <= ie_reg[thread][4:0] & ~val[4:0];
+			endcase
+		*/
 		CSR_MCR0:			cr0[val[5:0]] <= 1'b0;
-		CSR_MPMSTACK:	pmStack[thread] <= pmStack[thread] & ~val;
-		CSR_MSTATUS:	status[3] <= status[3] & ~val;
+		CSR_USTATUS:	status[thread][0] <= status[thread][0] & ~val[0];
+		CSR_SSTATUS:	status[thread][1:0] <= status[thread][1:0] & ~val[1:0];
+		CSR_HSTATUS:	status[thread][2:0] <= status[thread][2:0] & ~val[2:0];
+		CSR_MSTATUS:	status[thread] <= status[thread] & ~val;
+		CSR_MDBCR:		dbg_cr <= dbg_cr & ~val;
+		CSR_MDBSR:		dbg_sr <= dbg_sr & ~val;
 		default:	;
 		endcase
 	end

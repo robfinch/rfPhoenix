@@ -45,10 +45,11 @@ output DecodeBus deco;
 always_comb
 begin
 
-	deco.rti = ifb.insn.any.opcode==R2 && ifb.insn.r2.Ra==6'd63 && ifb.insn.r2.func==VSRLVI && ifb.insn.r2.Rb==6'd1;
-	deco.flt = ifb.insn.any.opcode==R2 && ifb.insn.r2.Ra==6'd63 && ifb.insn.r2.func==VSLLVI && ifb.insn.r2.Rb==6'd1 && ifb.insn.r2.pad==3'b000;
-	deco.brk = ifb.insn.any.opcode==R2 && ifb.insn.r2.Ra==6'd63 && ifb.insn.r2.func==VSLLVI && ifb.insn.r2.Rb==6'd1 && ifb.insn.r2.pad==3'b010;
-	deco.irq = ifb.insn.any.opcode==R2 && ifb.insn.r2.Ra==6'd63 && ifb.insn.r2.func==VSLLVI && ifb.insn.r2.Rb==6'd1 && ifb.insn.r2.pad==3'b100;
+	deco.rti = ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==RTI;
+	deco.flt = 1'b0;//ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==FLT;
+	deco.brk = ifb.insn.any.opcode==BRK;
+	deco.irq = 1'b0;//ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==;
+	deco.rex = ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==REX;
 	deco.Ra = ifb.insn.r2.Ra;
 	deco.Rb = ifb.insn.r2.Rb;
 	deco.Rc = ifb.insn.f3.Rc;

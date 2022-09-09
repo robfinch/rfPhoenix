@@ -86,9 +86,9 @@ always_ff @(posedge clk)
 		end
 	end
 always_comb
-	decout = decmem[rd_ptr];
+	decout <= decmem[rd_ptr];
 always_comb
-	ifbout = ifbmem[rd_ptr];
+	ifbout <= ifbmem[rd_ptr];
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;

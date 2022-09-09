@@ -191,6 +191,7 @@ typedef enum logic [3:0] {
 	MR_CACHE = 4'd13
 } memop_t;
 
+parameter CSR_IE		= 16'h?004;
 parameter CSR_CAUSE	= 16'h?006;
 parameter CSR_SEMA	= 16'h?00C;
 parameter CSR_PTBR	= 16'h1003;
@@ -205,10 +206,16 @@ parameter CSR_MHARTID = 16'h3001;
 parameter CSR_TICK	= 16'h3002;
 parameter CSR_MBADADDR	= 16'h3007;
 parameter CSR_MTVEC = 16'b00110000001100??;
+parameter CSR_MDBAD	= 16'h00110000000110??;
+parameter CSR_MDBCR	= 16'h301C;
+parameter CSR_MDBSR	= 16'h301D;
 parameter CSR_MPLSTACK	= 16'h303F;
 parameter CSR_MPMSTACK	= 16'h3040;
 parameter CSR_MSTUFF0	= 16'h3042;
 parameter CSR_MSTUFF1	= 16'h3043;
+parameter CSR_USTATUS	= 16'h0044;
+parameter CSR_SSTATUS	= 16'h1044;
+parameter CSR_HSTATUS	= 16'h2044;
 parameter CSR_MSTATUS	= 16'h3044;
 parameter CSR_MVSTEP= 16'h3046;
 parameter CSR_MVTMP	= 16'h3047;
@@ -234,6 +241,7 @@ typedef enum logic [11:0] {
 	FLT_NONE	= 12'h000,
 	FLT_TLBMISS = 12'h04,
 	FLT_DCM		= 12'h005,
+	FLT_DBG		= 12'h021,
 	FLT_IADR	= 12'h022,
 	FLT_CHK		= 12'h027,
 	FLT_DBZ		= 12'h028,
@@ -492,8 +500,8 @@ typedef struct packed
 
 typedef struct packed {
 	logic imiss;
-	CodeAddress ip;
-	CodeAddress miss_ip;
+	CodeAddress ip;				// current instruction pointer
+	CodeAddress miss_ip;	// I$ miss address
 } ThreadInfo_t;
 
 // No unsigned codes!
