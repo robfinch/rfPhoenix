@@ -45,9 +45,9 @@ parameter DEP=16;
 input rst;
 input clk;
 input wr;
-input MemoryResponse di;
+input MemoryArg_t di;
 input rd;
-output MemoryResponse dout;
+output MemoryArg_t dout;
 output reg [$clog2(DEP)-1:0] cnt;
 output reg full;
 output reg empty;
@@ -58,7 +58,7 @@ output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 reg [$clog2(DEP)-1:0] wr_ptr;
 reg [$clog2(DEP)-1:0] rd_ptr;
 (* ram_style = "distributed" *)
-MemoryResponse  [DEP-1:0] mem;
+MemoryArg_t  [DEP-1:0] mem;
 integer n,n2;
 
 always_ff @(posedge clk)
@@ -71,6 +71,8 @@ always_ff @(posedge clk)
 	else begin
 		if (rd & wr) begin
 			mem[wr_ptr] <= di;
+			wr_ptr <= wr_ptr + 2'd1;
+			rd_ptr <= rd_ptr + 2'd1;
 		end
 		else if (wr) begin
 			mem[wr_ptr] <= di;

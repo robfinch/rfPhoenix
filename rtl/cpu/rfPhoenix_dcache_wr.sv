@@ -56,15 +56,15 @@ always_ff @(posedge clk)
 begin
 	wr <= 1'b0;
 	case(state)
-	MEMORY_ACKHI:
+	MEMORY_UPD1:
 		if (hit2 && 
-			(func==MR_STORE || func==MR_MOVST) && ack) begin
+			(func==MR_STORE || func==MR_MOVST)) begin
 			if (~eaeo)
 				wr <= acr[3];	// must be cachable data for cache to update
 		end
-	MEMORY13:
+	MEMORY_UPD2:
 		if (hit2 && 
-			(func==MR_STORE || func==MR_MOVST) &&	ack) begin
+			(func==MR_STORE || func==MR_MOVST)) begin
 			if (eaeo)
 				wr <= acr[3];
 		end

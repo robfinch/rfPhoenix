@@ -59,7 +59,7 @@ if (rst)
 	wway <= 2'd0;
 else begin
 	case(state)
-	MEMORY_ACKLO:
+	MEMORY_ACK:
 		if (!inv && (dce & hit & acr[3]) &&
 			(func==MR_STORE || func==MR_MOVST) &&
 			ack) begin

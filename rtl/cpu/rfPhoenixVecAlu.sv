@@ -36,11 +36,12 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixVecAlu(ir, a, b, c, Ta, Tb, Tt, imm, asid, hmask, o);
+module rfPhoenixVecAlu(ir, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask, o);
 input Instruction ir;
 input VecValue a;
 input VecValue b;
 input VecValue c;
+input VecValue t;
 input Ta;
 input Tb;
 input Tt;
@@ -60,6 +61,7 @@ generate begin
 			.a(a[g]),
 			.b(b[g]),
 			.c(c[g]),
+			.t(t[g]),
 			.imm(imm),
 			.asid(asid),
 			.hmask(hmask),

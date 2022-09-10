@@ -36,11 +36,12 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixAlu(ir, a, b, c, imm, asid, hmask, o);
+module rfPhoenixAlu(ir, a, b, c, t, imm, asid, hmask, o);
 input Instruction ir;
 input Value a;
 input Value b;
 input Value c;
+input Value t;
 input Value imm;
 input ASID asid;
 input Value hmask;
@@ -240,6 +241,7 @@ FCMP_LEI:	o = fcmpi_o[2];
 FCMP_GTI:	o = fcmpi_o[10];
 FCMP_GEI:	o = fcmpi_o[9];
 CSR:			o = c;
+RET:			o = t + imm;
 default:	o = 'd0;
 endcase
 

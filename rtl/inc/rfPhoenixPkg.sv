@@ -69,7 +69,7 @@ typedef enum logic [5:0] {
 	CMP_GTUI	= 6'h17,
 	CALLA		= 6'h18,
 	CALLR		= 6'h19,
-	JMPR		= 6'h1A,
+	RET			= 6'h1A,
 	Bcc			= 6'h1C,
 	FBcc		= 6'h1D,
 	FCMP_EQI	= 6'h1E,
@@ -87,11 +87,11 @@ typedef enum logic [5:0] {
 	LDW			= 6'h32,
 	LDWU		= 6'h33,
 	LDT			= 6'h34,
-	LDR			= 6'h35,
+	LDSR		= 6'h36,
 	STB			= 6'h38,
 	STW			= 6'h39,
 	STT			= 6'h3A,
-	STC			= 6'h3B
+	STCR		= 6'h3D
 } Opcode;
 
 // R2 ops
@@ -143,11 +143,11 @@ typedef enum logic [5:0] {
 	LDWX		= 6'h32,
 	LDWUX		= 6'h33,
 	LDTX		= 6'h34,
-	LDRX		= 6'h35,
+	LDSRX		= 6'h36,
 	STBX		= 6'h38,
 	STWX		= 6'h39,
 	STTX		= 6'h3A,
-	STCX		= 6'h3B
+	STCRX		= 6'h3D
 } R2Func;
 
 // R1 ops
@@ -286,12 +286,30 @@ typedef logic [31:0] Value;
 typedef logic [63:0] DoubleValue;
 typedef Value [NLANES-1:0] VecValue;
 typedef logic [5:0] Func;
+typedef logic [127:0] regs_bitmap_t;
 
 typedef struct packed
 {
 	logic vec;					// 1=vector register
 	logic [5:0] num;
 } Regspec;
+
+typedef struct packed
+{
+	logic [7:0] pl;			// privilege level
+	logic [5:0] resv3;
+	logic mprv;					// memory access priv indicator	
+	logic [4:0] resv2;
+	logic [1:0] om;			// operating mode
+	logic trace_en;			// instruction trace enable
+	logic resv1;
+	logic [2:0] ipl;		// interrupt privilege level
+	logic die;					// debug interrupt enable
+	logic mie;					// machine interrupt enable
+	logic hie;					// hypervisor interrupt enable
+	logic sie;					// supervisor interrupt enable
+	logic uie;					// user interrupt enable
+} status_reg_t;				// 32 bits
 
 // Instruction types
 
@@ -389,8 +407,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [31:0] target;
-	logic [1:0] Rt;
+	logic [26:0] target;
+	Regspec Rt;
 	Opcode opcode;
 } callinst;
 
@@ -460,11 +478,12 @@ typedef struct packed
 	logic loadn;
 	logic load;
 	logic loadu;
-	logic ldr;
+	logic ldsr;
 	logic storer;
 	logic storen;
 	logic store;
-	logic stc;
+	logic stcr;
+	logic need_steps;
 	memsz_t memsz;
 	logic br;						// conditional branch
 	logic cjb;					// call, jmp, or bra
@@ -491,6 +510,7 @@ typedef struct packed
 	DecodeBus	dec;
 	logic [3:0] count;
 	logic [3:0] step;
+	logic [2:0] retry;		// retry count
 	CauseCode cause;
 	Address badAddr;
 	VecValue a;
@@ -532,28 +552,6 @@ parameter MR_STH	= 4'd7;
 parameter MR_STHP	= 4'd8;
 parameter MR_STPTR	= 4'd9;
 
-typedef struct packed
-{
-	logic [7:0] tid;		// tran id
-	Tid thread;					// 
-	logic [1:0] omode;	// operating mode
-	CodeAddress ip;			// Debubgging aid
-	logic [5:0] step;		// vector operation step
-	logic [5:0] count;	// vector operation count
-	logic wr;
-	memop_t func;				// operation to perform
-	logic [3:0] func2;	// more resolution to function
-	logic v;
-	ASID asid;
-	Address adr;
-	CodeAddress vcadr;		// victim cache address
-	logic [pL1ICacheLineSize-1:0] dat;	// 512+40 for icache line
-	memsz_t sz;					// indicates size of data
-	logic [63:0] sel;
-	logic [3:0] acr;		// acr bits from TLB lookup
-	Regspec tgt;				// target register
-} MemoryRequest;
-
 // All the fields in this structure are *output* back to the system.
 typedef struct packed
 {
@@ -561,30 +559,31 @@ typedef struct packed
 	Tid thread;
 	logic [1:0] omode;	// operating mode
 	CodeAddress ip;			// Debugging aid
-	logic [5:0] step;
+	logic [5:0] step;		// vector step number
+	logic [5:0] count;	// vector operation count
 	logic wr;
 	memop_t func;				// operation to perform
 	logic [3:0] func2;	// more resolution to function
 	logic v;
 	logic empty;
 	CauseCode cause;
-	logic [63:0] sel;
+	logic [127:0] sel;
 	ASID asid;
-	Address badAddr;
+	Address adr;
 	CodeAddress vcadr;		// victim cache address
-	logic [1023:0] res;
-	Value dat;
+	logic [1023:0] res;		// stores unaligned data as well
 	logic dchit;
 	logic cmt;
 	memsz_t sz;					// indicates size of data
 	logic [1:0] hit;
+	logic [1:0] mod;		// line modified indicators
 	logic [3:0] acr;		// acr bits from TLB lookup
 	logic tlb_access;
 	logic ptgram_en;
 	logic rgn_en;
 	logic pmtram_ena;
 	Regspec tgt;				// target register
-} MemoryResponse;		//
+} MemoryArg_t;		//
 
 const CodeAddress RSTIP	= 32'hFFFD0000;
 

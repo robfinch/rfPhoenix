@@ -47,24 +47,24 @@ input rst;
 input clk;
 input wr0;
 output reg wr_ack0;
-input MemoryRequest i0;
+input MemoryArg_t i0;
 input wr1;
 output reg wr_ack1;
-input MemoryRequest i1;
+input MemoryArg_t i1;
 input rd;
-output MemoryRequest o;
+output MemoryArg_t o;
 output reg valid;
 output reg empty;
-output MemoryRequest ldo0;
+output MemoryArg_t ldo0;
 output reg found0;
-output MemoryRequest ldo1;
+output MemoryArg_t ldo1;
 output reg found1;
 output reg full;
 input [NTHREADS-1:0] rollback;
 output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
 reg [4:0] qndx = 'd0;
-MemoryRequest [QDEP-1:0] que;
+MemoryArg_t [QDEP-1:0] que;
 reg [QDEP-1:0] valid_bits = 'd0;
 reg [63:0] isel0, isel1;
 reg [63:0] qsel [0:QDEP-1];
@@ -150,11 +150,11 @@ end
 task tSearch;
 input [3:0] func1;
 input [3:0] func2;
-input MemoryRequest i;
+input MemoryArg_t i;
 input [63:0] isel;
 input [31:0] sx;
 input [255:0] imask;
-output MemoryRequest ldo;
+output MemoryArg_t ldo;
 output found;
 integer n2;
 reg [255:0] dat1;
@@ -168,21 +168,21 @@ begin
 					found = 1'b1;
 					// Align the data with the load address
 					if (i.adr > que[n2].adr)
-						dat1 = que[n2].dat >> {i.adr - que[n2].adr,3'b0};
+						dat1 = que[n2].res >> {i.adr - que[n2].adr,3'b0};
 					else
-						dat1 = que[n2].dat << {que[n2].adr - i.adr,3'b0};
+						dat1 = que[n2].res << {que[n2].adr - i.adr,3'b0};
 					// For a LOAD sign extend value to machine width.
 					if (i.func==MR_LOAD) begin
-						ldo.dat = /*|sx ? (dat1 & imask) | ~imask :*/ (dat1 & imask);
+						ldo.res = /*|sx ? (dat1 & imask) | ~imask :*/ (dat1 & imask);
 						case(i.sz)
-						byt:	ldo.dat = {{32{ldo.dat[7]}},ldo.dat[7:0]};
-						wyde:	ldo.dat = {{16{ldo.dat[15]}},ldo.dat[15:0]};
-						tetra:ldo.dat = ldo.dat[31:0];
-						default:	ldo.dat = ldo.dat[31:0];
+						byt:	ldo.res = {{32{ldo.res[7]}},ldo.res[7:0]};
+						wyde:	ldo.res = {{16{ldo.res[15]}},ldo.res[15:0]};
+						tetra:ldo.res = ldo.res[31:0];
+						default:	ldo.res = ldo.res[31:0];
 						endcase
 					end
 					else
-						ldo.dat = dat1 & imask;
+						ldo.res = dat1 & imask;
 				end
 			end
 		end

@@ -41,6 +41,7 @@ package rfPhoenixMmupkg;
 
 typedef struct packed
 {
+	logic m;						// modified indicator
 	logic [511:0] data;
 } DCacheLine;
 
@@ -179,8 +180,8 @@ typedef enum logic [6:0] {
 	MEMORY3 = 7'd3,
 	MEMORY4 = 7'd4,
 	MEMORY5 = 7'd5,
-	MEMORY_ACKLO = 7'd6,
-	MEMORY_NACKLO = 7'd7,
+	MEMORY_ACK = 7'd6,
+	MEMORY_NACK = 7'd7,
 	MEMORY8 = 7'd8,
 	MEMORY9 = 7'd9,
 	MEMORY10 = 7'd10,
@@ -208,13 +209,12 @@ typedef enum logic [6:0] {
 	IFETCH1b = 7'd38,
 	IFETCH3a = 7'd39,
 	DFETCH2 = 7'd42,
-	DFETCH3 = 7'd43,
-	DFETCH4 = 7'd44,
-	DFETCH5 = 7'd45,
-	DFETCH6 = 7'd46,
-	DFETCH7 = 7'd47,
-	DFETCH8 = 7'd48,
-	DFETCH9 = 7'd49,
+	DFETCH5 = 7'd43,
+	DFETCH6 = 7'd44,
+	DFETCH7 = 7'd45,
+	DSTORE1 = 7'd46,
+	DSTORE2 = 7'd47,
+	DSTORE3 = 7'd48,
 	KYLD = 7'd51,
 	KYLD2 = 7'd52,
 	KYLD3 = 7'd53,
@@ -224,7 +224,7 @@ typedef enum logic [6:0] {
 	KYLD7 = 7'd57,
 	MEMORY1 = 7'd60,
 	MFSEL1 = 7'd61,
-	MEMORY_ACTIVATE_LO = 7'd62,
+	MEMORY_ACTIVATE = 7'd62,
 	MEMORY_ACTIVATE_HI = 7'd63,
 	IPT_FETCH1 = 7'd64,
 	IPT_FETCH2 = 7'd65,
@@ -267,7 +267,9 @@ typedef enum logic [6:0] {
 	PT_RW_PDE7 = 7'd114,
 	PTG1 = 7'd115,
 	PTG2 = 7'd116,
-	PTG3 = 7'd117
+	PTG3 = 7'd117,
+	MEMORY_UPD1 = 7'd118,
+	MEMORY_UPD2 = 7'd119
 } mem_state_t;
 
 parameter IPT_CLOCK1 = 7'd1;

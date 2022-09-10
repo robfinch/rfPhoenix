@@ -62,6 +62,10 @@ begin
 	R2:	
 		case(ifb.insn.r2.func)
 		ADD,SUB,AND,OR,XOR:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
+		CMPI,CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+		CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+			begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
+		SLL,SRL,SRA,SLLI,SRLI,SRAI:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 		default:	begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 		endcase
 	ADDI,SUBFI,ANDI,ORI,XORI:
@@ -75,7 +79,8 @@ begin
 	NOP:
 		begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	CALLA,CALLR:
-		begin deco.Rt = {ifb.insn.call.Rt==2'b0} ? 'd0 : {4'b1010,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
+		begin deco.Rt = ifb.insn.call.Rt; deco.Rt.vec = ifb.insn.call.Rt.vec; deco.Tt = ifb.insn.call.Rt.vec; end
+	RET:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	STB,STW,STT:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
 	CSR:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.ri.Rt.vec; end
 	Bcc,FBcc:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
@@ -134,6 +139,10 @@ begin
 	R2:	
 		case(ifb.insn.r2.func)
 		ADD,SUB,AND,OR,XOR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
+		CMPI,CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
+		CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+			begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
+		SLL,SRL,SRA,SLLI,SRLI,SRAI:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		default:	begin deco.Rt.num = 'd0; deco.Rt.vec = 1'b0; end
 		endcase
 	ADDI,SUBFI,ANDI,ORI,XORI:
@@ -147,7 +156,8 @@ begin
 	NOP:
 		begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	CALLA,CALLR:
-		begin deco.rfwr = ifb.insn.call.Rt!=2'b00; end
+		begin deco.rfwr = ifb.insn.call.Rt!='d0; end
+	RET: begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	LDB,LDBU,LDW,LDWU,LDT:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
@@ -179,7 +189,10 @@ begin
 		deco.imm = {{16{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
 	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI:
 		deco.imm = {{16{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
+	CALLA,CALLR:
+		deco.imm = {{5{ifb.insn.call.target[26]}},ifb.insn.call.target};
 	Bcc,FBcc:	deco.imm = {{16{ifb.insn.br.disp[15]}},ifb.insn.br.disp};
+	RET:	deco.imm = {{16{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
 	LDB,LDBU,LDW,LDWU,LDT,
 	STB,STW,STT:
 		deco.imm = {{16{ifb.insn.ls.disp[15]}},ifb.insn.ls.disp};
@@ -202,15 +215,15 @@ begin
 	endcase
 
 	deco.br = ifb.insn.any.opcode==Bcc || ifb.insn.any.opcode==FBcc;
-	deco.cjb = ifb.insn.any.opcode==CALLA || ifb.insn.any.opcode==CALLR || ifb.insn.any.opcode==JMPR;
+	deco.cjb = ifb.insn.any.opcode==CALLA || ifb.insn.any.opcode==CALLR;
 	deco.storer = ifb.insn.any.opcode==STB || ifb.insn.any.opcode==STW || ifb.insn.any.opcode==STT;
 	deco.store = deco.storer|deco.storen;
-	deco.stc = ifb.insn.any.opcode==STC || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==STCX);
+	deco.stcr = ifb.insn.any.opcode==STCR || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==STCRX);
 	deco.loadr = ifb.insn.any.opcode==LDB || ifb.insn.any.opcode==LDBU || ifb.insn.any.opcode==LDW || ifb.insn.any.opcode==LDWU || ifb.insn.any.opcode==LDT;
 	deco.loadu = ifb.insn.any.opcode==LDBU||ifb.insn.any.opcode==LDWU || (ifb.insn.any.opcode==R2 && (ifb.insn.r2.func==LDBUX || ifb.insn.r2.func==LDWUX));
 	deco.load = deco.loadr|deco.loadn;
-	deco.ldr = ifb.insn.any.opcode==LDR || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==LDRX);
-	deco.mem = deco.store|deco.load|deco.stc|deco.ldr;
+	deco.ldsr = ifb.insn.any.opcode==LDSR || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==LDSRX);
+	deco.mem = deco.store|deco.load|deco.stcr|deco.ldsr;
 
 	// Memory operation sizes
 	case(ifb.insn.any.opcode)
@@ -226,7 +239,8 @@ begin
 		endcase
 	default:	deco.memsz = tetra;
 	endcase
-	if (deco.Rt[6]) deco.memsz = vect;
+	if (deco.Ra.vec | ((deco.loadn|deco.storen) & deco.Rb.vec) | deco.Rt.vec) deco.memsz = vect;
+
 	deco.pfx = ifb.insn.any.opcode==PFX;
 
 	deco.csr = ifb.insn.any.opcode==CSR;
@@ -252,6 +266,7 @@ begin
 
 	deco.is_vector = deco.Rt[6]|deco.Ra[6]|deco.Rb[6]|deco.Rc[6];
 
+	deco.need_steps = deco.memsz==vect && !((deco.loadr|deco.storer) && !deco.Ra.vec);
 end
 
 endmodule

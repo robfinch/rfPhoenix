@@ -45,20 +45,18 @@ input Regspec wb_Rt;
 input will_issue;
 output reg can_issue;
 input rollback;
-input [127:0] rollback_bitmap;
+input regs_bitmap_t rollback_bitmap;
 localparam ROLLBACK_STAGES = 5;
 
 integer n1;
 
-typedef logic [127:0] bitmap;
-
-bitmap valid, nxt_valid;
-bitmap srcs;
-bitmap tgts;	// targets
-bitmap wbs;
-bitmap clr_bm;
-bitmap set_bm;
-bitmap rollback_bm;
+regs_bitmap_t valid, nxt_valid;
+regs_bitmap_t srcs;
+regs_bitmap_t tgts;	// targets
+regs_bitmap_t wbs;
+regs_bitmap_t clr_bm;
+regs_bitmap_t set_bm;
+regs_bitmap_t rollback_bm;
 logic [ROLLBACK_STAGES-1:0] has_wb;
 Regspec [ROLLBACK_STAGES-1:0] wb_Rts;
 
@@ -75,7 +73,7 @@ end
 always_comb
 begin
 	tgts = 'd0;
-	if (db.hasRt) tgts[db.Rt] = 1'b1;
+	if (db.hasRt & (db.rfwr|db.vrfwr)) tgts[db.Rt] = 1'b1;
 end
 
 always_comb
@@ -116,6 +114,6 @@ begin
 end
 
 always_comb
-	can_issue = (valid & srcs) == srcs;
+	can_issue = (valid[127:1] & srcs[127:1]) == srcs[127:1];
 
 endmodule
