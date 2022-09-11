@@ -127,7 +127,7 @@ reg [6:0] state;
 // 
 Address next_adr_o;
 reg [6:0] stk_state [0:15];
-reg [3:0] dep;
+reg [3:0] stk_dep;
 
 reg xlaten_stk;
 reg vpa_stk;
@@ -151,6 +151,7 @@ reg [4:0] dcnt;
 Address iadr;
 reg keyViolation = 1'b0;
 reg xlaten;
+wire memq_v;
 reg [31:0] memreq_sel;
 CodeAddress last_cadr;
 PDCE ptc;
@@ -166,6 +167,7 @@ reg [127:0] rb_bitmaps1 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps2 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps3 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps4 [0:NTHREADS-1];
+reg [1023:0] dc_line;
 reg [1023:0] dc_linein;
 reg [1:0] dc_line_mod;
 wire [1023:0] stmask;
@@ -423,7 +425,7 @@ uictag1
 	.ipo(ipo),
 	.way(ic_wway),
 	.rclk(clk),
-	.ip(padr),
+	.ip(ip2),	// virtual index (same bits as physical address)
 	.tag(ictag)
 );
 
@@ -510,10 +512,9 @@ always_ff @(posedge clk)
 
 reg [2:0] dwait;		// wait state counter for dcache
 Address dadr;
-DCacheLine [1:0] dci;
-DCacheLine [pL1DCacheWays-1:0] dc_eline, dc_oline;
-DCacheLine [pL1DCacheWays-1:0] dc_elin, dc_olin;
-reg [1023:0] dc_line;
+DCacheLine dci [0:1];
+DCacheLine dc_eline, dc_oline;
+DCacheLine dc_elin, dc_olin;
 reg [1023:0] datil;
 reg dcachable;
 reg [1:0] dc_erway,prev_dc_erway;
@@ -1101,7 +1102,7 @@ reg wr_pte;
 // State Machine
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-reg dfetch2;
+reg dfetch2,dstore1;
 always_ff @(posedge clk)
 if (rst) begin
 	dce <= TRUE;
@@ -1129,7 +1130,8 @@ if (rst) begin
 	iaccess <= FALSE;
 	daccess <= FALSE;
 	ici <= 'd0;
-	dci <= 'd0;
+	dci[0] <= 'd0;
+	dci[1] <= 'd0;
 	memreq_rd <= FALSE;
 	memresp <= 620'd0;
   xlaten <= FALSE;
@@ -1162,6 +1164,8 @@ if (rst) begin
 		rb_bitmaps2[n] <= 'd0;
 	goto (MEMORY_INIT);
 	dep <= 'd0;
+	stk_dep <= 'd0;
+	dcnt <= 'd0;
 end
 else begin
 	for (n = 0; n < NTHREADS; n = n + 1)
@@ -1217,7 +1221,10 @@ else begin
 					last_tid <= memq_o.tid;
 					memr <= memq_o;
 					memreq <= memq_o;
-					dci <= memq_o.res;
+					dci[0].data <= memq_o.res[511:0];
+					dci[1].data <= memq_o.res[1023:512];
+					dci[0].m <= 1'b0;
+					dci[1].m <= 1'b0;
 					gosub (MEMORY_ACTIVATE);
 				end
 			end
@@ -1270,7 +1277,10 @@ else begin
 		
 	MEMORY_UPD1:
 		begin
-			dci <= {1'b1,dci[0].data,1'b1,dci[1].data};
+			dci[0] <= dci[1].data;
+			dci[1] <= dci[0].data;
+			dci[0].m <= 1'b1;
+			dci[1].m <= 1'b1;
 			if (memr.hit==2'b11)
 				goto (MEMORY_UPD2);
 			else
@@ -1466,7 +1476,7 @@ else begin
 	  	stb_o <= HIGH;
 	    if (ack_i) begin
 	    	dcnt <= dcnt + 4'd4;
-	      dci[0].data <= {dat_i,dci[0][511:128].data};
+	      dci[0].data <= {dat_i,dci[0].data[511:128]};
 	      dci[0].m <= 1'b0;
 	      if (dcnt[4:2]==3'd3) begin		// Are we done?
 	      	case(memr.hit)
@@ -1477,9 +1487,9 @@ else begin
 	      	endcase
 	      	// Fill in missing memory data.
 	      	case(memr.hit)
-	      	2'b00:	memr.res[ 511:  0] <= {dat_i,dci[0][511:128].data};
-	      	2'b01:	memr.res[1023:512] <= {dat_i,dci[0][511:128].data};
-	      	2'b10:	memr.res[ 511:  0] <= {dat_i,dci[0][511:128].data};
+	      	2'b00:	memr.res[ 511:  0] <= {dat_i,dci[0].data[511:128]};
+	      	2'b01:	memr.res[1023:512] <= {dat_i,dci[0].data[511:128]};
+	      	2'b10:	memr.res[ 511:  0] <= {dat_i,dci[0].data[511:128]};
 	      	2'b11:	;
 	      	endcase
 	      	tDeactivateBus();
@@ -1551,7 +1561,7 @@ else begin
 				else
 					goto (DSTORE1);
 				memr.res <= memr.res >> {5'd16,3'b0};
-				adr_o <= adr_o + 4'd16;
+				adr_o <= adr_o + 5'd16;
 			end
 		end
 
@@ -2424,6 +2434,7 @@ begin
 	dfetch2 <= 1'b0;
 	dstore1 <= 1'b0;
 	strips <= 2'd0;
+	dcnt <= 'd0;
 	// Detect cache controller commands
 	case(memr.func)
 	MR_STORE,MR_MOVST:
@@ -2442,7 +2453,7 @@ begin
 			stb_o <= HIGH;
 			we_o <= HIGH;
 			sel_o <= memr.sel[15:0];
-			if (dep=='d1)
+			if (stk_dep=='d1)
 	  		adr_o <= {memr.adr[31:4],4'd0};
 	  	else
 	  		adr_o <= adr_o + 5'd16;
@@ -2473,7 +2484,7 @@ begin
   			stb_o <= HIGH;
   			we_o <= LOW;
   			sel_o <= memr.sel[15:0];
-				if (dep=='d1)
+				if (stk_dep=='d1)
 		  		adr_o <= {memr.adr[31:4],4'd0};
 		  	else
 		  		adr_o <= adr_o + 5'd16;
@@ -2523,7 +2534,6 @@ begin
 	    	default:	;
 	    	endcase
 		    if (|memr.sel[31:16]) begin
-	      	dep <= dep + 2'd1;
 	  	    gosub (MEMORY_ACTIVATE);
 	  	  end
 	  	  else begin
@@ -2536,7 +2546,6 @@ begin
     MR_STORE,MR_MOVST:
     	begin
 		    if (|sel[31:16]) begin
-		    	dep <= dep + 2'd1;
       		memr.res <= memr.res >> 128;
 		    	gosub (MEMORY_ACTIVATE);
 			  end
@@ -2915,8 +2924,8 @@ task call;
 input [6:0] nst;
 input [6:0] rst;
 begin
-	stk_state[dep] <= rst;
-	dep <= dep+2'd1;
+	stk_state[stk_dep] <= rst;
+	stk_dep <= stk_dep+2'd1;
 	state <= nst;
 end
 endtask
@@ -2924,8 +2933,8 @@ endtask
 task gosub;
 input [6:0] nst;
 begin
-	stk_state[dep] <= state;
-	dep <= dep+2'd1;
+	stk_state[stk_dep] <= state;
+	stk_dep <= stk_dep+2'd1;
 	state <= nst;
 end
 endtask
@@ -2933,8 +2942,8 @@ endtask
 task ret;
 integer n;
 begin
-	state <= stk_state[dep-2'd1];
-	dep <= dep - 2'd1;
+	state <= stk_state[stk_dep-2'd1];
+	stk_dep <= stk_dep - 2'd1;
 end
 endtask
 

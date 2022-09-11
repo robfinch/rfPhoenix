@@ -43,7 +43,7 @@ module rfPhoenix(hartid_i, rst_i, clk_i, clk2x_i, clk2d_i, wc_clk_i, clock,
 		vpa_o, vda_o, bte_o, cti_o, bok_i, cyc_o, stb_o, lock_o, ack_i,
     err_i, we_o, sel_o, adr_o, dat_i, dat_o, cr_o, sr_o, rb_i, state_o, trigger_o,
     wcause);
-input [63:0] hartid_i;
+input [31:0] hartid_i;
 input rst_i;
 input clk_i;
 input clk2x_i;
@@ -92,7 +92,7 @@ wire dcndx_v,exndx_v,oundx_v,wbndx_v,itndx1_v;
 reg itndx2_v,itndx_v;
 reg [NTHREADS-1:0] rfndx1_v, rfndx2_v;
 Tid dcndx,rfndx,itndx,itndx1,itndx2,exndx,oundx,wbndx,rfndx1,rfndx2;
-reg xrid_v;
+reg xrid_v,mcrid_v;
 reg [NTHREADS-1:0] rfndx_v;
 Tid mcv_ridi, mcv_rido;
 Tid ithread, rthread, dthread, xthread, commit_thread;
@@ -102,7 +102,7 @@ reg [15:0] commit_mask;
 Regspec commit_tgt;
 VecValue commit_bus;
 Tid ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
-reg ip_thread_v,ip_thread1_v, ip_thread2_v;
+reg ip_thread_v,ip_thread1_v, ip_thread2_v, ip_thread3_v;
 ThreadInfo_t [NTHREADS-1:0] thread;
 ThreadInfo_t [NTHREADS-1:0] thread_hist [0:3];
 reg [31:0] ip, ip2, ip3, ip4;
@@ -718,12 +718,13 @@ else begin
 	tOut();
 	tMemory();
 	tWriteback();
+	tRollback();
 end
 
 task tReset;
 integer n;
 begin
-	cr0 <= 32'h0F;	// enable threads 0 to 3
+	cr0 <= 32'h01;	// enable threads 0 to 3
 	tid <= 8'd1;
 	rz <= 'd0;
 	gie <= 'd0;
@@ -752,11 +753,13 @@ begin
 		cause[n][1] <= FLT_NONE;
 		cause[n][2] <= FLT_NONE;
 		cause[n][3] <= FLT_NONE;
-		status[n] <= {8{32'hFF000CE0}};
 		ipStack[n] <= {8{RSTIP}};
 		sp_sel[n] <= 3'd3;
 		ou_rollback_bitmaps[n] <= 'd0;
+		rollback_ip[n] <= RSTIP;
 	end
+	for (n = 0; n < 8; n = n + 1)
+		status[n] <= {8{32'hFF000CE0}};
 	ithread <= 'd0;
 	ip_thread <= 'd0;
 	mca_busy <= 'd0;
@@ -777,7 +780,7 @@ begin
 	for (n10 = 0; n10 < NLANES; n10 = n10 + 1)
 		commit_bus[n10] <= 'd0;
 	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1) begin
-		thread[n10].imiss <= 1'b1;
+		thread[n10].imiss <= 5'b00111;
 		thread[n10].ip <= RSTIP;
 		thread[n10].miss_ip <= RSTIP;
 		rfndx1_v[n10] <= 1'b0;
@@ -797,6 +800,8 @@ begin
 	dbg_sr <= 'd0;
 	retired <= 'd0;
 	imiss_count <= 'd0;
+	rollback_ipv <= 'd0;
+	mcrid_v <= 1'b0;
 end
 endtask
 
@@ -992,13 +997,16 @@ begin
 		// 2 cycle pipeline delay reading the I$.
 		// 1 for tag lookup and way determination
 		// 1 for cache line lookup
+		ip <= thread[itndx].ip;
+		ip1 <= ip;
+		for (n = 0; n < NTHREADS; n = n + 1)
+			thread[n].imiss <= {thread[n].imiss[3:0],1'b0};
+		if (thread[itndx].imiss[2:1]!=2'b00)
+			ic_ifb.v <= 1'b0;
+		thread_hist[0][itndx] <= thread[itndx];
+		for (n = 1; n < 4; n = n + 1)
+			thread_hist[n][itndx] <= thread_hist[n-1][itndx];
 		if (itndx_v) begin
-			ip <= thread[itndx].ip;
-			ip1 <= ip;
-			//thread[itndx].ip <= thread[itndx].ip + 4'd5;
-			thread_hist[0][itndx] <= thread[itndx];
-			for (n = 1; n < 4; n = n + 1)
-				thread_hist[n][itndx] <= thread_hist[n-1][itndx];
 			thread[itndx].ip <= thread[itndx].ip + 4'd5;
 		end
 		ip_thread1 <= itndx;			// tag lookup ip_thread1 lined up with ip
@@ -1008,35 +1016,32 @@ begin
 		ip_thread5 <= ip_thread4;
 		ip_thread1_v <= itndx_v;
 		ip_thread2_v <= ip_thread1_v;
+		ip_thread3_v <= ip_thread2_v;
 
 		$display("Insn Fetch %d:", ip_thread4);
 		$display("  ip_insn=%h  insn=%h postfix=%h", ic_ifb.ip, ic_ifb.insn, ic_ifb.pfx);
 		$display("  ip_thread4=%h", ip_thread4);
 		for (n = 0; n < NTHREADS; n = n + 1)
 			$display("  thread[%d].ip=%h", n[3:0], thread[n].ip);
-		if (!ihit) begin
-			$display("Miss %d ip=%h", ip_thread2, ip1);
-			if (!thread[ip_thread2].imiss) begin
-				thread[ip_thread2].imiss <= 1'b1;
-				thread[ip_thread2].miss_ip <= ip1;
-				thread[ip_thread2].ip <= ip1;
-			end
-			else
-				thread[ip_thread2].ip <= thread[ip_thread2].miss_ip;
-		end
-		else begin
-			if (thread[ip_thread2].imiss) begin
-				thread[ip_thread2].ip <= thread[ip_thread2].miss_ip;
-				thread[ip_thread2].imiss <= 1'b0;
+		if (ip_thread2_v) begin
+			if (!ihit) begin
 				ic_ifb.v <= 1'b0;
-			end	
-			//if (thread[ip_thread3].imiss)
-			$display(" thread2 ip=%h, ip1=%h", thread[ip_thread2].ip, ip1);
+				$display("Miss %d ip=%h", ip_thread2, ip1);
+				if (thread[ip_thread2].imiss[0]==1'b0) begin
+					thread[ip_thread2].imiss <= 5'b00111;
+					thread[ip_thread2].ip <= ip1;
+					thread[ip_thread2].miss_ip <= ip1;
+				end
+				else begin
+					thread[ip_thread2].ip <= thread[ip_thread2].miss_ip;
+					thread[ip_thread2].imiss[0] <= 1'b1;
+				end
+			end
 		end
 		// On a miss, request a cache line load from the memory system. This
 		// should eventually cause a hit for the thread.
 		// The old cache line is passed back for the victim buffer.
-		if (!ihit2) begin
+		if (!ihit2 && ip_thread3_v) begin
 			if (!memreq_full) begin
 				if (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10) begin
 					imiss_count <= 'd0;
@@ -1116,7 +1121,6 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // EX stage 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
 task tExecute;
 begin
 	xrid_v <= 1'b0;
@@ -1126,6 +1130,7 @@ begin
 		eb[exndx].out <= 1'b1;
 		eb[exndx].retry <= 'd0;
 		if (eb[exndx].dec.multicycle) begin
+			mcrid_v <= 1'b1;
 			mc_rid <= exndx;
 			mcv_ridi <= exndx;
 			mir <= eb[exndx].ifb.insn;
@@ -1160,6 +1165,8 @@ begin
 		eb[mcv_rido].out <= 1'b0;
 		eb[mcv_rido].executed <= 1'b1;
 	end
+	if (xrid_v==INV && exndx_v==INV)
+		eb[exndx] <= 'd0;
 end
 endtask
 
@@ -1337,12 +1344,22 @@ task tOuCall;
 begin
 	if (xrid_v) begin
 		if (eb[xrid].out) begin
-			eb[xrid].out <= 1'b0;
-			eb[xrid].executed <= 1'b1;
 			case(eb[xrid].ifb.insn.any.opcode)
-			NOP:				thread[eb[xrid].thread].ip <= thread[eb[xrid].thread].ip - 4'd4;
+			PFX:
+				begin
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
+				end
+			NOP:
+				begin
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
+					thread[eb[xrid].thread].ip <= thread[eb[xrid].thread].ip - 4'd4;
+				end
 			CALLA:
 				begin
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
 					thread[eb[xrid].thread].ip <= eb[xrid].dec.imm;
 					rollback_ip[xrid] <= eb[xrid].dec.imm;
 					rollback_ipv[xrid] <= 1'b1;
@@ -1353,6 +1370,8 @@ begin
 				end
 			CALLR:
 				begin
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
 					thread[eb[xrid].thread].ip <= eb[xrid].dec.imm + eb[xrid].ifb.ip;
 					rollback_ip[xrid] <= eb[xrid].dec.imm + eb[xrid].ifb.ip;
 					rollback_ipv[xrid] <= 1'b1;
@@ -1363,6 +1382,8 @@ begin
 				end
 			RET:
 				begin
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
 					thread[eb[xrid].thread].ip <= eb[xrid].a[0];
 					rollback_ip[xrid] <= eb[xrid].a[0];
 					rollback_ipv[xrid] <= 1'b1;
@@ -1380,9 +1401,9 @@ task tOuBranch;
 begin
 	if (xrid_v) begin
 		if (eb[xrid].out) begin
-			eb[xrid].out <= 1'b0;
-			eb[xrid].executed <= 1'b1;
 			if (eb[xrid].dec.br) begin
+				eb[xrid].out <= 1'b0;
+				eb[xrid].executed <= 1'b1;
 				if (takb) begin
 					thread[eb[xrid].thread].ip <= eb[xrid].ifb.ip + eb[xrid].dec.imm;
 					rollback_ip[xrid] <= eb[xrid].ifb.ip + eb[xrid].dec.imm;
@@ -1405,7 +1426,7 @@ begin
 	tOuCall();
 	tOuBranch();
 	if (xrid_v) begin
-		eb[xrid].out <= (eb[xrid].dec.load|eb[xrid].dec.store) ? ~eb[xrid].agen : 1'b0;
+		eb[xrid].out <= (eb[xrid].dec.load|eb[xrid].dec.store) ? ~eb[xrid].agen : 1'b1;
 		eb[xrid].executed <= (eb[xrid].dec.load|eb[xrid].dec.store) ? eb[xrid].agen : 1'b1;
 		if ((eb[xrid].dec.Ra.vec | ((eb[xrid].dec.storen|eb[xrid].dec.loadn) & eb[xrid].dec.Rb.vec)) && eb[xrid].dec.memsz==vect) begin
 			if (eb[xrid].step < NLANES-1) begin
@@ -1435,8 +1456,9 @@ begin
 		$display("Out %d:", xrid);
 		$display("  res=%h",vres);
 	end
-	if (mc_rid < NTHREADS) begin
+	if (mcrid_v) begin
 		if (eb[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
+			mcrid_v <= 1'b0;
 			mca_busy[0] <= 1'b0;
 			eb[mc_rid].out <= 1'b0;
 			eb[mc_rid].executed <= 1'b1;
@@ -1465,8 +1487,9 @@ begin
 		// it can be prevented from being selected for a few cycles while the
 		// imiss request is processed.
 		if (memresp.func==MR_ICACHE_LOAD)
-			for (n = 0; n < NTHREADS; n = n + 1)
-				thread[n].imiss <= 1'b0;
+			;
+//			for (n = 0; n < NTHREADS; n = n + 1)
+//				thread[n].imiss <= 1'b0;
 		else begin
 			eb[memresp.thread].out <= 1'b0;
 			if (eb[memresp.thread].out) begin
@@ -1650,6 +1673,18 @@ begin
 			eb[wbndx] <= 'd0;
 	end
 	ou_rollback_bitmaps[commit_thread][commit_tgt] <= 1'b0;
+end
+endtask
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+task tRollback;
+integer n;
+begin
+	for (n = 0; n < NTHREADS; n = n + 1)
+		if (rollback[n])
+			eb[n] <= 'd0;
 end
 endtask
 

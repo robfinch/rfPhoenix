@@ -239,7 +239,6 @@ begin
 		endcase
 	default:	deco.memsz = tetra;
 	endcase
-	if (deco.Ra.vec | ((deco.loadn|deco.storen) & deco.Rb.vec) | deco.Rt.vec) deco.memsz = vect;
 
 	deco.pfx = ifb.insn.any.opcode==PFX;
 
@@ -264,9 +263,14 @@ begin
 	deco.hasRm =  ifb.insn.r2.m && !deco.cjb && !deco.br && !deco.pfx;
 	deco.hasRt =	!deco.cjb && !deco.pfx;
 
-	deco.is_vector = deco.Rt[6]|deco.Ra[6]|deco.Rb[6]|deco.Rc[6];
+	deco.is_vector = (deco.hasRt & deco.Rt.vec) |
+									(deco.hasRa & deco.Ra.vec) |
+									(deco.hasRb & deco.Rb.vec) |
+									(deco.hasRc & deco.Rc.vec) ;
 
+	if ((deco.hasRa & deco.Ra.vec) | ((deco.loadn|deco.storen) & (deco.hasRb & deco.Rb.vec)) | (deco.hasRt & deco.Rt.vec)) deco.memsz = vect;
 	deco.need_steps = deco.memsz==vect && !((deco.loadr|deco.storer) && !deco.Ra.vec);
+
 end
 
 endmodule

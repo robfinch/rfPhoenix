@@ -522,7 +522,7 @@ typedef struct packed
 } ExecuteBuffer;
 
 typedef struct packed {
-	logic imiss;
+	logic [4:0] imiss;
 	CodeAddress ip;				// current instruction pointer
 	CodeAddress miss_ip;	// I$ miss address
 } ThreadInfo_t;

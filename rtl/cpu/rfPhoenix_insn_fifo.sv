@@ -75,6 +75,8 @@ always_ff @(posedge clk)
 		if (rd & wr) begin
 			decmem[wr_ptr] <= decin;
 			ifbmem[wr_ptr] <= ifbin;
+			wr_ptr <= wr_ptr + 2'd1;
+			rd_ptr <= rd_ptr + 2'd1;
 		end
 		else if (wr) begin
 			decmem[wr_ptr] <= decin;
