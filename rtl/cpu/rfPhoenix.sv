@@ -34,7 +34,7 @@
 //                                                                          
 // ============================================================================
 
-`define IS_SIM	1'b1
+//`define IS_SIM	1'b1
 
 import rfPhoenixPkg::*;
 
@@ -232,10 +232,10 @@ input [5:0] i;
 begin
 	if (i==6'd31)
 		case(sp_sel[thread])
-		3'd1:	fnSpSel = 6'd44;
-		3'd2:	fnSpSel = 6'd45;
-		3'd3:	fnSpSel = 6'd46;
-		3'd4:	fnSpSel = 6'd47;
+		3'd1:	fnSpSel = 6'd52;
+		3'd2:	fnSpSel = 6'd53;
+		3'd3:	fnSpSel = 6'd54;
+		3'd4:	fnSpSel = 6'd55;
 		default:	fnSpSel = 6'd31;
 		endcase
 	else
@@ -387,8 +387,10 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.rst(rst_i),
 		.clk(clk_g),
 		.db(dco[g]),
-		.wb_v((eb[g].dec.rfwr|eb[g].dec.vrfwr) && wbndx==g && wbndx_v),
-		.wb_Rt(eb[g].dec.Rt),
+//		.wb_v((eb[g].dec.rfwr|eb[g].dec.vrfwr) && wbndx==g && wbndx_v),
+//		.wb_Rt(eb[g].dec.Rt),
+		.wb_v(((commit_wr & ~commit_tgt.vec) | (commit_wrv & commit_tgt.vec)) && commit_thread==g),
+		.wb_Rt(commit_tgt),
 		.will_issue(sb_will_issue[g]),
 		.can_issue(sb_can_issue[g]),
 		.rollback(rollback[g]),
@@ -501,6 +503,7 @@ begin
 		if (cr0[n >> $clog2(NREGS)]) begin
 			if ((n % NREGS)==0)
 				$display("  Thread:%d", n / NREGS);
+/*
 			$display("%s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  ",
 				fnRegName(n), ugprs1.ugpr0.mem[n],
 				fnRegName(n+1), ugprs1.ugpr0.mem[n+1],
@@ -511,6 +514,7 @@ begin
 				fnRegName(n+6), ugprs1.ugpr0.mem[n+6],
 				fnRegName(n+7), ugprs1.ugpr0.mem[n+7]
 				);
+*/				
 		end
 	end
 	$display("");
@@ -521,9 +525,18 @@ endtask
 task tDisplayEb;
 integer n;
 begin
-	$display("  ExecuteBuffer:");
+`ifdef IS_SIM
+/*
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		if (cr0[n])
+		if (cr0[n]) begin
+			$display("  DecodeBuffer:");
+			$display("  %d: %c ip=%h ir=%h oc=%0s", n[3:0],
+				dc_ifb[n].v ? "v":"-",
+				dc_ifb[n].ip,
+				dc_ifb[n].insn,
+				dc_ifb[n].insn.any.opcode.name()
+			);
+			$display("  ExecuteBuffer:");
 			$display("  %d: %c%c%c%c%c ip=%h ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
 				eb[n].v ? "v":"-",
 				eb[n].decoded ? "d" : "-",
@@ -540,7 +553,10 @@ begin
 				eb[n].t,
 				eb[n].dec.imm
 			);
+		end
 	end
+*/
+`endif
 end
 endtask
 
@@ -569,11 +585,6 @@ generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
 		clr_ififo[g] <= rollback[g];
-	always_comb
-		sb_will_issue[g] = g==dcndx && dcndx_v &&
-								!sb_issue[g] &&
-								!ififo_empty[g]
-								;
 	always_ff @(posedge clk_g)
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
@@ -586,7 +597,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.wr(wr_ififo[g]),
 		.decin(rollback[g] ? 'd0 : deco),
 		.ifbin(rollback[g] ? 'd0 : ic_ifb),
-		.rd(sb_will_issue[g]),
+		.rd(dcndx==g && dcndx_v),//sb_will_issue[g]),
 		.decout(dco[g]),
 		.ifbout(dc_ifb[g]),
 		.cnt(),
@@ -602,14 +613,15 @@ endgenerate
 
 wire [3:0] issue_num;
 ffo12 uffo1 (.i({12'd0,sb_will_issue}), .o(issue_num));
-assign rthread = issue_num[2:0];
+assign rthread = dcndx;//issue_num[2:0];
 
 integer n10;
 task tDecode;
 begin
 	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1)
 		rfndx1_v[n10] <= 1'b0;
-	if (issue_num != 4'd15) begin
+//	if (issue_num != 4'd15) begin
+	if (dcndx_v) begin
 		if (rollback[rthread]) begin
 			eb[rthread].v <= 1'b0;
 			eb[rthread].ifb <= 'd0;
@@ -629,8 +641,8 @@ begin
 			eb[rthread].v <= dc_ifb[rthread].v;
 			eb[rthread].thread <= rthread;
 			eb[rthread].ifb <= dc_ifb[rthread];
-			$display("Decode %d:", rthread);
-			$display("  dc_ifb[%d]=%h ra0=%d",rthread,dc_ifb[rthread], fnSpSel(rthread,dco[rthread].Ra.num));
+//			$display("Decode %d:", rthread);
+//			$display("  dc_ifb[%d]=%h ra0=%d",rthread,dc_ifb[rthread], fnSpSel(rthread,dco[rthread].Ra.num));
 			eb[rthread].dec <= dco[rthread];
 			eb[rthread].decoded <= dc_ifb[rthread].v;
 			eb[rthread].regfetched <= 1'b0;
@@ -724,7 +736,7 @@ end
 task tReset;
 integer n;
 begin
-	cr0 <= 32'h01;	// enable threads 0 to 3
+	cr0 <= 32'h0F;	// enable threads 0 to 3
 	tid <= 8'd1;
 	rz <= 'd0;
 	gie <= 'd0;
@@ -758,8 +770,9 @@ begin
 		ou_rollback_bitmaps[n] <= 'd0;
 		rollback_ip[n] <= RSTIP;
 	end
-	for (n = 0; n < 8; n = n + 1)
-		status[n] <= {8{32'hFF000CE0}};
+	for (n = 0; n < NTHREADS; n = n + 1)
+		for (n10 = 0; n10 < 8; n10 = n10 + 1)
+			status[n][n10] <= {8{32'hFF000CE0}};
 	ithread <= 'd0;
 	ip_thread <= 'd0;
 	mca_busy <= 'd0;
@@ -783,6 +796,7 @@ begin
 		thread[n10].imiss <= 5'b00111;
 		thread[n10].ip <= RSTIP;
 		thread[n10].miss_ip <= RSTIP;
+		thread[n10].sleep <= 1'b0;
 		rfndx1_v[n10] <= 1'b0;
 	end
 	ra0 <= 'd0;
@@ -809,7 +823,7 @@ task tOnce;
 integer n;
 begin
 	memreq.wr <= 1'b0;
-	memresp_fifo_rd <= 1'b1;
+	memresp_fifo_rd <= 1'b0;
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 		mem_rollback[n] <= 1'b0;
 		ou_rollback[n] <= 1'b0;
@@ -881,7 +895,7 @@ reg [NTHREADS-1:0] dcsel;
 generate begin : gDcsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			dcsel[g] = sb_can_issue[g] & ~eb[g].v & cr0[g];
+			dcsel[g] = sb_can_issue[g] & ~eb[g].v & cr0[g] & !ififo_empty[g];// & !sb_issue[g];
 end
 endgenerate
 
@@ -893,6 +907,16 @@ rfPhoenix_round_robin_select rr2
 	.o(dcndx),
 	.ov(dcndx_v)
 );
+
+generate begin : gIssue
+	for (g = 0; g < NTHREADS; g = g + 1)
+		always_comb
+			sb_will_issue[g] = g==dcndx && dcndx_v &&
+									!sb_issue[g] &&
+									!ififo_empty[g]
+									;
+end
+endgenerate
 
 // exndx selects the thread to move to the execution stage. To be selected the
 // register file values must have been fetched and the instruction not out being
@@ -972,8 +996,8 @@ begin
 		ic_ifb.sp_sel <= sp_sel[ip_thread2];
 		ic_ifb.thread <= ip_thread2;
 		// External interrupt has highest priority.
-		if (irq_i > status[ip_thread2][7:5] && gie[ip_thread2] && status[ip_thread2][3])
-			ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_BRK);
+		if (irq_i > status[ip_thread2][0].ipl && gie[ip_thread2] && status[ip_thread2][0].mie)
+			ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_IRQ);
 		else if (dbg_cr[0] && dbg_cr[9:8]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[0] <= 1'b1;
@@ -990,7 +1014,7 @@ begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[3] <= 1'b1;
 		end
-		else if (status[ip_thread2][8])
+		else if (status[ip_thread2][0].ssm)
 			ic_ifb.cause <= FLT_SSM;
 		else
 			ic_ifb.cause <= FLT_NONE;
@@ -1051,6 +1075,8 @@ begin
 					memreq.thread <= ip_thread3;
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_ICACHE_LOAD;
+					memreq.omode <= status[ip_thread3][0].om;
+					memreq.asid <= asid[ip_thread3];
 					memreq.adr <= {ip_icline[31:6],6'd0};
 					memreq.vcadr <= {ic_tag,6'b0};
 					memreq.res <= ic_line;
@@ -1093,7 +1119,8 @@ begin
 	eb[rfndx].mask <= rfo3;
 	eb[rfndx].t <= eb[rfndx].dec.Rt.vec ? vrfo4 : {NLANES{rfo4}};
 	eb[rfndx].regfetched <= eb[rfndx].v & ~rollback[rfndx];
-	ou_rollback_bitmaps[rfndx][eb[rfndx].dec.Rt] <= 1'b1;
+	if ((eb[rfndx].dec.rfwr & ~eb[rfndx].dec.Rt.vec) | (eb[rfndx].dec.vrfwr & eb[rfndx].dec.Rt.vec))
+		ou_rollback_bitmaps[rfndx][eb[rfndx].dec.Rt] <= 1'b1;
 end
 endtask
 
@@ -1118,12 +1145,20 @@ begin
 end
 endtask
 
+/*
+integer n12;
+reg [NTHREADS-1:0] next_ex_decoded;
+always_comb
+	for (n12 = 0; n12 < NTHREADS; n12 = n12 + 1)
+		next_ex_decoded[n12] = exndx_v ? 1'b0 : eb[n12].decoded;
+*/
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // EX stage 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 task tExecute;
 begin
 	xrid_v <= 1'b0;
+	//eb[exndx].decoded <= next_ex_decoded[wxndx];
 	if (exndx_v) begin
 		eb[exndx].decoded <= 1'b0;
 		eb[exndx].regfetched <= 1'b0;
@@ -1156,8 +1191,10 @@ begin
 			ximm <= eb[exndx].dec.imm;
 			xasid <= asid[exndx];
 			xhmask <= hmask;
-			$display("Execute %d:", exndx);
-			$display("  insn=%h a=%h b=%h c=%h i=%h", eb[exndx].ifb.insn, eb[exndx].a, eb[exndx].b, eb[exndx].c, eb[exndx].dec.imm);
+//			$display("Decode %d:", rthread);
+//			$display("  insn=%h a=%h b=%h c=%h i=%h", dc_ifb[rthread].ifb.insn, dc_ifb[rthread].a, dc_ifb[rthread].b, dc_ifb[rthread].c, dc_ifb[rthread].dec.imm);
+//			$display("Execute %d:", exndx);
+//			$display("  insn=%h a=%h b=%h c=%h i=%h", eb[exndx].ifb.insn, eb[exndx].a, eb[exndx].b, eb[exndx].c, eb[exndx].dec.imm);
 		end
 	end
 	if (mcv_rido < NTHREADS) begin
@@ -1165,8 +1202,6 @@ begin
 		eb[mcv_rido].out <= 1'b0;
 		eb[mcv_rido].executed <= 1'b1;
 	end
-	if (xrid_v==INV && exndx_v==INV)
-		eb[exndx] <= 'd0;
 end
 endtask
 
@@ -1179,7 +1214,6 @@ endtask
 Address tmpadr;
 always_ff @(posedge clk_g)
 begin
-	eb[xrid].agen <= 1'b1;
 	casez({eb[xrid].dec.storer|eb[xrid].dec.loadr,eb[xrid].dec.Rb.vec,eb[xrid].dec.Ra.vec})
 	3'b000:	tmpadr <= eb[xrid].a[0] + eb[xrid].b[0];
 	3'b001: tmpadr <= eb[xrid].a[eb[xrid].step] + eb[xrid].b[0];
@@ -1219,7 +1253,7 @@ begin
 			memreq.func2 <= MR_NOP;
 		memreq.sz <= eb[xrid].dec.memsz;
 		memreq.omode <= mprv[xrid] ? status[xrid][1].om : status[xrid][0].om;
-		memreq.asid = asid[xrid];
+		memreq.asid <= asid[xrid];
 		memreq.adr <= tmpadr;
 		case(eb[xrid].dec.memsz)
 		byt:	memreq.sel <= 64'h1;
@@ -1287,7 +1321,7 @@ begin
 			memreq.func2 <= MR_NOP;
 		memreq.sz <= eb[xrid].dec.memsz;
 		memreq.omode <= mprv[xrid] ? status[xrid][1].om : status[xrid][0].om;
-		memreq.asid = asid[xrid];
+		memreq.asid <= asid[xrid];
 		memreq.adr <= tmpadr;
 		memreq.res <= {1024'd0,eb[xrid].t};
 		case(eb[xrid].dec.memsz)
@@ -1341,6 +1375,7 @@ end
 endtask
 
 task tOuCall;
+integer n;
 begin
 	if (xrid_v) begin
 		if (eb[xrid].out) begin
@@ -1356,35 +1391,35 @@ begin
 					eb[xrid].executed <= 1'b1;
 					thread[eb[xrid].thread].ip <= thread[eb[xrid].thread].ip - 4'd4;
 				end
-			CALLA:
+			CALL:
 				begin
-					eb[xrid].out <= 1'b0;
-					eb[xrid].executed <= 1'b1;
 					thread[eb[xrid].thread].ip <= eb[xrid].dec.imm;
 					rollback_ip[xrid] <= eb[xrid].dec.imm;
 					rollback_ipv[xrid] <= 1'b1;
-					eb[xrid].res <= eb[xrid].t;
+					eb[xrid].res <= 'd0;
 					eb[xrid].res[0] <= eb[xrid].ifb.ip + 4'd5;
 					ou_rollback[xrid] <= 1'b1;
 					ou_rollback_bitmaps[xrid][eb[xrid].dec.Rt] <= 1'b1;
-				end
-			CALLR:
-				begin
 					eb[xrid].out <= 1'b0;
 					eb[xrid].executed <= 1'b1;
+				end
+			BSR:
+				begin
 					thread[eb[xrid].thread].ip <= eb[xrid].dec.imm + eb[xrid].ifb.ip;
 					rollback_ip[xrid] <= eb[xrid].dec.imm + eb[xrid].ifb.ip;
 					rollback_ipv[xrid] <= 1'b1;
-					eb[xrid].res <= eb[xrid].t;
+					eb[xrid].res <= 'd0;
 					eb[xrid].res[0] <= eb[xrid].ifb.ip + 4'd5;
 					ou_rollback[xrid] <= 1'b1;
 					ou_rollback_bitmaps[xrid][eb[xrid].dec.Rt] <= 1'b1;
+					eb[xrid].out <= 1'b0;
+					eb[xrid].executed <= 1'b1;
 				end
 			RET:
 				begin
 					eb[xrid].out <= 1'b0;
 					eb[xrid].executed <= 1'b1;
-					thread[eb[xrid].thread].ip <= eb[xrid].a[0];
+					thread[xrid].ip <= eb[xrid].a[0];
 					rollback_ip[xrid] <= eb[xrid].a[0];
 					rollback_ipv[xrid] <= 1'b1;
 					ou_rollback[xrid] <= 1'b1;
@@ -1418,15 +1453,27 @@ endtask
 
 wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
 
+/*
+reg [NTHREADS-1:0] next_ou_decoded;
+integer n13;
+always_comb
+	for (n13 = 0; n13 < NTHREADS; n13 = n13 + 1)
+		next_ou_decoded[n] = 
+			(xrid_v && eb[n].agen && !(memreq_full && !req_icload) && (eb[n].dec.load|eb[n].dec.store)) ?
+			1'b1 : eb[n].decoded
+			;
+*/
 task tOut;
 begin
+	eb[xrid].agen <= 1'b1;
 	// We want this before CALL is processed which also sets res.
 	if (xrid_v)
 		eb[xrid].res <= vres;
 	tOuCall();
 	tOuBranch();
+	//eb[xrid].decoded <= next_ou_decoded;
 	if (xrid_v) begin
-		eb[xrid].out <= (eb[xrid].dec.load|eb[xrid].dec.store) ? ~eb[xrid].agen : 1'b1;
+		eb[xrid].out <= (eb[xrid].dec.load|eb[xrid].dec.store) ? ~eb[xrid].agen : 1'b0;
 		eb[xrid].executed <= (eb[xrid].dec.load|eb[xrid].dec.store) ? eb[xrid].agen : 1'b1;
 		if ((eb[xrid].dec.Ra.vec | ((eb[xrid].dec.storen|eb[xrid].dec.loadn) & eb[xrid].dec.Rb.vec)) && eb[xrid].dec.memsz==vect) begin
 			if (eb[xrid].step < NLANES-1) begin
@@ -1471,6 +1518,7 @@ begin
 end
 endtask
 
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // MEM stage 
 // - process responses coming back from the BIU for requests sent by EX stage.
@@ -1479,7 +1527,9 @@ endtask
 task tMemory;
 integer n;
 begin
-	if (memresp_fifo_v) begin
+	if (!memresp_fifo_empty)
+		memresp_fifo_rd <= 1'b1;
+	if (memresp_fifo_rd & memresp_fifo_v) begin
 		if (|memresp.cause && eb[memresp.thread].cause=='d0)
 			eb[memresp.thread].cause <= memresp.cause;
 		// Clear the imiss status. The thread might still miss again if the I$
@@ -1653,7 +1703,7 @@ begin
 			commit_tgt <= eb[wbndx].dec.Rt;
 			commit_bus <= eb[wbndx].res;
 			case(1'b1)
-			eb[wbndx].dec.brk:	tWbException(eb[wbndx].ifb.ip + 4'd5,eb[wbndx].cause,1);	// BRK instruction
+			eb[wbndx].dec.brk:	tWbException(eb[wbndx].ifb.ip + 4'd5,FLT_BRK,1);	// BRK instruction
 			//eb[wbndx].dec.irq: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// hardware irq
 			//eb[wbndx].dec.flt: tWbException(eb[wbndx].ifb.ip,eb[wbndx].cause);	// processing fault (divide by zero, tlb miss, ...)
 			eb[wbndx].dec.rti:	tWbRti();
@@ -1669,10 +1719,10 @@ begin
 				gie[wbndx] <= 1'b1;
 			retired <= retired + 2'd1;
 		end
-		if (wbndx != rthread)
-			eb[wbndx] <= 'd0;
+		eb[wbndx] <= 'd0;
 	end
-	ou_rollback_bitmaps[commit_thread][commit_tgt] <= 1'b0;
+	if ((eb[wbndx].dec.rfwr & ~commit_tgt.vec) | (eb[wbndx].dec.vrfwr & commit_tgt.vec))
+		ou_rollback_bitmaps[commit_thread][commit_tgt] <= 1'b0;
 end
 endtask
 
@@ -1859,22 +1909,22 @@ begin
 	6'd37:	fnRegName = "vm5";
 	6'd38:	fnRegName = "vm6";
 	6'd39:	fnRegName = "vm7";
-	6'd40:	fnRegName = "lc";
-	6'd41:	fnRegName = "lk1";
-	6'd42:	fnRegName = "lk2";
-	6'd43:	fnRegName = "r43";
-	6'd44:	fnRegName = "ssp";
-	6'd45:	fnRegName = "hsp";
-	6'd46:	fnRegName = "msp";
-	6'd47:	fnRegName = "isp";
-	6'd48:	fnRegName = "t8";
-	6'd49:	fnRegName = "t9";
-	6'd50:	fnRegName = "t10";
-	6'd51:	fnRegName = "t11";
-	6'd52:	fnRegName = "s10";
-	6'd53:	fnRegName = "s11";
-	6'd54:	fnRegName = "s12";
-	6'd55:	fnRegName = "s13";
+	6'd40:	fnRegName = "vm8";
+	6'd41:	fnRegName = "vm9";
+	6'd42:	fnRegName = "vm10";
+	6'd43:	fnRegName = "vm11";
+	6'd44:	fnRegName = "vm12";
+	6'd45:	fnRegName = "vm13";
+	6'd46:	fnRegName = "vm14";
+	6'd47:	fnRegName = "vm15";
+	6'd48:	fnRegName = "lc";
+	6'd49:	fnRegName = "lk1";
+	6'd50:	fnRegName = "lk2";
+	6'd51:	fnRegName = "r43";
+	6'd52:	fnRegName = "ssp";
+	6'd53:	fnRegName = "hsp";
+	6'd54:	fnRegName = "msp";
+	6'd55:	fnRegName = "isp";
 	6'd56:	fnRegName = "f0";
 	6'd57:	fnRegName = "f1";
 	6'd58:	fnRegName = "f2";

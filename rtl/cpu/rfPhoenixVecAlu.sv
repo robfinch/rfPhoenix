@@ -89,6 +89,7 @@ always_comb
 			if (Tt)
 				o = o1;
 			else if (Ta|Tb) begin
+				o = 'd0;
 				for (n = 0; n < NLANES; n = n + 1)
 					o[0][n] = o1[n];
 			end
@@ -112,6 +113,7 @@ always_comb
 		if (Tt)
 			o = o1;
 		else if (Ta) begin
+			o = 'd0;
 			for (n = 0; n < NLANES; n = n + 1)
 				o[0][n] = o1[n];
 		end

@@ -44,6 +44,8 @@ parameter pL1ICacheWays = `L1ICacheWays;
 parameter pL1DCacheWays = `L1DCacheWays;
 parameter TidMSB = $clog2(`NTHREADS)-1;
 
+parameter RAS_DEPTH	= 4;
+
 typedef enum logic [5:0] {
 	BRK			= 6'h00,
 	PFX			= 6'h01,
@@ -67,8 +69,8 @@ typedef enum logic [5:0] {
 	CMP_GEUI	= 6'h15,
 	CMP_LEUI	= 6'h16,
 	CMP_GTUI	= 6'h17,
-	CALLA		= 6'h18,
-	CALLR		= 6'h19,
+	CALL		= 6'h18,
+	BSR			= 6'h19,
 	RET			= 6'h1A,
 	Bcc			= 6'h1C,
 	FBcc		= 6'h1D,
@@ -206,7 +208,7 @@ parameter CSR_MHARTID = 16'h3001;
 parameter CSR_TICK	= 16'h3002;
 parameter CSR_MBADADDR	= 16'h3007;
 parameter CSR_MTVEC = 16'b00110000001100??;
-parameter CSR_MDBAD	= 16'h00110000000110??;
+parameter CSR_MDBAD	= 16'b00110000000110??;
 parameter CSR_MDBCR	= 16'h301C;
 parameter CSR_MDBSR	= 16'h301D;
 parameter CSR_MPLSTACK	= 16'h303F;
@@ -302,7 +304,7 @@ typedef struct packed
 	logic [4:0] resv2;
 	logic [1:0] om;			// operating mode
 	logic trace_en;			// instruction trace enable
-	logic resv1;
+	logic ssm;					// single step mode
 	logic [2:0] ipl;		// interrupt privilege level
 	logic die;					// debug interrupt enable
 	logic mie;					// machine interrupt enable
@@ -407,8 +409,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [26:0] target;
-	Regspec Rt;
+	logic [31:0] target;
+	logic [1:0] Rt;
 	Opcode opcode;
 } callinst;
 
@@ -463,6 +465,7 @@ typedef struct packed
 	logic hasRc;
 	logic hasRm;
 	logic hasRt;
+	logic Rtsrc;	// Rt is a source register
 	Value imm;
 	logic rfwr;
 	logic vrfwr;
@@ -523,9 +526,19 @@ typedef struct packed
 
 typedef struct packed {
 	logic [4:0] imiss;
+	logic sleep;
+	logic can_update_ras;
+	logic updating_ras;
 	CodeAddress ip;				// current instruction pointer
 	CodeAddress miss_ip;	// I$ miss address
 } ThreadInfo_t;
+
+typedef struct packed {
+	logic loaded;						// 1=loaded internally
+	logic stored;						// 1=stored externally
+	CodeAddress ip;					// return address
+	Address sp;							// Stack pointer location
+} return_stack_t;
 
 // No unsigned codes!
 parameter MR_LDB	= 4'd0;
@@ -541,7 +554,7 @@ parameter MR_LDV	= 4'd9;
 parameter MR_LDG	= 4'd10;
 parameter MR_LDPTG = 4'd0;
 parameter MR_STPTG = 4'd1;
-parameter MR_LDDESC = 4'd12;
+parameter MR_RAS 	= 4'd12;
 parameter MR_STB	= 4'd0;
 parameter MR_STW	= 4'd1;
 parameter MR_STT	= 4'd2;

@@ -63,17 +63,20 @@ Regspec [ROLLBACK_STAGES-1:0] wb_Rts;
 always_comb
 begin
 	srcs = 'd0;
-	if (db.hasRa)	srcs[db.Ra] = 1'b1;
-	if (db.hasRb) srcs[db.Rb] = 1'b1;
-	if (db.hasRc) srcs[db.Rc] = 1'b1;
-	if (db.hasRm) srcs[db.Rm] = 1'b1;
-	if (db.hasRt) srcs[db.Rt] = 1'b1;
+	if (db.v) begin
+		if (db.hasRa)	srcs[db.Ra] = 1'b1;
+		if (db.hasRb) srcs[db.Rb] = 1'b1;
+		if (db.hasRc) srcs[db.Rc] = 1'b1;
+		if (db.hasRm) srcs[db.Rm] = 1'b1;
+		if (db.hasRt & db.Rtsrc) srcs[db.Rt] = 1'b1;
+	end
 end
 
 always_comb
 begin
 	tgts = 'd0;
-	if (db.hasRt & (db.rfwr|db.vrfwr)) tgts[db.Rt] = 1'b1;
+	if (db.v)
+		if (db.hasRt & ((db.rfwr&~db.Rt.vec)|(db.vrfwr&db.Rt.vec))) tgts[db.Rt] = 1'b1;
 end
 
 always_comb
@@ -114,6 +117,6 @@ begin
 end
 
 always_comb
-	can_issue = (valid[127:1] & srcs[127:1]) == srcs[127:1];
+	can_issue = (nxt_valid[127:1] & srcs[127:1]) == srcs[127:1];
 
 endmodule

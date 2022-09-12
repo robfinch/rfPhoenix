@@ -52,6 +52,7 @@ integer k;
 
 
 (* ram_style = "block" *)
+/*
 Value [NTHREADS*NREGS-1:0] mem;
 initial begin
 	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
@@ -64,8 +65,8 @@ always_ff @(posedge clk)
 	if (wr) mem[wa] <= i;
 always_ff @(posedge clk)
 	o <= mem[rar];
+*/
 
-/*
 
 generate begin : gRegfile
 case(NTHREADS)
@@ -118,6 +119,6 @@ blk_mem1024x32 bmem2 (
 endcase
 end
 endgenerate
-*/
+
 
 endmodule

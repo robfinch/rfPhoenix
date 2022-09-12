@@ -54,6 +54,22 @@ Value fclass_o;
 wire [7:0] exp;
 wire inf, xz, vz, snan, qnan, xinf;
 
+DoubleValue sllr, slli;
+DoubleValue srlr, srli;
+DoubleValue srar, srai;
+always_comb
+	sllr = {a,{$bits(Value){ir[36]}}} << b[4:0];
+always_comb
+	slli = {a,{$bits(Value){ir[36]}}} << imm[4:0];
+always_comb
+	srlr = {{$bits(Value){ir[36]}},a} >> b[4:0];
+always_comb
+	srli = {{$bits(Value){ir[36]}},a} >> imm[4:0];
+always_comb
+	srar = {{$bits(Value){a[31]}},a} >> b[4:0];
+always_comb
+	srai = {{$bits(Value){a[31]}},a} >> imm[4:0];
+	 
 fpDecomp32 udc1
 (
 	.i(a),
@@ -183,12 +199,12 @@ R2:
 	FCMP_LE:	o = fcmp_o[2];
 	FCMP_GT:	o = fcmp_o[10];
 	FCMP_GE:	o = fcmp_o[9];
-	SLLI:			o = a << imm[4:0];
-	SRLI:			o = a >> imm[4:0];
-	SRAI:			o = {{32{a[31]}},a} >> imm[4:0];
-	SLL:			o = a << b[4:0];
-	SRL:			o = a >> b[4:0];
-	SRA:			o = {{32{a[31]}},a} >> b[4:0];
+	SLLI:			o = slli[63:32];
+	SRLI:			o = srli[31: 0];
+	SRAI:			o = srai[31: 0];
+	SLL:			o = sllr[63:32];
+	SRL:			o = srlr[31 :0];
+	SRA:			o = srar[31 :0];
 	default:	o = 'd0;
 	endcase
 ADDI:			o = a + imm;
