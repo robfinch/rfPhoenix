@@ -26,6 +26,8 @@ The rfPhoenix uses fused compare-and-branch instructions whereas the Nyuzi uses 
 ### Immediates
 rfPhoenix uses postfix immediate extensions to extend immediate constants. Nyuzi uses separate load hi instructions and additional registers. rfPhoenix's postfixes help increase code density and do not require using additional registers. The postfix immediate can also be applied to a wide range of instructions. The instruction and postfix are read as a single unit. 
 
+## rfPhoenix Details
+
 ### Cache misses
 Instruction cache misses do not stall other threads from proceeding. Only the thread that missed stalls until the cache is loaded.
 
