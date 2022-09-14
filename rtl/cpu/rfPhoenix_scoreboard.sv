@@ -68,7 +68,6 @@ begin
 		if (db.hasRb) srcs[db.Rb] = 1'b1;
 		if (db.hasRc) srcs[db.Rc] = 1'b1;
 		if (db.hasRm) srcs[db.Rm] = 1'b1;
-		if (db.hasRt & db.Rtsrc) srcs[db.Rt] = 1'b1;
 	end
 end
 
@@ -92,14 +91,14 @@ always_comb
 always_comb
 	nxt_valid = (valid & ~clr_bm) | set_bm;
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst)
 	valid <= {128{1'b1}};
 else begin
 	valid <= nxt_valid;
 end
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst)
 	has_wb <= 'd0;
 else

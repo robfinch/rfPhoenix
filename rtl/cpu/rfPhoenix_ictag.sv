@@ -38,10 +38,11 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_ictag(clk, wr, ipo, way, rclk, ip, tag);
+module rfPhoenix_ictag(rst, clk, wr, ipo, way, rclk, ip, tag);
 parameter LINES=128;
 parameter WAYS=4;
 parameter AWID=32;
+input rst;
 input clk;
 input wr;
 input [AWID-1:0] ipo;
@@ -54,8 +55,8 @@ output [AWID-1:6] tag [0:3];
 reg [AWID-1:6] tags [0:WAYS*LINES-1];
 reg [AWID-1:0] rip;
 
-integer g;
-integer n;
+integer g,g1;
+integer n,n1;
 
 initial begin
 for (g = 0; g < WAYS; g = g + 1) begin
@@ -64,8 +65,14 @@ for (g = 0; g < WAYS; g = g + 1) begin
 end
 end
 
-always_ff @(posedge clk)
-begin
+always_ff @(posedge clk, posedge rst)
+if (rst) begin
+	for (g1 = 0; g1 < WAYS; g1 = g1 + 1) begin
+	  for (n1 = 0; n1 < LINES; n1 = n1 + 1)
+	    tags[g1 * LINES + n1] = 32'd1;
+	end
+end
+else begin
 	if (wr)
 		tags[way * LINES + ipo[12:6]] <= ipo[AWID-1:6];
 end

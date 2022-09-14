@@ -54,7 +54,7 @@ input [1:0] lfsr;
 input [1:0] rway;
 output reg [1:0] wway;
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst)
 	wway <= 2'd0;
 else begin

@@ -60,12 +60,55 @@ endgenerate
 
 ffo12 uffo1 (.i({12'd0,irot}), .o(ffoo));
 
+// Clock there to prevent race conditions
 always_ff @(posedge clk)
 	o = ffoo[2:0] - amt;
 always_ff @(posedge clk)
 	ov = ffoo!=4'd15;
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
+if (rst)
+	amt <= 'd0;
+else begin
+	if (ffoo!=4'd15) begin
+		amt <= amt + 3'd1;
+		if (amt >= NTHREADS-1)
+			amt <= 'd0;
+	end
+end
+
+endmodule
+
+module rfPhoenix_round_robin_select2(rst, clk, i, o, ov);
+input rst;
+input clk;
+input [NTHREADS-1:0] i;
+output Tid o;
+output reg ov;
+
+reg [2:0] amt;
+reg [15:0] ishift;
+reg [NTHREADS*2-1:0] irot;
+wire [3:0] ffoo;
+genvar g;
+
+always_comb
+	ishift = i << amt;
+generate begin : gRot
+always_comb
+	irot = ishift[NTHREADS*2-1:NTHREADS]|ishift[NTHREADS-1:0];
+end
+endgenerate
+
+ffo12 uffo1 (.i({12'd0,irot}), .o(ffoo));
+
+// Clock there to prevent race conditions
+always_comb
+	o = ffoo[2:0] - amt;
+always_comb
+	ov = ffoo!=4'd15;
+
+always_ff @(posedge clk, posedge rst)
 if (rst)
 	amt <= 'd0;
 else begin

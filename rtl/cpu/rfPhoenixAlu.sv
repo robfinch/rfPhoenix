@@ -36,7 +36,7 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixAlu(ir, a, b, c, t, imm, asid, hmask, o);
+module rfPhoenixAlu(ir, a, b, c, t, imm, asid, hmask, trace_dout, trace_empty, trace_valid, trace_count, o);
 input Instruction ir;
 input Value a;
 input Value b;
@@ -45,6 +45,10 @@ input Value t;
 input Value imm;
 input ASID asid;
 input Value hmask;
+input Address trace_dout;
+input trace_empty;
+input trace_valid;
+input [10:0] trace_count;
 output Value o;
 
 integer n;
@@ -58,17 +62,17 @@ DoubleValue sllr, slli;
 DoubleValue srlr, srli;
 DoubleValue srar, srai;
 always_comb
-	sllr = {a,{$bits(Value){ir[36]}}} << b[4:0];
+	sllr = {a,{$bits(Value){ir[36]}}} << b[5:0];
 always_comb
-	slli = {a,{$bits(Value){ir[36]}}} << imm[4:0];
+	slli = {a,{$bits(Value){ir[36]}}} << imm[5:0];
 always_comb
-	srlr = {{$bits(Value){ir[36]}},a} >> b[4:0];
+	srlr = {{$bits(Value){ir[36]}},a} >> b[5:0];
 always_comb
-	srli = {{$bits(Value){ir[36]}},a} >> imm[4:0];
+	srli = {{$bits(Value){ir[36]}},a} >> imm[5:0];
 always_comb
-	srar = {{$bits(Value){a[31]}},a} >> b[4:0];
+	srar = {{$bits(Value){a[31]}},a} >> b[5:0];
 always_comb
-	srai = {{$bits(Value){a[31]}},a} >> imm[4:0];
+	srai = {{$bits(Value){a[31]}},a} >> imm[5:0];
 	 
 fpDecomp32 udc1
 (
@@ -148,6 +152,21 @@ R2:
 		FCLASS:		o = fclass_o;
 		FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
 		FFINITE:	o = {31'd0,~xinf};
+		PEEKQ:		
+			case(imm[3:0])
+			4'd15:	o = trace_dout;
+			default:	o = 'd0;
+			endcase
+		POPQ:
+			case(imm[3:0])
+			4'd15:	o = trace_dout;
+			default:	o = 'd0;
+			endcase
+		STATQ:		
+			case(imm[3:0])
+			4'd15:	o = {trace_empty,trace_valid,19'd0,trace_count};
+			default:	o = 'd0;
+			endcase
 		default:	o = 'd0;
 		endcase
 	ADD:		o = a + b;

@@ -45,7 +45,7 @@ input rst;
 input clk;
 input wr;
 input Tid wthread;
-input [15:0] wmask;
+input [63:0] wmask;
 input Regspec wa;
 input VecValue i;
 input Tid rthread;
@@ -63,11 +63,11 @@ output VecValue o4;
 genvar g;
 generate begin
 	for (g = 0; g < NLANES; g = g + 1) begin
-		gpr_regfile urf0(clk, wr & wmask[g], {wthread,wa}, i[g], {rthread,ra0}, o0[g]);
-		gpr_regfile urf1(clk, wr & wmask[g], {wthread,wa}, i[g], {rthread,ra1}, o1[g]);
-		gpr_regfile urf2(clk, wr & wmask[g], {wthread,wa}, i[g], {rthread,ra2}, o2[g]);
-		gpr_regfile urf3(clk, wr & wmask[g], {wthread,wa}, i[g], {rthread,ra3}, o3[g]);
-		gpr_regfile urf4(clk, wr & wmask[g], {wthread,wa}, i[g], {rthread,ra4}, o4[g]);
+		gpr_regfile urf0(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa}, i[g], {rthread,ra0}, o0[g]);
+		gpr_regfile urf1(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa}, i[g], {rthread,ra1}, o1[g]);
+		gpr_regfile urf2(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa}, i[g], {rthread,ra2}, o2[g]);
+		gpr_regfile urf3(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa}, i[g], {rthread,ra3}, o3[g]);
+		gpr_regfile urf4(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa}, i[g], {rthread,ra4}, o4[g]);
 	end
 end
 endgenerate

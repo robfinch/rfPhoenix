@@ -43,7 +43,7 @@ module rfPhoenix_gp_regfile(rst, clk, wr, wthread, wa, i,
 	rthread, ra0, ra1, ra2, ra3, ra4, o0, o1, o2, o3, o4);
 input rst;
 input clk;
-input wr;
+input [3:0] wr;
 input Tid wthread;
 input Regspec wa;
 input Value i;
@@ -59,11 +59,11 @@ output Value o2;
 output Value o3;
 output Value o4;
 
-gpr_regfile ugpr0 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra0.num}), .o(o0));
-gpr_regfile ugpr1 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra1.num}), .o(o1));
-gpr_regfile ugpr2 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra2.num}), .o(o2));
-gpr_regfile ugpr3 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra3.num}), .o(o3));
-gpr_regfile ugpr4 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra4.num}), .o(o4));
+gpr_regfile #(.ZERO_BYPASS(1)) ugpr0 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra0.num}), .o(o0));
+gpr_regfile #(.ZERO_BYPASS(1)) ugpr1 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra1.num}), .o(o1));
+gpr_regfile #(.ZERO_BYPASS(1)) ugpr2 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra2.num}), .o(o2));
+gpr_regfile #(.ZERO_BYPASS(1)) ugpr3 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra3.num}), .o(o3));
+gpr_regfile #(.ZERO_BYPASS(1)) ugpr4 (.clk(clk), .wr(wr), .wa({wthread,wa.num}), .i(i), .ra({rthread,ra4.num}), .o(o4));
 
 endmodule
 

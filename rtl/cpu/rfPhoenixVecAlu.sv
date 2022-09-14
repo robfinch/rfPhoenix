@@ -36,7 +36,9 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixVecAlu(ir, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask, o);
+module rfPhoenixVecAlu(ir, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask, 
+	trace_dout, trace_empty, trace_valid, trace_count,
+	o);
 input Instruction ir;
 input VecValue a;
 input VecValue b;
@@ -48,6 +50,10 @@ input Tt;
 input Value imm;
 input ASID asid;
 input Value hmask;
+input Address trace_dout;
+input trace_empty;
+input trace_valid;
+input [10:0] trace_count;
 output VecValue o;
 
 VecValue o1;
@@ -65,6 +71,10 @@ generate begin
 			.imm(imm),
 			.asid(asid),
 			.hmask(hmask),
+			.trace_dout(trace_dout),
+			.trace_empty(trace_empty),
+			.trace_valid(trace_valid),
+			.trace_count(trace_count),
 			.o(o1[g])
 		);
 end
@@ -83,15 +93,32 @@ always_comb
 	case(ir.any.opcode)
 	R2:
 		case (ir.r2.func)
-		FCMP_EQ,FCMP_NE,FCMP_LT,FCMP_GE,FCMP_LE,FCMP_GT,
+		FCMP_EQ,FCMP_NE,FCMP_LT,FCMP_GE,FCMP_LE,FCMP_GT:
+			if (Tt)
+				o = o1;
+			else if (Ta|Tb) begin
+				o = 'd0;
+				if (ir[30:29]==2'b00)
+					for (n = 0; n < NLANES*2; n = n + 1)
+						o[0][n] = o1[n[4:0]];
+				else
+					for (n = 0; n < NLANES*2; n = n + 2) begin
+						o[0][n+0] = o1[n[4:1]];
+						o[0][n+1] = o1[n[4:1]];
+					end
+			end
+			else
+				o = o1;
 		CMP_EQ,CMP_NE,CMP_LT,CMP_GE,CMP_LE,CMP_GT,
 		CMP_LTU,CMP_GEU,CMP_LEU,CMP_GTU:
 			if (Tt)
 				o = o1;
 			else if (Ta|Tb) begin
 				o = 'd0;
-				for (n = 0; n < NLANES; n = n + 1)
-					o[0][n] = o1[n];
+				for (n = 0; n < NLANES*2; n = n + 2) begin
+					o[0][n+0] = o1[n[4:1]];
+					o[0][n+1] = o1[n[4:1]];
+				end
 			end
 			else
 				o = o1;
@@ -114,8 +141,10 @@ always_comb
 			o = o1;
 		else if (Ta) begin
 			o = 'd0;
-			for (n = 0; n < NLANES; n = n + 1)
-				o[0][n] = o1[n];
+			for (n = 0; n < NLANES*2; n = n + 2) begin
+				o[0][n+0] = o1[n[4:1]];
+				o[0][n+1] = o1[n[4:1]];
+			end
 		end
 		else
 			o = o1;

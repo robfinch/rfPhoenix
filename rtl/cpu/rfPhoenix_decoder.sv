@@ -36,10 +36,9 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenix_decoder(ifb, sp_sel, rz, deco);
+module rfPhoenix_decoder(ifb, sp_sel, deco);
 input InstructionFetchbuf ifb;
 input [2:0] sp_sel;
-input rz;
 output DecodeBus deco;
 
 always_comb
@@ -54,7 +53,6 @@ begin
 	deco.rex = ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==REX;
 	deco.Ra = ifb.insn.r2.Ra;
 	deco.Rb = ifb.insn.r2.Rb;
-	deco.Rc = ifb.insn.f3.Rc;
 	deco.Rm = {3'b100,ifb.insn.r2.Rm};
 	deco.Ta = ifb.insn.r2.Ra.vec;
 	deco.Tb = ifb.insn.r2.Rb.vec;
@@ -157,9 +155,9 @@ begin
 	CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
-	// Disable writing r0 if the rz flag is set.
-	if (deco.rfwr && deco.Rt=='d0)
-		deco.rfwr = ~rz;
+	// Disable writing r0.
+	if (deco.Rt=='d0)
+		deco.rfwr = 1'b0;
 
 	deco.multicycle = 'd0;
 	case(ifb.insn.any.opcode)
@@ -177,6 +175,16 @@ begin
 
 	deco.imm = 'd0;
 	case(ifb.insn.any.opcode)
+	R2:
+		case(ifb.insn.r2.func)
+		R1:
+			case(ifb.insn.r1.func1)
+			PEEKQ,POPQ,STATQ,RESETQ:	deco.imm = deco.Ra[3:0];
+			default:	deco.imm = 'd0;
+			endcase
+		PUSHQ:	deco.imm = deco.Ra[3:0];
+		default:	deco.imm = 'd0;
+		endcase
 	ADDI,SUBFI,ANDI,ORI,XORI:
 		deco.imm = {{16{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
 	CMPI,CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
@@ -197,7 +205,9 @@ begin
 	if (ifb.pfx.opcode==PFX)
 		deco.imm[31:16] = ifb.pfx.imm;
 
+	deco.storer = 'd0;
 	deco.storen = 'd0;
+	deco.loadr = 'd0;
 	deco.loadn = 'd0;
 	case(ifb.insn.any.opcode)
 	R2:
@@ -206,19 +216,25 @@ begin
 		STBX,STWX,STTX:	deco.storen = 1'b1;
 		default:	;
 		endcase
+	LDB,LDBU,LDW,LDWU,LDT:	deco.loadr = 1'b1;
+	STB,STW,STT:	deco.storer = 1'b1;
 	default:	;
 	endcase
 
 	deco.br = ifb.insn.any.opcode==Bcc || ifb.insn.any.opcode==FBcc;
 	deco.cjb = ifb.insn.any.opcode==CALL || ifb.insn.any.opcode==BSR;
-	deco.storer = ifb.insn.any.opcode==STB || ifb.insn.any.opcode==STW || ifb.insn.any.opcode==STT;
 	deco.store = deco.storer|deco.storen;
 	deco.stcr = ifb.insn.any.opcode==STCR || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==STCRX);
-	deco.loadr = ifb.insn.any.opcode==LDB || ifb.insn.any.opcode==LDBU || ifb.insn.any.opcode==LDW || ifb.insn.any.opcode==LDWU || ifb.insn.any.opcode==LDT;
 	deco.loadu = ifb.insn.any.opcode==LDBU||ifb.insn.any.opcode==LDWU || (ifb.insn.any.opcode==R2 && (ifb.insn.r2.func==LDBUX || ifb.insn.r2.func==LDWUX));
 	deco.load = deco.loadr|deco.loadn;
 	deco.ldsr = ifb.insn.any.opcode==LDSR || (ifb.insn.any.opcode==R2 && ifb.insn.r2.func==LDSRX);
 	deco.mem = deco.store|deco.load|deco.stcr|deco.ldsr;
+	deco.popq = ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r1.func1==POPQ;
+
+	if (deco.br|deco.store)
+		deco.Rc = ifb.insn.r2.Rt;
+	else
+		deco.Rc = ifb.insn.f3.Rc;
 
 	// Memory operation sizes
 	case(ifb.insn.any.opcode)
@@ -263,7 +279,7 @@ begin
 									(deco.hasRb & deco.Rb.vec) |
 									(deco.hasRc & deco.Rc.vec) ;
 
-	deco.Rtsrc = 	deco.hasRt & (deco.br|deco.store);
+	deco.Rtsrc = 	1'b0;//deco.hasRt & (deco.br|deco.store);
 
 	if ((deco.hasRa & deco.Ra.vec) | ((deco.loadn|deco.storen) & (deco.hasRb & deco.Rb.vec)) | (deco.hasRt & deco.Rt.vec)) deco.memsz = vect;
 	deco.need_steps = deco.memsz==vect && !((deco.loadr|deco.storer) && !deco.Ra.vec);

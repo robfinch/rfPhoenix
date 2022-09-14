@@ -61,12 +61,14 @@ reg [$clog2(DEP)-1:0] rd_ptr;
 MemoryArg_t  [DEP-1:0] mem;
 integer n,n2;
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 	if (rst) begin
 		wr_ptr <= 'd0;
 		rd_ptr <= 'd0;
+`ifdef IS_SIM		
 		for (n = 0; n < DEP; n = n + 1)
 			mem[n] <= 'd0;		
+`endif
 	end
 	else begin
 		if (rd & wr) begin
@@ -93,7 +95,7 @@ always_comb
 	else
 		cnt = wr_ptr + (DEP - rd_ptr);
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 	if (rst) begin
 		for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1)
 			rollback_bitmaps[n2] <= 'd0;

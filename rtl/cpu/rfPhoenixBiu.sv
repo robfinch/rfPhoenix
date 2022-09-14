@@ -420,6 +420,7 @@ rfPhoenix_ictag
 )
 uictag1
 (
+	.rst(rst),
 	.clk(clk),
 	.wr(icache_wr),
 	.ipo(ipo),
@@ -805,7 +806,9 @@ rfPhoenix_tlb utlb
 );
 
 reg [4:0] mp_delay;
+wire [3:0] region_at;
 vtdl #(.WID($bits(PhysicalAddress)), .DEP(32)) umpd1 (.clk(clk), .ce(1'b1), .a(mp_delay), .d(padr), .q(padrd1));
+vtdl #(.WID(4), .DEP(32)) umpd2 (.clk(clk), .ce(1'b1), .a(mp_delay), .d(region.at[3:0]), .q(region_at));
 
 //always_ff @(posedge clk)	// delay for data tag lookup
 //	padrd1 <= padr;
@@ -1386,8 +1389,8 @@ else begin
 				ivcache[ivcnt] <= memr.res;
 				ivtag[ivcnt] <= memr.vcadr[$bits(Address)-1:6];
 				ivvalid[ivcnt] <= TRUE;
-				if (ic_line=='d0)
-					$stop;
+//				if (ic_line=='d0)
+//					$stop;
 			end
 			icnt <= 'd0;
 	  	vpa_o <= HIGH;
@@ -2308,14 +2311,14 @@ begin
 			mem_resp[PADR_SET].adr <= padrd1;
 		end
 		else
-			mem_resp[PADR_SET].acr <= region.at[3:0];
+			mem_resp[PADR_SET].acr <= region_at[3:0];
 		if (mem_resp[VLOOKUP3].v) begin
-		  if (!region.at[0] && mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
+		  if (!region_at[0] && mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
 		    mem_resp[PADR_SET].cause <= FLT_PMA;
 		 	//we_o <= wr & tlbwr & region.at[1];
-		  if (mem_resp[VLOOKUP3].func==MR_STORE && !region.at[1])
+		  if (mem_resp[VLOOKUP3].func==MR_STORE && !region_at[1])
 			  mem_resp[PADR_SET].cause <= FLT_WRV;
-		  else if (mem_resp[VLOOKUP3].func!=MR_STORE && !region.at[2])
+		  else if (mem_resp[VLOOKUP3].func!=MR_STORE && !region_at[2])
 			  mem_resp[PADR_SET].cause <= FLT_RDV;
 		   // TLB miss has higher precedence than PMA
 		   // No TLB miss in machine mode

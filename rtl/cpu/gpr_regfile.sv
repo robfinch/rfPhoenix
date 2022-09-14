@@ -40,19 +40,22 @@
 import rfPhoenixPkg::*;
 
 module gpr_regfile(clk, wr, wa, i, ra, o);
+parameter ZERO_BYPASS = 1'b0;
 input clk;
-input wr;
+input [3:0] wr;
 input [5+TidMSB+1:0] wa;
 input Value i;
 input [5+TidMSB+1:0] ra;
 output Value o;
 
+// Tools do not infer RAMs quite as well as explicitly declaring them. All
+// the RAMs use the same number of block RAMs so it is tempting to have
+// multiple register sets where there are fewer threads.
+
+//`ifdef IS_SIM
 integer k;
 
-
-
 (* ram_style = "block" *)
-/*
 Value [NTHREADS*NREGS-1:0] mem;
 initial begin
 	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
@@ -62,12 +65,23 @@ reg [5+TidMSB+1:0] rar;
 always_ff @(posedge clk)
 	rar <= ra;
 always_ff @(posedge clk)
-	if (wr) mem[wa] <= i;
+begin
+	if (wr[0]) mem[wa][ 7: 0] <= i[ 7: 0];
+	if (wr[1]) mem[wa][15: 8] <= i[15: 8];
+	if (wr[2]) mem[wa][23:16] <= i[23:16];
+	if (wr[3]) mem[wa][31:24] <= i[31:24];
+end
+always_comb
+	if (ZERO_BYPASS)
+		o = rar[5:0]=='d0 ? 'd0 : mem[rar];
+	else
+		o = mem[rar];
+/*
+`else
+Value o1;
+reg [5+TidMSB+1:0] rar;
 always_ff @(posedge clk)
-	o <= mem[rar];
-*/
-
-
+	rar <= ra;
 generate begin : gRegfile
 case(NTHREADS)
 1,2,3,4:
@@ -78,13 +92,10 @@ blk_mem256x32 bmem0 (
   .wea(wr),      // input wire [0 : 0] wea
   .addra(wa),  // input wire [7 : 0] addra
   .dina(i),    // input wire [31 : 0] dina
-  .douta(),  // output wire [31 : 0] douta
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .web(1'b0),      // input wire [0 : 0] web
   .addrb(ra),  // input wire [7 : 0] addrb
-  .dinb(32'd0),    // input wire [31 : 0] dinb
-  .doutb(o)  // output wire [31 : 0] doutb
+  .doutb(o1)  // output wire [31 : 0] doutb
 );
 5,6,7,8:
 blk_mem512x32 bmem1 (
@@ -93,13 +104,10 @@ blk_mem512x32 bmem1 (
   .wea(wr),      // input wire [0 : 0] wea
   .addra(wa),  // input wire [7 : 0] addra
   .dina(i),    // input wire [31 : 0] dina
-  .douta(),  // output wire [31 : 0] douta
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .web(1'b0),      // input wire [0 : 0] web
   .addrb(ra),  // input wire [7 : 0] addrb
-  .dinb(32'd0),    // input wire [31 : 0] dinb
-  .doutb(o)  // output wire [31 : 0] doutb
+  .doutb(o1)  // output wire [31 : 0] doutb
 );
 9,10,11,12,13,14,15,16:
 blk_mem1024x32 bmem2 (
@@ -108,17 +116,20 @@ blk_mem1024x32 bmem2 (
   .wea(wr),      // input wire [0 : 0] wea
   .addra(wa),  // input wire [7 : 0] addra
   .dina(i),    // input wire [31 : 0] dina
-  .douta(),  // output wire [31 : 0] douta
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .web(1'b0),      // input wire [0 : 0] web
   .addrb(ra),  // input wire [7 : 0] addrb
-  .dinb(32'd0),    // input wire [31 : 0] dinb
-  .doutb(o)  // output wire [31 : 0] doutb
+  .doutb(o1)  // output wire [31 : 0] doutb
 );
 endcase
 end
 endgenerate
-
+always_comb
+	if (ZERO_BYPASS)
+		o = rar[5:0]=='d0 ? 'd0 : o1;
+	else
+		o = o1;
+*/
+//`endif
 
 endmodule

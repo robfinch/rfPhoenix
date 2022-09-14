@@ -191,7 +191,7 @@ end
 endtask
 
 integer n3;
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst) begin
 	valid_bits <= 'd0;
 	wr_ack0 <= 1'b0;

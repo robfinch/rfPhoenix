@@ -1,5 +1,6 @@
 package rfPhoenixPkg;
 
+`undef IS_SIM
 `define IS_SIM	1
 
 `define TRUE	1
@@ -10,6 +11,8 @@ package rfPhoenixPkg;
 // Comment out to remove the sigmoid approximate function
 //`define SIGMOID	1
 
+parameter TRUE = `TRUE;
+parameter FALSE = `FALSE;
 parameter VAL = `VAL;
 parameter INV = `INV;
 
@@ -128,15 +131,16 @@ typedef enum logic [5:0] {
 	SRA			= 6'h1D,
 	FCMP_EQ	= 6'h1E,
 	FCMP_NE	= 6'h1F,
-	FCMP_LT	= 6'h24,
-	FCMP_GE	= 6'h25,
-	FCMP_LE	= 6'h26,
-	FCMP_GT	= 6'h27,
 	VSLLVI	= 6'h20,
 	VSRLVI	= 6'h21,
 	VSLLV		= 6'h22,
 	VSRLV		= 6'h23,
+	FCMP_LT	= 6'h24,
+	FCMP_GE	= 6'h25,
+	FCMP_LE	= 6'h26,
+	FCMP_GT	= 6'h27,
 	SHPTENDX	= 6'h28,
+	PUSHQ		= 6'h29,
 	FADD		= 6'h2C,
 	FSUB		= 6'h2D,
 	FMUL		= 6'h2E,
@@ -157,6 +161,10 @@ typedef enum logic [5:0] {
 	CNTLZ		= 6'h00,
 	CNTPOP	= 6'h02,
 	PTGHASH	= 6'h07,
+	PEEKQ		= 6'h08,
+	POPQ		= 6'h09,
+	STATQ		= 6'h0B,
+	RESETQ 	= 6'h0C,
 	RTI			= 6'h19,
 	REX			= 6'h1A,
 	FFINITE = 6'h20,
@@ -209,8 +217,9 @@ parameter CSR_TICK	= 16'h3002;
 parameter CSR_MBADADDR	= 16'h3007;
 parameter CSR_MTVEC = 16'b00110000001100??;
 parameter CSR_MDBAD	= 16'b00110000000110??;
-parameter CSR_MDBCR	= 16'h301C;
-parameter CSR_MDBSR	= 16'h301D;
+parameter CSR_MDBAM	= 16'b00110000000111??;
+parameter CSR_MDBCR	= 16'h3020;
+parameter CSR_MDBSR	= 16'h3021;
 parameter CSR_MPLSTACK	= 16'h303F;
 parameter CSR_MPMSTACK	= 16'h3040;
 parameter CSR_MSTUFF0	= 16'h3042;
@@ -496,6 +505,7 @@ typedef struct packed
 	logic flt;
 	logic rex;
 	logic pfx;
+	logic popq;
 } DecodeBus;
 
 typedef struct packed
@@ -527,8 +537,6 @@ typedef struct packed
 typedef struct packed {
 	logic [4:0] imiss;
 	logic sleep;
-	logic can_update_ras;
-	logic updating_ras;
 	CodeAddress ip;				// current instruction pointer
 	CodeAddress miss_ip;	// I$ miss address
 } ThreadInfo_t;

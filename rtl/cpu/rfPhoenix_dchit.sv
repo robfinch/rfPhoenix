@@ -74,7 +74,7 @@ begin
   endcase
 end
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst)
 	prev_rway <= 2'b00;
 else

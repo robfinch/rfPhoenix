@@ -63,7 +63,7 @@ for (m = 0; m < WAYS; m = m + 1) begin
 end
 end
 
-always_ff @(posedge clk)
+always_ff @(posedge clk, posedge rst)
 if (rst) begin
 	for (g = 0; g < WAYS; g = g + 1)
 		valid[g] <= 'd0;

@@ -215,7 +215,7 @@ reg tlbeni;
 reg [9:0] tlbadri;
 reg clock_r;
 
-always_ff @(posedge clk_g)
+always_ff @(posedge clk_g, posedge rst_i)
 if (rst_i) begin
 	randway <= 'd0;
 end
@@ -231,7 +231,7 @@ reg [9:0] rcount;
 wire pe_clock;
 edge_det edclk (.rst(rst_i), .clk(clk_g), .ce(1'b1), .i(clock), .pe(pe_clock), .ne(), .ee());
 
-always_ff @(posedge clk_g)
+always_ff @(posedge clk_g, posedge rst_i)
 if (rst_i) begin
 	state <= ST_RST;
 	tlbeni <= 1'b1;		// forces ready low
@@ -446,7 +446,7 @@ for (g = 0; g < ASSOC; g = g + 1)
 end
 endgenerate
 
-always_ff @(posedge clk_g)
+always_ff @(posedge clk_g, posedge rst_i)
 if (rst_i) begin
   padr_o[15:0] <= rstip[15:0];
   padr_o[AWID-1:16] <= rstip[AWID-1:16];

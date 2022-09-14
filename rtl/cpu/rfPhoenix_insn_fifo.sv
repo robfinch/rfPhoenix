@@ -87,17 +87,23 @@ always_ff @(posedge clk)
 			rd_ptr <= rd_ptr + 2'd1;
 		end
 	end
-always_comb
-	decout <= decmem[rd_ptr];
-always_comb
-	ifbout <= ifbmem[rd_ptr];
+always_ff @(posedge clk)
+	if (rst)
+		decout <= 'd0;
+	else
+		decout <= decmem[rd_ptr];
+always_ff @(posedge clk)
+	if (rst)
+		ifbout <= 'd0;
+	else
+		ifbout <= ifbmem[rd_ptr];
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;
 	else
-		cnt = wr_ptr + (DEP - rd_ptr);
+		cnt = (DEP + wr_ptr) - rd_ptr;
 always_comb
-	almost_full = cnt > DEP - 5;
+	almost_full = cnt > DEP - 7;
 always_comb
 	full = cnt==DEP-1;
 always_comb
