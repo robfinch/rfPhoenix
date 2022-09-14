@@ -53,6 +53,7 @@ output Value o;
 // multiple register sets where there are fewer threads.
 
 //`ifdef IS_SIM
+
 integer k;
 
 (* ram_style = "block" *)
@@ -78,6 +79,7 @@ always_comb
 		o = mem[rar];
 /*
 `else
+
 Value o1;
 reg [5+TidMSB+1:0] rar;
 always_ff @(posedge clk)
@@ -129,7 +131,7 @@ always_comb
 		o = rar[5:0]=='d0 ? 'd0 : o1;
 	else
 		o = o1;
-*/
-//`endif
 
+//`endif
+*/
 endmodule

@@ -82,6 +82,7 @@ ExecuteBuffer [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb;
 ExecuteBuffer ebq [0:NTHREADS-1];
 
 reg [NTHREADS-1:0] gie;
+reg [7:0] vl = 8'd8;
 Tid xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 wire dcndx_v,exndx_v,wbndx_v,itndx1_v;
 wire agndx_v,oundx_v;
@@ -742,6 +743,7 @@ task tReset;
 integer n;
 begin
 	cr0 <= 32'h0F;	// enable threads 0 to 3
+	vl <= NLANES;		// number of vector elements
 	tid <= 8'd1;
 	gie <= 'd0;
 	ip <= RSTIP;
@@ -1087,7 +1089,9 @@ else begin
 			oub[wbndx].dec.rti:	thread_ip[wbndx] <= ipStack[wbndx][31:0];
 			oub[wbndx].dec.rex:	thread_ip[wbndx] <= tvec[oub[wbndx].ifb.insn[7:6]] + {omode[wbndx],6'h00};
 			default:	
-				if (exndx_v)
+				if (oub[wbndx].dec.mem && oub[wbndx].dec.need_steps && oub[wbndx].count < vl && oub[wbndx].mask != 'd0)
+					thread_ip[wbndx] <= oub[wbndx].ifb.ip;
+				else if (exndx_v)
 					tExIp();
 				else
 					tIfIp();
@@ -1444,6 +1448,12 @@ endtask
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Address generation
+// - address generation is fed from the writeback stage if a vector scatter /
+//   gather operation is taking place and the number of steps has not reached
+//   the vector length.
+// - step and count will be the same unless a compressed load / store operation
+//   is taking place. In which case step is applied to the memory address
+//   generation and count is used to fetch or store the data element.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 Address tmpadr;
@@ -1452,15 +1462,18 @@ task tAgen;	// placeholder task
 integer n;
 begin
 	if (!ou_stall[agndx]) begin
-		agb[agndx] <= exb[agndx];
+		if (wbb[agndx].dec.need_steps && wbb[agndx].dec.mem && wbb[agndx].count != 'd0)
+			agb[agndx] <= wbb[agndx];
+		else
+			agb[agndx] <= exb[agndx];
 		agb[agndx].agen <= 1'b1;
-		casez({exb[exndx].dec.storer|exb[exndx].dec.loadr,exb[exndx].dec.Rb.vec,exb[exndx].dec.Ra.vec})
-		3'b000:	tmpadr <= exb[exndx].a[0] + exb[exndx].b[0];
-		3'b001: tmpadr <= exb[exndx].a[exb[exndx].step] + exb[exndx].b[0];
-		3'b010:	tmpadr <= exb[exndx].a[0] + exb[exndx].b[exb[exndx].step];
-		3'b011:	tmpadr <= exb[exndx].a[exb[exndx].step] + exb[exndx].b[exb[exndx].step];
-		3'b1?0:	tmpadr <= exb[exndx].a[0] + exb[exndx].dec.imm;
-		3'b1?1:	tmpadr <= exb[exndx].a[exb[exndx].step] + exb[exndx].dec.imm;
+		casez({exb[agndx].dec.storer|exb[agndx].dec.loadr,exb[agndx].dec.Rb.vec,exb[agndx].dec.Ra.vec})
+		3'b000:	tmpadr <= exb[agndx].a[0] + exb[agndx].b[0];
+		3'b001: tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].b[0];
+		3'b010:	tmpadr <= exb[agndx].a[0] + exb[agndx].b[exb[agndx].step];
+		3'b011:	tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].b[exb[agndx].step];
+		3'b1?0:	tmpadr <= exb[agndx].a[0] + exb[agndx].dec.imm;
+		3'b1?1:	tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].dec.imm;
 		endcase
 		thread[agndx].sleep <= TRUE;
 	end
@@ -1492,7 +1505,13 @@ begin
 		end
 		tid <= tid + 2'd1;
 		memreq.tid <= tid;
-		memreq.wr <= 1'b1;
+		// Skip masked memory operation when mask is zero
+		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
+			memreq.wr <= 1'b0;
+		else begin
+			memreq.wr <= 1'b1;
+			thread[oundx].sleep = TRUE;
+		end
 		memreq.func <= agb[oundx].dec.loadu ? MR_LOADZ : MR_LOAD;
 		if (agb[oundx].dec.ldsr)
 			memreq.func2 <= MR_LDR;
@@ -1535,7 +1554,6 @@ begin
 			oub[oundx].retry <= oub[oundx].retry + 2'd1;
 			oub[oundx].cause <= FLT_NONE;
 		end
-		thread[oundx].sleep = TRUE;
 	end
 end
 endtask
@@ -1561,7 +1579,13 @@ begin
 		end
 		tid <= tid + 2'd1;
 		memreq.tid <= tid;
-		memreq.wr <= 1'b1;
+		// Skip masked memory operation when mask is zero
+		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
+			memreq.wr <= 1'b0;
+		else begin
+			memreq.wr <= 1'b1;
+			thread[oundx].sleep = TRUE;
+		end
 		memreq.func <= MR_STORE;
 		if (agb[oundx].dec.stcr)
 			memreq.func2 <= MR_STC;
@@ -1571,7 +1595,10 @@ begin
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
 		memreq.adr <= tmpadr;
-		memreq.res <= {1024'd0,agb[oundx].c};
+		if (agb[oundx].dec.need_steps)
+			memreq.res <= {1024'd0,agb[oundx].c[agb[oundx].count]};
+		else
+			memreq.res <= {1024'd0,agb[oundx].c};
 		case(agb[oundx].dec.memsz)
 		byt:	memreq.sel <= 64'h1;
 		wyde:	memreq.sel <= 64'h3;
@@ -1618,7 +1645,6 @@ begin
 			if (oub[oundx].step < NLANES-1 && oub[oundx].dec.storen)
 				oub[oundx].step <= oub[oundx].step + 2'd1;
 		end
-		thread[oundx].sleep = TRUE;
 	end
 end
 endtask
@@ -1861,8 +1887,8 @@ endtask
 
 task tWriteback;
 begin
-	wbb[wbndx] <= oub[wbndx];
 	if (wbndx_v) begin
+		wbb[wbndx] <= oub[wbndx];
 `ifdef IS_SIM
 		$display("Writeback %d:", wbndx);
 `endif		
@@ -1930,6 +1956,21 @@ begin
 			oub[wbndx].dec.csrrc:	tClrbitCSR(oub[wbndx].a,wbndx,oub[wbndx].dec.imm[13:0]);
 			oub[wbndx].dec.csrrs:	tSetbitCSR(oub[wbndx].a,wbndx,exb[wbndx].dec.imm[13:0]);
 			endcase
+			// Check for a vector memory instruction that needs to repeat.
+			// Instructions will keep flowing into the pipeline while the vector
+			// operation is taking place. Treat this like a branch and rollback the
+			// incoming instructions.
+			if (oub[wbndx].dec.mem & oub[wbndx].dec.need_steps) begin
+				if (oub[wbndx].count < vl && oub[wbndx].mask != 'd0) begin
+					wbb[wbndx].count <= oub[wbndx].count + 2'd1;
+					if (oub[wbndx].mask[oub[wbndx].count] || !oub[wbndx].dec.compress)
+						wbb[wbndx].step <= oub[wbndx].step + 2'd1;
+					ou_rollback[wbndx] <= 1'b1;
+					oub[wbndx].mask[oub[wbndx].count] <= 1'b0;
+				end
+				else
+					wbb[wbndx] <= 'd0;
+			end
 			// Writing to machine stack pointer globally enables interrupts.
 			if (oub[wbndx].dec.Rt==7'd47 && oub[wbndx].dec.rfwr)
 				gie[wbndx] <= 1'b1;

@@ -52,6 +52,7 @@ input [AWID-1:0] ip;
 (* ram_style="block" *)
 output [AWID-1:6] tag [0:3];
 
+(* ram_style="block" *)
 reg [AWID-1:6] tags [0:WAYS*LINES-1];
 reg [AWID-1:0] rip;
 
@@ -65,14 +66,19 @@ for (g = 0; g < WAYS; g = g + 1) begin
 end
 end
 
-always_ff @(posedge clk, posedge rst)
+always_ff @(posedge clk)
+// Resetting all the tags will force implementation with FF's. Since tag values
+// do not matter to synthesis it is simply omitted.
+`ifdef IS_SIM
 if (rst) begin
 	for (g1 = 0; g1 < WAYS; g1 = g1 + 1) begin
 	  for (n1 = 0; n1 < LINES; n1 = n1 + 1)
 	    tags[g1 * LINES + n1] = 32'd1;
 	end
 end
-else begin
+else
+`endif
+begin
 	if (wr)
 		tags[way * LINES + ipo[12:6]] <= ipo[AWID-1:6];
 end

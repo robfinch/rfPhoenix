@@ -57,27 +57,24 @@ always_comb
 case(ir.any.opcode)
 Bcc:
 	case(ir.br.cnd)
-	default:	o = 1'b0;
-	3'd0:		o = $signed(a) <  $signed(b);
-	3'd1:		o = $signed(a) >= $signed(b);
-	3'd2:		o = a < b;
-	3'd3:		o = a >= b;
-	3'd4:		o = a[ir.br.Rb];
-	3'd5:		o = 1'b0;
-	3'd6:		o = a==b;
-	3'd7:		o = a!=b;
+	BLT:		o = $signed(a) <  $signed(b);
+	BGE:		o = $signed(a) >= $signed(b);
+	BLTU:		o = a < b;
+	BGEU:		o = a >= b;
+	BBS:		o = a[ir.br.Rb];
+	BEQ:		o = a==b;
+	BNE:		o = a!=b;
+	default:		o = 1'b0;
 	endcase
 FBcc:
 	case(ir.br.cnd)
-	default:	o = 1'b0;
 	3'd0:		o = fcmp_o[0];
 	3'd1:		o = fcmp_o[8]|fcmp_o[4];	// matches NE if Nan
 	3'd2:		o = fcmp_o[1];
 	3'd3:		o = fcmp_o[2];
-	3'd4:		o = 1'b0;
-	3'd5:		o = 1'b0;
-	3'd6:		o = fcmp_o[10];
-	3'd7:		o = fcmp_o[9];
+	3'd4:		o = fcmp_o[10];
+	3'd5:		o = fcmp_o[9];
+	default:		o = 1'b0;
 	endcase
 default:	o = 1'b0;
 endcase

@@ -250,6 +250,15 @@ begin
 		endcase
 	default:	deco.memsz = tetra;
 	endcase
+	case(ifb.insn.any.opcode)
+	R2:
+		case (ifb.insn.r2.func)
+		LDCX,STCX:	deco.compress = 1'b1;
+		default:	deco.compress = 1'b0;
+		endcase
+	LDC,STC:	deco.compress = 1'b1;
+	default:	deco.compress = 1'b0;
+	endcase
 
 	deco.pfx = ifb.insn.any.opcode==PFX;
 
@@ -283,7 +292,6 @@ begin
 
 	if ((deco.hasRa & deco.Ra.vec) | ((deco.loadn|deco.storen) & (deco.hasRb & deco.Rb.vec)) | (deco.hasRt & deco.Rt.vec)) deco.memsz = vect;
 	deco.need_steps = deco.memsz==vect && !((deco.loadr|deco.storer) && !deco.Ra.vec);
-
 end
 
 endmodule
