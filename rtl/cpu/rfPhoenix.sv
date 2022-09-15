@@ -1064,7 +1064,7 @@ begin
 		// The old cache line is passed back for the victim buffer.
 		if (!ihit2 && ip_thread3_v) begin
 			if (!memreq_full) begin
-				if (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10) begin
+				if (ip_icline[31:6] != last_adr[31:6] || imiss_count > 30) begin
 					imiss_count <= 'd0;
 					last_adr <= ip_icline;
 					tid <= tid + 2'd1;

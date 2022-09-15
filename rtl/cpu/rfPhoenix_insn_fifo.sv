@@ -84,7 +84,8 @@ always_ff @(posedge clk)
 			wr_ptr <= wr_ptr + 2'd1;
 		end
 		else if (rd) begin
-			rd_ptr <= rd_ptr + 2'd1;
+			if (!empty)
+				rd_ptr <= rd_ptr + 2'd1;
 		end
 	end
 always_ff @(posedge clk)

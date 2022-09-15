@@ -41,12 +41,11 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_icvalid(rst, clk, invce, ip, adr, wr, way, invline, invall, valid);
 parameter LINES=128;
 parameter WAYS=4;
-parameter AWID=32;
 input rst;
 input clk;
 input invce;
-input [AWID-1:0] ip;
-input [AWID-1:0] adr;		// physical address
+input CodeAddress ip;
+input CodeAddress adr;		// physical address
 input wr;
 input [1:0] way;
 input invline;
@@ -70,11 +69,11 @@ if (rst) begin
 end
 else begin
 	if (wr)
-		valid[way][ip[12:6]] <= 1'b1;
+		valid[way][ip[13:7]] <= 1'b1;
 	else if (invce) begin
 		for (g = 0; g < WAYS; g = g + 1) begin
 			if (invline)
-				valid[g][adr[12:6]] <= 1'b0;
+				valid[g][adr[13:7]] <= 1'b0;
 			else if (invall)
 				valid[g] <= 'd0;
 		end

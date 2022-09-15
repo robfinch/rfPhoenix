@@ -41,12 +41,11 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_dcvalid(rst, clk, invce, dadr, adr, wr, way, invline, invall, valid);
 parameter LINES=128;
 parameter WAYS=4;
-parameter AWID=32;
 input rst;
 input clk;
 input invce;
-input [AWID-1:0] dadr;
-input [AWID-1:0] adr;		// physical address
+input [$bits(Address)-1:0] dadr;
+input [$bits(Address)-1:0] adr;		// physical address
 input wr;
 input [1:0] way;
 input invline;

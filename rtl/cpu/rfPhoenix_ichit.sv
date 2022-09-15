@@ -38,17 +38,18 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_ichit(clk, ip, tag, valid, ihit, rway, vtag, icv);
+module rfPhoenix_ichit(clk, ip, ndx, tag, valid, ihit, rway, vtag, icv);
 parameter LINES=128;
 parameter WAYS=4;
 parameter AWID=32;
 input clk;
-input [AWID-1:0] ip;
-input [AWID-1:6] tag [0:3];
+input CodeAddress ip;
+input [6:0] ndx;
+input [$bits(CodeAddress)-1:7] tag [0:3];
 input [LINES-1:0] valid [0:WAYS-1];
 output reg ihit;
 output [1:0] rway;
-output reg [AWID-7:0] vtag;	// victim tag
+output reg [$bits(CodeAddress)-7:0] vtag;	// victim tag
 output reg icv;
 
 reg [AWID-7:0] prev_vtag = 'd0;
@@ -62,7 +63,7 @@ integer k;
 always_ff @(posedge clk)
 begin
 	for (k = 0; k < WAYS; k = k + 1)
-	  ihit1[k] = tag[k[1:0]]==ip[AWID-1:6] && valid[k][ip[12:6]]==1'b1;
+	  ihit1[k] = tag[k[1:0]]==ip[$bits(CodeAddress)-1:7] && valid[k][ndx]==1'b1;
 end
 
 integer k1;
@@ -70,7 +71,7 @@ always_comb
 begin
 	icv2 = 1'b0;
 	for (k1 = 0; k1 < WAYS; k1 = k1 + 1)
-	  icv2 = icv2 | valid[k1][ip[12:6]]==1'b1;
+	  icv2 = icv2 | valid[k1][ndx]==1'b1;
 end
 
 integer n;

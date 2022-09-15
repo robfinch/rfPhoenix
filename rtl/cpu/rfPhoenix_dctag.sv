@@ -41,17 +41,16 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_dctag(clk, wr, adr, way, rclk, ndx, tag);
 parameter LINES=128;
 parameter WAYS=4;
-parameter AWID=32;
 input clk;
 input wr;
-input [AWID-1:0] adr;
+input Address adr;
 input [1:0] way;
 input rclk;
 input [6:0] ndx;
 (* ram_style="block" *)
-output reg [AWID-1:6] tag [3:0];
+output reg [$bits(Address)-1:7] tag [3:0];
 
-reg [AWID-1:6] tags [0:WAYS *LINES-1];
+reg [$bits(Address)-1:7] tags [0:WAYS *LINES-1];
 reg [6:0] rndx;
 
 integer g;
@@ -67,7 +66,7 @@ end
 always_ff @(posedge clk)
 begin
 	if (wr)
-		tags[way * LINES + adr[13:7]] <= adr[AWID-1:6];
+		tags[way * LINES + adr[13:7]] <= adr[$bits(Address)-1:7];
 end
 always_ff @(posedge rclk)
 	rndx <= ndx;

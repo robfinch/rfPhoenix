@@ -41,19 +41,18 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_ictag(rst, clk, wr, ipo, way, rclk, ndx, tag);
 parameter LINES=128;
 parameter WAYS=4;
-parameter AWID=32;
 input rst;
 input clk;
 input wr;
-input [AWID-1:0] ipo;
+input CodeAddress ipo;
 input [1:0] way;
 input rclk;
 input [6:0] ndx;
 (* ram_style="block" *)
-output [AWID-1:6] tag [0:3];
+output [$bits(CodeAddress)-1:7] tag [0:3];
 
 (* ram_style="block" *)
-reg [AWID-1:6] tags [0:WAYS*LINES-1];
+reg [$bits(CodeAddress)-1:7] tags [0:WAYS*LINES-1];
 reg [6:0] rndx;
 
 integer g,g1;
@@ -80,7 +79,7 @@ else
 `endif
 begin
 	if (wr)
-		tags[way * LINES + ipo[12:6]] <= ipo[AWID-1:6];
+		tags[way * LINES + ipo[13:7]] <= ipo[$bits(CodeAddress)-1:7];	// We know bit[6]
 end
 
 always_ff @(posedge rclk)

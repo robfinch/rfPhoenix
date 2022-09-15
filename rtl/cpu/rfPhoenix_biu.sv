@@ -362,8 +362,8 @@ always_comb icache_wre = state==IFETCH3 && !adr_o[6];
 always_comb icache_wro = state==IFETCH3 &&  adr_o[6];
 reg ic_invline,ic_invall;
 CodeAddress ipo,ip2,ip3,ip4,ip5;
-wire [AWID-1:6] ictage [0:3];
-wire [AWID-1:6] ictago [0:3];
+wire [$bits(CodeAddress)-1:7] ictage [0:3];
+wire [$bits(CodeAddress)-1:7] ictago [0:3];
 wire [512/4-1:0] icvalide [0:3];
 wire [512/4-1:0] icvalido [0:3];
 
@@ -371,15 +371,15 @@ ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
 reg [2:0] vcn;
 ICacheLine [4:0] ivcache;
-reg [AWID-1:6] ivtag [0:4];
+reg [$bits(CodeAddress)-1:7] ivtag [0:4];
 reg [4:0] ivvalid;
 wire ihit2;
 reg ihit3;
 wire ic_valid2e, ic_valid2o;
 reg ic_valide, ic_valido;
 reg ic_valid3e, ic_valid3o;
-wire [AWID-7:0] ic_tag2;
-reg [AWID-7:0] ic_tag3;
+wire [$bits(CodeAddress)-7:0] ic_tag2;
+reg [$bits(CodeAddress)-7:0] ic_tag3;
 
 always_ff @(posedge clk)
 	ip2 <= ip;
@@ -476,7 +476,7 @@ uictage
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.ipo(ipo),
+	.ipo(adr_o),
 	.way(ic_wway),
 	.rclk(clk),
 	.ndx(ip2[13:7]+ip2[6]),	// virtual index (same bits as physical address)
@@ -494,7 +494,7 @@ uictago
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wro),
-	.ipo(ipo),
+	.ipo(adr_o),
 	.way(ic_wway),
 	.rclk(clk),
 	.ndx(ip2[13:7]),		// virtual index (same bits as physical address)
@@ -659,19 +659,19 @@ sram_512x512_1r1w udcmo
 	.o(dc_oline)
 );
 
-always_comb
+always_ff @(posedge clk)
 	case(padrd1[6])
 	1'b0:	dc_line = {dc_oline.data,dc_eline.data};
 	1'b1:	dc_line = {dc_eline.data,dc_oline.data};
 	endcase
-always_comb
+always_ff @(posedge clk)
 	dc_line_mod = {dc_oline.m,dc_eline.m};
 
-wire [AWID-7:0] dc_etag [3:0];
+wire [$bits(Address)-1:7] dc_etag [3:0];
 wire [127:0] dc_evalid [0:3];
 wire [3:0] dhit1e;	// debugging
 wire [3:0] dhit1o;
-wire [AWID-7:0] dc_otag [3:0];
+wire [$bits(Address)-1:7] dc_otag [3:0];
 wire [127:0] dc_ovalid [0:3];
 wire dhito,dhite;
 Address vadr2e;
@@ -705,8 +705,13 @@ rfPhoenix_dchit udchito
 );
 
 reg dhit;
-always_comb
+always_ff @(posedge clk)
 	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && padrd1[5:0] < 6'd61) : (dhite && padrd1[5:0] < 6'd61));
+reg dhite_d1, dhito_d1;
+always_ff @(posedge clk)
+	dhite_d1 <= dhite;
+always_ff @(posedge clk)
+	dhito_d1 <= dhito;
 
 rfPhoenix_dctag
 #(
@@ -717,8 +722,8 @@ rfPhoenix_dctag
 udcotag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && dadr[6]),
-	.adr(dadr),
+	.wr(state==DFETCH7 && adr_o[6]),
+	.adr(adr_o),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
 	.ndx(padrd1[13:7]),
@@ -734,8 +739,8 @@ rfPhoenix_dctag
 udcetag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && ~dadr[6]),
-	.adr(dadr),
+	.wr(state==DFETCH7 && ~adr_o[6]),
+	.adr(adr_o),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
 	.ndx(padrd1[13:7]+padrd1[6]),
@@ -753,9 +758,9 @@ udcovalid
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4 && adr_o[6]),
-	.dadr(dadr),
+	.dadr(adr_o),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && dadr[6]),
+	.wr(state==DFETCH7 && adr_o[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -773,9 +778,9 @@ udcevalid
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4 && ~adr_o[6]),
-	.dadr(dadr),
+	.dadr(adr_o),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && ~dadr[6]),
+	.wr(state==DFETCH7 && ~adr_o[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -2330,20 +2335,25 @@ begin
 		memreq_rd <= TRUE;
 	mem_resp[0] <= 'd0;
 	if (memreq_rd) begin
-		if (tlbrdy & mem_pipe_adv) begin
-			if (tlb_cyc) begin
-				mem_resp[0].func <= MR_TLB;
-				mem_resp[0].adr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
-				rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
-			end
-			else if (fifoToCtrl_v) begin
-				waycnt <= waycnt + 2'd1;
-				xlaten <= TRUE;
-				mem_resp[0] <= imemreq;
-				mem_resp[0].v <= 1'b1;
-				rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+		if (mem_pipe_adv) begin
+			if (tlbrdy) begin
+				if (tlb_cyc) begin
+					mem_resp[0].func <= MR_TLB;
+					mem_resp[0].adr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
+					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+				end
+				else if (fifoToCtrl_v) begin
+					waycnt <= waycnt + 2'd1;
+					xlaten <= TRUE;
+					mem_resp[0] <= imemreq;
+					mem_resp[0].v <= 1'b1;
+					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+				end
 			end
 		end
+		// Hold onto the request if pipe could not advance.
+		else
+			mem_resp[0] <= mem_resp[0];
 	end
 	if (mem_pipe_adv)
 		mp_delay <= 4'd0;
@@ -2498,7 +2508,7 @@ begin
 				begin
 					mem_resp[PADR_SET].res <= dc_line;
 					mem_resp[PADR_SET].wr <= !(dce & dhit & mem_resp[VLOOKUP3].acr[3]);
-					mem_resp[PADR_SET].hit <= {dhito,dhite};
+					mem_resp[PADR_SET].hit <= {dhito_d1,dhite_d1};
 					mem_resp[PADR_SET].mod <= dc_line_mod;
 					//if (!(dce & dhit & mem_resp[VLOOKUP3].acr[3]))
 					//	mem_resp[PADR_SET].cause <= FLT_DCM;
@@ -2516,7 +2526,7 @@ begin
 				endcase
 				*/
 	 			mem_resp[PADR_SET].res <= dc_linein;	// Calculated above
-	 			mem_resp[PADR_SET].mod <= {dhito,dhite};	// Only the lines that were hit are being modified.
+	 			mem_resp[PADR_SET].mod <= {dhito_d1,dhite_d1};	// Only the lines that were hit are being modified.
 			end
 		default:	;
 		endcase
