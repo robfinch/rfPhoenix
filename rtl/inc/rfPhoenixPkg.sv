@@ -16,7 +16,7 @@ parameter FALSE = `FALSE;
 parameter VAL = `VAL;
 parameter INV = `INV;
 
-`define NLANES	12
+`define NLANES	8
 `define NTHREADS	4
 `define NREGS		64
 
@@ -92,12 +92,32 @@ typedef enum logic [5:0] {
 	LDW			= 6'h32,
 	LDWU		= 6'h33,
 	LDT			= 6'h34,
+	LDC			= 6'h35,
 	LDSR		= 6'h36,
 	STB			= 6'h38,
 	STW			= 6'h39,
 	STT			= 6'h3A,
+	STC			= 6'h3B,
 	STCR		= 6'h3D
 } Opcode;
+
+typedef enum logic [2:0] {
+	BLT		= 3'd0,
+	BGE		= 3'd1,
+	BLTU	= 3'd2,
+	BGEU	= 3'd3,
+	BBS		= 3'd5,
+	BEQ		= 3'd6,
+	BNE		= 3'd7
+	/*
+	FBEQ	= 3'd0,
+	FBNE	= 3'd1,
+	FBLT	= 3'd2,
+	FBLE	= 3'd3,
+	FBGT	= 3'd4,
+	FBGE	= 3'd5
+	*/
+} branch_cnd_t;
 
 // R2 ops
 typedef enum logic [5:0] {
@@ -149,10 +169,12 @@ typedef enum logic [5:0] {
 	LDWX		= 6'h32,
 	LDWUX		= 6'h33,
 	LDTX		= 6'h34,
+	LDCX		= 6'h35,
 	LDSRX		= 6'h36,
 	STBX		= 6'h38,
 	STWX		= 6'h39,
 	STTX		= 6'h3A,
+	STCX		= 6'h3B,
 	STCRX		= 6'h3D
 } R2Func;
 
@@ -410,7 +432,7 @@ typedef struct packed
 {
 	logic resv;
 	logic [15:0] disp;
-	logic [2:0] cnd;	
+	branch_cnd_t cnd;	
 	Regspec	Ra;
 	Regspec Rb;
 	Opcode opcode;
@@ -496,6 +518,7 @@ typedef struct packed
 	logic store;
 	logic stcr;
 	logic need_steps;
+	logic compress;
 	memsz_t memsz;
 	logic br;						// conditional branch
 	logic cjb;					// call, jmp, or bra
@@ -511,7 +534,6 @@ typedef struct packed
 typedef struct packed
 {
 	logic v;
-	logic decoded;
 	logic regfetched;
 	logic out;
 	logic agen;

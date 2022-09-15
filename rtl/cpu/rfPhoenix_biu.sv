@@ -5,7 +5,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	rfPhoenixBiu.sv
+//	rfPhoenix_biu.sv
 //	- bus interface unit
 //
 // BSD 3-Clause License
@@ -39,8 +39,8 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenixBiu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
-	ip,ip_o,ihit,ifStall,ic_line,ic_valid,ic_tag, fifoToCtrl_wack,
+module rfPhoenix_biu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
+	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tag, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
 	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
@@ -58,6 +58,8 @@ input pe;									// protected mode enable
 input CodeAddress ip;
 output CodeAddress ip_o;
 output reg ihit;
+output reg ihite;
+output reg ihito;
 input ifStall;
 output ICacheLine ic_line;
 output reg ic_valid;
@@ -353,17 +355,19 @@ rfPhoenix_mem_resp_fifo uofifo2
 // Instruction cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-ICacheLine [pL1ICacheWays-1:0] ic_lin;
-reg [1:0] ic_rway,ic_wway;
-reg [pL1ICacheWays-1:0] icache_w;
-reg icache_wr;
-always_comb icache_wr = state==IFETCH3;
+ICacheLine ic_eline, ic_oline;
+reg [1:0] ic_rwaye,ic_rwayo,ic_wway;
+reg icache_wre, icache_wro;
+always_comb icache_wre = state==IFETCH3 && !adr_o[6];
+always_comb icache_wro = state==IFETCH3 &&  adr_o[6];
 reg ic_invline,ic_invall;
 CodeAddress ipo,ip2,ip3,ip4,ip5;
-wire [AWID-1:6] ictag [0:3];
-wire [512/4-1:0] icvalid [0:3];
+wire [AWID-1:6] ictage [0:3];
+wire [AWID-1:6] ictago [0:3];
+wire [512/4-1:0] icvalide [0:3];
+wire [512/4-1:0] icvalido [0:3];
 
-reg [639:0] ici;		// Must be a multiple of 128 bits wide for shifting.
+ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
 reg [2:0] vcn;
 ICacheLine [4:0] ivcache;
@@ -371,8 +375,9 @@ reg [AWID-1:6] ivtag [0:4];
 reg [4:0] ivvalid;
 wire ihit2;
 reg ihit3;
-wire ic_valid2;
-reg ic_valid3;
+wire ic_valid2e, ic_valid2o;
+reg ic_valide, ic_valido;
+reg ic_valid3e, ic_valid3o;
 wire [AWID-7:0] ic_tag2;
 reg [AWID-7:0] ic_tag3;
 
@@ -388,28 +393,94 @@ always_ff @(posedge clk)
 always_ff @(posedge clk)
 	ihit3 <= ihit2;
 always_comb
-	ihit <= ihit2;
+	// If cannot cross cache line can match on either odd or even.
+	if (ip2[5:0] < 6'd54)
+		ihit <= ip2[6] ? ihit2o : ihit2e;
+	// Might span lines, need hit on both even and odd lines
+	else
+		ihit <= ihit2e&ihit2o;
+always_comb
+	// If cannot cross cache line can match on either odd or even.
+	// If we do not need the even cache line, mark as a hit.
+	if (ip2[5:0] < 6'd54)
+		ihite <= ip2[6] ? 1'b1 : ihit2e;
+	// Might span lines, need hit on both even and odd lines
+	else
+		ihite <= ihit2e;
+always_comb
+	// If cannot cross cache line can match on either odd or even.
+	// If we do not need the odd cache line, mark as a hit.
+	if (ip2[5:0] < 6'd54)
+		ihito <= ip2[6] ? ihit2o : 1'b1;
+	// Might span lines, need hit on both even and odd lines
+	else
+		ihito <= ihit2o;
+
 always_ff @(posedge clk)
-	ic_valid3 <= ic_valid2;
+	ic_valid3e <= ic_valid2e;
 always_ff @(posedge clk)
-	ic_valid <= ic_valid2;
+	ic_valid3o <= ic_valid2o;
+always_ff @(posedge clk)
+	ic_valide <= ic_valid2e;
+always_ff @(posedge clk)
+	ic_valido <= ic_valid2o;
 assign ip_o = ip3;
 always_ff @(posedge clk)
 	ic_tag3 <= ic_tag2;
 always_ff @(posedge clk)
 	ic_tag <= ic_tag3;
-	
-// 552 wide x 512 deep, uses output register so there is a 2 cycle read latency.
-icache_blkmem uicm (
-  .clka(clk),    // input wire clka
-  .ena(icache_wr),      // input wire ena
-  .wea(icache_wr),      // input wire [0 : 0] wea
-  .addra({ic_wway,ipo[12:6]}),  // input wire [8 : 0] addra
-  .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [551 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),//!ifStall),      // input wire enb
-  .addrb({ic_rway,ip2[12:6]}),  // input wire [8 : 0] addrb
-  .doutb(ic_line)  // output wire [511 : 0] doutb
+
+always_ff @(posedge clk)
+	// If cannot cross cache line can match on either odd or even.
+	if (ip2[5:0] < 6'd54)
+		ic_valid <= ip2[6] ? ic_valid2o : ic_valid2e;
+	else
+		ic_valid <= ic_valid2o & ic_valid2e;
+
+// 512 wide x 512 deep, 1 cycle read latency.
+sram_512x512_1r1w uicme
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(icache_wre),
+	.wadr({ic_wway,adr_o[13:7]+adr_o[6]}),
+	.radr({ic_rwaye,ip2[13:7]+ip2[6]}),
+	.i(ici),
+	.o(ic_eline)
+);
+sram_512x512_1r1w uicmo
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(icache_wro),
+	.wadr({ic_wway,adr_o[13:7]}),
+	.radr({ic_rwayo,ip2[13:7]}),
+	.i(ici),
+	.o(ic_oline)
+);
+
+always_comb
+	case(ip2[6])
+	1'b0:	ic_line = {ic_oline.data,ic_eline.data};
+	1'b1:	ic_line = {ic_eline.data,ic_oline.data};
+	endcase
+
+rfPhoenix_ictag 
+#(
+	.LINES(128),
+	.WAYS(4),
+	.AWID(AWID)
+)
+uictage
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(icache_wre),
+	.ipo(ipo),
+	.way(ic_wway),
+	.rclk(clk),
+	.ndx(ip2[13:7]+ip2[6]),	// virtual index (same bits as physical address)
+	.tag(ictage)
 );
 
 rfPhoenix_ictag 
@@ -418,16 +489,16 @@ rfPhoenix_ictag
 	.WAYS(4),
 	.AWID(AWID)
 )
-uictag1
+uictago
 (
 	.rst(rst),
 	.clk(clk),
-	.wr(icache_wr),
+	.wr(icache_wro),
 	.ipo(ipo),
 	.way(ic_wway),
 	.rclk(clk),
-	.ip(ip2),	// virtual index (same bits as physical address)
-	.tag(ictag)
+	.ndx(ip2[13:7]),		// virtual index (same bits as physical address)
+	.tag(ictago)
 );
 
 rfPhoenix_ichit
@@ -436,16 +507,36 @@ rfPhoenix_ichit
 	.WAYS(4),
 	.AWID(AWID)
 )
-uichit1
+uichite
 (
 	.clk(clk),
 	.ip(ip),
-	.tag(ictag),
-	.valid(icvalid),
-	.ihit(ihit2),
-	.rway(ic_rway),
-	.vtag(ic_tag2),
-	.icv(ic_valid2)
+	.ndx(ip[13:7]+ip[6]),
+	.tag(ictage),
+	.valid(icvalide),
+	.ihit(ihit2e),
+	.rway(ic_rwaye),
+	.vtag(ic_tag2e),
+	.icv(ic_valid2e)
+);
+
+rfPhoenix_ichit
+#(
+	.LINES(128),
+	.WAYS(4),
+	.AWID(AWID)
+)
+uichito
+(
+	.clk(clk),
+	.ip(ip),
+	.ndx(ip[13:7]),
+	.tag(ictago),
+	.valid(icvalido),
+	.ihit(ihit2o),
+	.rway(ic_rwayo),
+	.vtag(ic_tag2o),
+	.icv(ic_valid2o)
 );
 
 rfPhoenix_icvalid 
@@ -454,18 +545,38 @@ rfPhoenix_icvalid
 	.WAYS(4),
 	.AWID(AWID)
 )
-uicval1
+uicvale
 (
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4),
 	.ip(ipo),
 	.adr(adr_o),
-	.wr(icache_wr),
+	.wr(icache_wre),
 	.way(ic_wway),
 	.invline(ic_invline),
 	.invall(ic_invall),
-	.valid(icvalid)
+	.valid(icvalide)
+);
+
+rfPhoenix_icvalid 
+#(
+	.LINES(128),
+	.WAYS(4),
+	.AWID(AWID)
+)
+uicvalo
+(
+	.rst(rst),
+	.clk(clk),
+	.invce(state==MEMORY4),
+	.ip(ipo),
+	.adr(adr_o),
+	.wr(icache_wro),
+	.way(ic_wway),
+	.invline(ic_invline),
+	.invall(ic_invall),
+	.valid(icvalido)
 );
 
 
@@ -526,28 +637,26 @@ reg [pL1DCacheWays-1:0] dcache_ewr, dcache_owr;
 wire dc_ewr, dc_owr;
 reg dc_invline,dc_invall;
 
-dcache_blkmem udcb1e (
-  .clka(clk),    // input wire clka
-  .ena(1'b1),      // input wire ena
-  .wea(dc_ewr),      // input wire [0 : 0] wea
-  .addra({dc_ewway,dadr[13:7]+dadr[6]}),  // input wire [8 : 0] addra
-  .dina(dci[0]),    // input wire [511 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .addrb({dc_erway,padrd1[13:7]+padrd1[6]}),  // input wire [8 : 0] addrb
-  .doutb(dc_eline)  // output wire [511 : 0] doutb
+sram_512x512_1r1w udcme
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(dc_ewr),
+	.wadr({dc_ewway,dadr[13:7]+dadr[6]}),
+	.radr({dc_erway,padrd1[13:7]+padrd1[6]}),
+	.i(dci[0]),
+	.o(dc_eline)
 );
 
-dcache_blkmem udcb1o (
-  .clka(clk),    // input wire clka
-  .ena(1'b1),      // input wire ena
-  .wea(dc_owr),      // input wire [0 : 0] wea
-  .addra({dc_owway,dadr[13:7]}),  // input wire [8 : 0] addra
-  .dina(dci[0]),    // input wire [511 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .addrb({dc_orway,padrd1[13:7]}),  // input wire [8 : 0] addrb
-  .doutb(dc_oline)  // output wire [511 : 0] doutb
+sram_512x512_1r1w udcmo
+(
+	.rst(rst),
+	.clk(clk),
+	.wr(dc_owr),
+	.wadr({dc_owway,dadr[13:7]}),
+	.radr({dc_orway,padrd1[13:7]}),
+	.i(dci[0]),
+	.o(dc_oline)
 );
 
 always_comb
@@ -1399,16 +1508,34 @@ else begin
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
-	    adr_o <= ipo;
+	    case(memr.hit)
+	    2'b00:		// need both even and odd cache lines (start with even)
+					adr_o <= {memr.adr[$bits(Address)-1:7]+memr.adr[6],1'b0,6'h0};
+	    2'b01:		// If got a hit on the even address, the odd one must be missing
+					adr_o <= {memr.adr[$bits(Address)-1:7],1'b1,6'h0};
+			2'b10:		// Otherwise the even one must be missing
+					adr_o <= {memr.adr[$bits(Address)-1:7]+memr.adr[6],1'b0,6'h0};
+			2'b11:		// not missing lines, finished
+				begin
+					tDeactivateBus();
+					ret();
+				end
+			endcase
   		goto (IFETCH2);
 		end
 	IFETCH2:
 	  begin
 	  	stb_o <= HIGH;
 	    if (ack_i) begin
-	      ici <= {dat_i,ici[639:128]};	// shift in the data
+	      ici.data <= {dat_i,ici.data[511:128]};	// shift in the data
 	      icnt <= icnt + 4'd4;					// increment word count
-	      if (icnt[4:2]==3'd4) begin		// Are we done?
+	      if (icnt[4:2]==3'd3) begin		// Are we done?
+	      	case(memr.hit)
+	      	2'b00:	memr.hit <= 2'b01;
+	      	2'b01:	memr.hit <= 2'b11;
+	      	2'b10:	memr.hit <= 2'b11;
+	      	2'b11:	memr.hit <= 2'b11;
+	      	endcase
 	      	tDeactivateBus();
 	      	goto (IFETCH3);
 	    	end
@@ -1432,12 +1559,15 @@ else begin
 	IFETCH3:
 		begin
 		  ic_wway <= waycnt;
-	  	ret();
+		  if (memr.hit==2'b11)
+	  		ret();
+	  	else
+	  		goto (IFETCH1);
 		end
 	
 	IFETCH4:
 		begin
-			ici <= {96'd0,ivcache[vcn]};
+			ici.data <= ivcache[vcn];
 			if (memr.sz!=nul) begin
 				ivcache[vcn] <= memr.res;
 				ivtag[vcn] <= memr.vcadr[$bits(Address)-1:6];

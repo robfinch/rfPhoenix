@@ -38,7 +38,7 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_ictag(rst, clk, wr, ipo, way, rclk, ip, tag);
+module rfPhoenix_ictag(rst, clk, wr, ipo, way, rclk, ndx, tag);
 parameter LINES=128;
 parameter WAYS=4;
 parameter AWID=32;
@@ -48,13 +48,13 @@ input wr;
 input [AWID-1:0] ipo;
 input [1:0] way;
 input rclk;
-input [AWID-1:0] ip;
+input [6:0] ndx;
 (* ram_style="block" *)
 output [AWID-1:6] tag [0:3];
 
 (* ram_style="block" *)
 reg [AWID-1:6] tags [0:WAYS*LINES-1];
-reg [AWID-1:0] rip;
+reg [6:0] rndx;
 
 integer g,g1;
 integer n,n1;
@@ -84,10 +84,10 @@ begin
 end
 
 always_ff @(posedge rclk)
-	rip <= ip;
-assign tag[0] = tags[{2'b00,rip[12:6]}];
-assign tag[1] = tags[{2'b01,rip[12:6]}];
-assign tag[2] = tags[{2'b10,rip[12:6]}];
-assign tag[3] = tags[{2'b11,rip[12:6]}];
+	rndx <= ndx;
+assign tag[0] = tags[{2'b00,rndx}];
+assign tag[1] = tags[{2'b01,rndx}];
+assign tag[2] = tags[{2'b10,rndx}];
+assign tag[3] = tags[{2'b11,rndx}];
 
 endmodule

@@ -77,6 +77,8 @@ output CauseCode wcause;
 
 parameter IC_LATENCY = 2;
 
+integer n10;
+
 wire clk_g = clk_i;
 ExecuteBuffer [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb;
 ExecuteBuffer ebq [0:NTHREADS-1];
@@ -84,11 +86,11 @@ ExecuteBuffer ebq [0:NTHREADS-1];
 reg [NTHREADS-1:0] gie;
 reg [7:0] vl = 8'd8;
 Tid xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
-wire dcndx_v,exndx_v,wbndx_v,itndx1_v;
+wire dcndx_v,exndx_v,wbndx_v;
 wire agndx_v,oundx_v;
-reg itndx2_v,itndx_v;
+reg itndx_v;
 reg rfndx1_v, rfndx2_v;
-Tid dcndx,itndx,itndx1,itndx2,exndx,oundx,wbndx,rfndx1,rfndx2,agndx;
+Tid dcndx,itndx,exndx,oundx,wbndx,rfndx1,rfndx2,agndx;
 reg xrid_v,mcrid_v;
 Tid mcv_ridi, mcv_rido;
 Tid ithread, dthread, xthread, commit_thread;
@@ -127,8 +129,8 @@ VecValue vres,mc_vres,mc_vres1,mc_vres2;
 wire mc_done, mcv_done;
 wire mc_done1, mcv_done1;
 wire mc_done2, mcv_done2;
-wire ihit;
-reg ihit2;
+wire ihit,ihite,ihito;
+reg ihit2,ihite2,ihito2;
 MemoryArg_t memreq;
 MemoryArg_t memresp;
 wire memreq_full;
@@ -349,7 +351,7 @@ end
 
 wire memreq_wack;
 
-rfPhoenixBiu ubiu
+rfPhoenix_biu ubiu
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -363,6 +365,8 @@ rfPhoenixBiu ubiu
 	.ip(ip),
 	.ip_o(ip_icline),
 	.ihit(ihit),
+	.ihite(ihite),
+	.ihito(ihito),
 	.ifStall(1'b0),
 	.ic_line(ic_line),
 	.ic_valid(ic_valid),
@@ -545,106 +549,16 @@ rfPhoenixMcVecAlu uvalu2 (
 	.rido(mcv_rido)
 );
 
-task tDisplayRegs;
-integer n;
-begin
-`ifdef IS_SIM
-	// The heirarchical reference to the register file here prevents synthsis
-	// from using RAM resources to implement the register file. So this block
-	// is enabled only for simulation.
-	$display("GPRs");
-	for (n = 0; n < NTHREADS*NREGS; n = n + 8) begin
-		// Do not bother with display of regs for disabled threads.
-		if (cr0[n >> $clog2(NREGS)]) begin
-			if ((n % NREGS)==0)
-				$display("  Thread:%d", n / NREGS);
-			$display("%s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  ",
-				fnRegName(n), ugprs1.ugpr0.mem[n],
-				fnRegName(n+1), ugprs1.ugpr0.mem[n+1],
-				fnRegName(n+2), ugprs1.ugpr0.mem[n+2],
-				fnRegName(n+3), ugprs1.ugpr0.mem[n+3],
-				fnRegName(n+4), ugprs1.ugpr0.mem[n+4],
-				fnRegName(n+5), ugprs1.ugpr0.mem[n+5],
-				fnRegName(n+6), ugprs1.ugpr0.mem[n+6],
-				fnRegName(n+7), ugprs1.ugpr0.mem[n+7]
-				);				
-		end
-	end
-	$display("");
-`endif
-end
-endtask
-
-task tDisplayEb;
-integer n;
-begin
-`ifdef IS_SIM
-	for (n = 0; n < NTHREADS; n = n + 1) begin
-		if (cr0[n]) begin
-			$display("DecodeBuffer:");
-			$display("  1:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
-				dc_ifb[n].v ? "v":"-",
-				dc_ifb[n].ip,
-				dc_ifb[n].insn,
-				dc_ifb[n].insn.any.opcode.name()
-			);
-			$display("  2:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
-				dcb[n].v ? "v":"-",
-				dcb[n].ifb.ip,
-				dcb[n].ifb.insn,
-				dcb[n].ifb.insn.any.opcode.name()
-			);
-			$display("Regfetch %d,%d:", rfndx1,rfndx2);
-			$display("  1:ip=%h Ra%d Rb%d csro[%h]=%h", rfb1[rfndx1].ifb.ip, rfb1[rfndx1].dec.Ra, rfb1[rfndx1].dec.Rb,rfb1[rfndx1].dec.imm[13:0],csro);
-			$display("  2:ip=%h Ra%d=%h Rb%d=%h", rfb2[rfndx2].ifb.ip, rfb2[rfndx2].dec.Ra, rfo0, rfb2[rfndx2].dec.Rb, rfo1);
-			$display("ExecuteBuffer:");
-			$display("  %d: %c%c%c%c%c ip=%h ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
-				exb[n].v ? "v":"-",
-				exb[n].decoded ? "d" : "-",
-				exb[n].regfetched ? "r": "-",
-				exb[n].out ? "o" : "-",
-				exb[n].executed ? "x" : "-",
-				exb[n].ifb.ip,
-				exb[n].ifb.insn,
-				exb[n].ifb.insn.any.opcode.name(),
-				exb[n].res,
-				exb[n].a,
-				exb[n].b,
-				exb[n].c,
-				exb[n].t,
-				exb[n].dec.imm
-			);
-			$display("Address Generation");
-			$display("  %c ip=%h oc=%0s tmpadr=%h",
-				agb[n].v ? "v" : "-",
-				agb[n].ifb.ip,
-				agb[n].ifb.insn.any.opcode.name(),
-				tmpadr
-			);
-		end
-	end
-`endif
-end
-endtask
-
-	/*
-	if (rollback_ipv[ip_thread5]) begin//|rolledback1[ip_thread5]|rolledback2[ip_thread5]) begin
-		ic_ifb.pfx <= NOP;
-		ic_ifb.insn <= NOP;
-		ic_ifb.ip <= thread[ip_thread5].ip;
-		ic_ifb.sp_sel <= sp_sel[ip_thread5];
-		ic_ifb.v <= 1'b0;
-		ic_ifb.thread <= ip_thread5;
-	end
-	else
-	*/
-
 always_ff @(posedge clk_g)
 	ic_line2 <= ic_line;
 always_ff @(posedge clk_g)
 	ip_insn <= ip_icline;
 always_ff @(posedge clk_g)
 	ihit2 <= ihit;
+always_ff @(posedge clk_g)
+	ihite2 <= ihite;
+always_ff @(posedge clk_g)
+	ihito2 <= ihito;
 always_ff @(posedge clk_g)
 	ic_tag2 <= ic_tag;
 reg [NTHREADS-1:0] wr_ififo;
@@ -657,7 +571,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
 		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=PFX;
 
-	rfPhoenix_insn_fifo #(.DEP(16)) ufifo1
+	rfPhoenix_insn_fifo #(.DEP(14)) ufifo1
 	(
 		.rst(rst_i|rollback[g]),
 		.clk(clk_g),
@@ -681,37 +595,6 @@ endgenerate
 wire [3:0] issue_num;
 ffo12 uffo1 (.i({12'd0,sb_will_issue}), .o(issue_num));
 
-integer n10;
-always_ff @(posedge clk_g)
-if (rst_i)
-	itndx2 <= 'd0;
-else
-	itndx2 <= itndx1;
-always_ff @(posedge clk_g)
-if (rst_i)
-	itndx2_v <= 1'b0;
-else	
-	itndx2_v <= itndx1_v;
-/*
-always_ff @(posedge clk_g)
-if (rst_i) begin
-	itndx <= 'd0;
-	itndx_v <= 1'b0;
-end
-else begin
-	if (!((itndx==itndx1 || itndx==itndx2) && itndx1_v && itndx2_v)) begin
-		itndx <= itndx2;
-		itndx_v <= itndx2_v;
-	end
-	else
-		itndx_v <= 1'b0;
-end
-*/
-always_comb
-	itndx <= itndx1;
-always_comb
-	itndx_v <= itndx1_v;
-
 always_ff @(posedge clk_g)
 if (rst_i) begin
 	tReset();
@@ -726,7 +609,7 @@ else begin
 	$display("  exndx=%d exv=%h", exndx, exv);
 `endif	
 	tDisplayRegs();
-	tDisplayEb();
+	tDisplayPipe();
 	tOnce();
 	tInsnFetch();
 	tDecode();
@@ -742,7 +625,7 @@ end
 task tReset;
 integer n;
 begin
-	cr0 <= 32'h0F;	// enable threads 0 to 3
+	cr0 <= 32'h01;	// enable threads 0 to 3
 	vl <= NLANES;		// number of vector elements
 	tid <= 8'd1;
 	gie <= 'd0;
@@ -893,8 +776,8 @@ rfPhoenix_round_robin_select rr1
 	.rst(rst_i),
 	.clk(clk_g),
 	.i(itsel),
-	.o(itndx1),
-	.ov(itndx1_v)
+	.o(itndx),
+	.ov(itndx_v)
 );
 
 // dcndx selects a decoded instruction from the fifo for register fetch.
@@ -941,8 +824,7 @@ end
 endgenerate
 
 // exndx selects the thread to move to the execution stage. To be selected the
-// register file values must have been fetched and the instruction not out being
-// executed already.
+// register file values must have been fetched.
 
 reg [NTHREADS-1:0] exsel;
 generate begin : gExsel
@@ -1162,13 +1044,6 @@ begin
 		ip_thread1_v <= itndx_v;
 		ip_thread2_v <= ip_thread1_v;
 		ip_thread3_v <= ip_thread2_v;
-`ifdef IS_SIM
-		$display("Insn Fetch %d:", ip_thread4);
-		$display("  ip_insn=%h  insn=%h postfix=%h", ic_ifb.ip, ic_ifb.insn, ic_ifb.pfx);
-		$display("  ip_thread4=%h", ip_thread4);
-		for (n = 0; n < NTHREADS; n = n + 1)
-			$display("  thread[%d].ip=%h", n[3:0], thread[n].ip);
-`endif			
 		if (ip_thread2_v) begin
 			if (!ihit) begin
 				ic_ifb.v <= 1'b0;
@@ -1203,6 +1078,8 @@ begin
 					memreq.vcadr <= {ic_tag,6'b0};
 					memreq.res <= ic_line;
 					memreq.sz <= ic_valid ? tetra : nul;
+					// But, which line do we need?
+					memreq.hit <= {ihito2,ihite2};
 				end
 				else
 					imiss_count <= imiss_count + 2'd1;
@@ -1221,15 +1098,15 @@ endtask
 task tDecode;
 begin
 	rfndx1_v <= 1'b0;
-//	if (issue_num != 4'd15) begin
+	rfndx1 <= dcndx;
 	if (!ou_stall[dcndx] && dcndx_v) begin
+		dcb[dcndx].thread <= dcndx;
+		dcb[dcndx].regfetched <= 1'b0;
+		dcb[dcndx].executed <= 1'b0;
 		if (rollback[dcndx]) begin
 			dcb[dcndx].v <= 1'b0;
 			dcb[dcndx].ifb <= 'd0;
 			dcb[dcndx].dec <= 'd0;
-			dcb[dcndx].decoded <= 1'b0;
-			dcb[dcndx].regfetched <= 1'b0;
-			dcb[dcndx].executed <= 1'b0;
 			ra0 <= 'd0;
 			ra1 <= 'd0;
 			ra2 <= 'd0;
@@ -1238,20 +1115,13 @@ begin
 		end
 		else begin
 			dcb[dcndx].v <= dc_ifb[dcndx].v;
-			dcb[dcndx].thread <= dcndx;
 			dcb[dcndx].ifb <= dc_ifb[dcndx];
-//			$display("Decode %d:", dcndx);
-//			$display("  dc_ifb[%d]=%h ra0=%d",dcndx,dc_ifb[dcndx], fnSpSel(dcndx,dco[dcndx].Ra.num));
 			dcb[dcndx].dec <= dco[dcndx];
-			dcb[dcndx].decoded <= dc_ifb[dcndx].v;
-			dcb[dcndx].regfetched <= 1'b0;
-			dcb[dcndx].executed <= 1'b0;
 			ra0 <= fnSpSel(dcndx,dco[dcndx].Ra.num);
 			ra1 <= fnSpSel(dcndx,dco[dcndx].Rb.num);
 			ra2 <= fnSpSel(dcndx,dco[dcndx].Rc.num);
 			ra3 <= dco[dcndx].Rm.num;
 			ra4 <= fnSpSel(dcndx,dco[dcndx].Rt.num);
-			rfndx1 <= dcndx;
 			rfndx1_v <= 1'b1;
 		end
 	end
@@ -1308,7 +1178,7 @@ begin
 				rollback_ipv[rfndx2] <= 1'b0;
 				tRegf();
 			end
-			else if ((rfb1[rfndx1].decoded && !rfb1[rfndx1].regfetched) || 1'b1) begin
+			else begin
 				tRegf();
 			end
 		end
@@ -1316,13 +1186,6 @@ begin
 end
 endtask
 
-/*
-integer n12;
-reg [NTHREADS-1:0] next_ex_decoded;
-always_comb
-	for (n12 = 0; n12 < NTHREADS; n12 = n12 + 1)
-		next_ex_decoded[n12] = exndx_v ? 1'b0 : exb[n12].decoded;
-*/
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // EX stage 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1398,10 +1261,8 @@ endtask
 
 task tExecute;
 begin
-	//exb[exndx].decoded <= next_ex_decoded[wxndx];
 	if (!ou_stall[exndx] && exndx_v) begin
 		exb[exndx] <= rfb2[exndx];
-		exb[exndx].decoded <= 1'b0;
 		exb[exndx].regfetched <= 1'b0;
 		exb[exndx].out <= 1'b1;
 		exb[exndx].retry <= 'd0;
@@ -1652,16 +1513,6 @@ endtask
 
 wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
 
-/*
-reg [NTHREADS-1:0] next_ou_decoded;
-integer n13;
-always_comb
-	for (n13 = 0; n13 < NTHREADS; n13 = n13 + 1)
-		next_ou_decoded[n] = 
-			(xrid_v && exb[n].agen && !(memreq_full && !req_icload) && (exb[n].dec.load|exb[n].dec.store)) ?
-			1'b1 : exb[n].decoded
-			;
-*/
 task tOut;
 begin
 	if (!ou_stall[oundx]) begin
@@ -1670,7 +1521,6 @@ begin
 		// We want this before CALL is processed which also sets res.
 		if (oundx_v && !exb[oundx].dec.cjb)
 			oub[oundx].res <= vres;
-		//exb[xrid].decoded <= next_ou_decoded;
 		if (oundx_v) begin
 			oub[oundx].out <= (agb[oundx].dec.load|agb[agndx].dec.store) ? ~agb[agndx].agen : 1'b0;
 			oub[oundx].executed <= (agb[oundx].dec.load|agb[agndx].dec.store) ? agb[agndx].agen : 1'b1;
@@ -1691,7 +1541,6 @@ begin
 				// indicators so the instruction will be reselected for execution.
 				else begin
 					if (agb[oundx].dec.load|agb[oundx].dec.store) begin
-						oub[oundx].decoded <= 1'b1;
 						oub[oundx].regfetched <= 1'b1;
 						oub[oundx].executed <= 1'b0;
 						oub[oundx].out <= 1'b0;
@@ -2123,6 +1972,10 @@ begin
 end
 endtask
 
+// =========================================================================
+// Debug Code
+// =========================================================================
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Disassembler for debugging. It helps to have some output to allow 
 // visual tracking in the simulation run.
@@ -2199,5 +2052,96 @@ begin
 	endcase
 end
 endfunction
+
+task tDisplayRegs;
+integer n;
+begin
+`ifdef IS_SIM
+	// The heirarchical reference to the register file here prevents synthsis
+	// from using RAM resources to implement the register file. So this block
+	// is enabled only for simulation.
+	$display("GPRs");
+	for (n = 0; n < NTHREADS*NREGS; n = n + 8) begin
+		// Do not bother with display of regs for disabled threads.
+		if (cr0[n >> $clog2(NREGS)]) begin
+			if ((n % NREGS)==0)
+				$display("  Thread:%d", n / NREGS);
+			$display("%s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  %s:%h  ",
+				fnRegName(n), ugprs1.ugpr0.mem[n],
+				fnRegName(n+1), ugprs1.ugpr0.mem[n+1],
+				fnRegName(n+2), ugprs1.ugpr0.mem[n+2],
+				fnRegName(n+3), ugprs1.ugpr0.mem[n+3],
+				fnRegName(n+4), ugprs1.ugpr0.mem[n+4],
+				fnRegName(n+5), ugprs1.ugpr0.mem[n+5],
+				fnRegName(n+6), ugprs1.ugpr0.mem[n+6],
+				fnRegName(n+7), ugprs1.ugpr0.mem[n+7]
+				);				
+		end
+	end
+	$display("");
+`endif
+end
+endtask
+
+task tDisplayPipe;
+integer n,n1;
+begin
+`ifdef IS_SIM
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		if (cr0[n]) begin
+			$display("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+			$display("Thread: %d", n);
+			$display("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -");
+			$display("Insn Fetch %d:", ip_thread4);
+			$display("  ip_insn=%h  insn=%h postfix=%h", ic_ifb.ip, ic_ifb.insn, ic_ifb.pfx);
+			$display("  ip_thread4=%h", ip_thread4);
+			for (n1 = 0; n1 < NTHREADS; n1 = n1 + 1)
+				$display("  thread[%d].ip=%h", n1[3:0], thread_ip[n1]);
+			$display("DecodeBuffer:");
+			$display("  1:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
+				dc_ifb[n].v ? "v":"-",
+				dc_ifb[n].ip,
+				dc_ifb[n].insn,
+				dc_ifb[n].insn.any.opcode.name()
+			);
+			$display("  2:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
+				dcb[n].v ? "v":"-",
+				dcb[n].ifb.ip,
+				dcb[n].ifb.insn,
+				dcb[n].ifb.insn.any.opcode.name()
+			);
+			$display("Regfetch %d,%d:", rfndx1,rfndx2);
+			$display("  1:%c ip=%h Ra%d Rb%d csro[%h]=%h",
+				rfndx1_v?"v":"-",rfb1[rfndx1].ifb.ip, rfb1[rfndx1].dec.Ra, rfb1[rfndx1].dec.Rb,rfb1[rfndx1].dec.imm[13:0],csro);
+			$display("  2:%c ip=%h Ra%d=%h Rb%d=%h",
+				rfndx2_v?"v":"-",rfb2[rfndx2].ifb.ip, rfb2[rfndx2].dec.Ra, rfo0, rfb2[rfndx2].dec.Rb, rfo1);
+			$display("ExecuteBuffer:");
+			$display("  %d: %c%c%c%c ip=%h ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
+				exb[n].v ? "v":"-",
+				exb[n].regfetched ? "r": "-",
+				exb[n].out ? "o" : "-",
+				exb[n].executed ? "x" : "-",
+				exb[n].ifb.ip,
+				exb[n].ifb.insn,
+				exb[n].ifb.insn.any.opcode.name(),
+				exb[n].res,
+				exb[n].a,
+				exb[n].b,
+				exb[n].c,
+				exb[n].t,
+				exb[n].dec.imm
+			);
+			$display("Address Generation");
+			$display("  %c ip=%h oc=%0s tmpadr=%h",
+				agb[n].v ? "v" : "-",
+				agb[n].ifb.ip,
+				agb[n].ifb.insn.any.opcode.name(),
+				tmpadr
+			);
+		end
+	end
+`endif
+end
+endtask
 
 endmodule

@@ -47,9 +47,14 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [511:0] data;
+} ICacheLine;
+/*
+typedef struct packed
+{
 	logic [583:0] data;
 } ICacheLine;
-
+*/
 typedef struct packed
 {
 	logic [19:0] at;
