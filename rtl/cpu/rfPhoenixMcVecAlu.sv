@@ -36,22 +36,31 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixMcVecAlu(rst, clk, ir, a, b, c, imm, o, done, ridi, rido);
+module rfPhoenixMcVecAlu(rst, clk, ir, a, b, c, imm, i, o, done, ridi, rido);
 input rst;
 input clk;
-input Instruction ir;
+input instruction_t ir;
 input VecValue a;
 input VecValue b;
 input VecValue c;
 input Value imm;
-output VecValue o;
+input pipeline_reg_t i;
+output pipeline_reg_t o;
 output reg done;
 input Tid ridi;
 output Tid rido;
 
+pipeline_reg_t wbo;
+VecValue o1;
 integer n;
 genvar g;
 reg [NLANES-1:0] don;
+
+vector_quad_value_t ab, bb, cb, ob1;
+
+assign ab = a;
+assign bb = b;
+assign cb = c;
 
 generate begin
 	for (g = 0; g < NLANES; g = g + 1)
@@ -63,7 +72,7 @@ generate begin
 			.b(b[g]),
 			.c(c[g]),
 			.imm(imm),
-			.o(o[g]),
+			.o(o1[g]),
 			.done(don[g]),
 			.ridi('d0),
 			.rido()
@@ -71,8 +80,35 @@ generate begin
 end
 endgenerate
 
+generate begin
+	for (g = 0; g < NLANES/4; g = g + 1)
+		rfPhoenixMcAlu128 ualu1(
+			.rst(rst),
+			.clk(clk),
+			.ir(ir),
+			.a(ab[g]),
+			.b(bb[g]),
+			.c(cb[g]),
+			.o(ob1[g]),
+			.done(),
+			.ridi('d0),
+			.rido()
+		);
+end
+endgenerate
+
+
 //ft_delay #(.WID(4), .DEP(7)) uftd1 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
-vtdl #(.WID($bits(Tid)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd8), .d(ridi), .q(rido));
+vtdl #(.WID($bits(pipeline_reg_t)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd8), .d(i), .q(wbo));
+
+always_ff @(posedge clk)
+begin
+	o <= wbo;
+	if (wbo.dec.prc==PRC128)
+		o.res <= ob1;
+	else
+		o.res <= o1;
+end
 
 always_comb
 	done <= &don;

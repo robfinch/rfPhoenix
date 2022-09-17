@@ -44,7 +44,6 @@ module rfPhoenix_tlb(rst_i, clk_i, clock, al_i, rdy_o, asid_i, sys_mode_i,xlaten
 	tlbmiss_o, tlbmiss_adr_o, tlbkey_o,
 	m_cyc_o, m_ack_i, m_adr_o, m_dat_o);
 parameter ASSOC = 5;	// MAX assoc = 15
-parameter AWID=32;
 parameter RSTIP = 32'hFFFD0000;
 input rst_i;
 input clk_i;
@@ -95,7 +94,7 @@ typedef enum logic [3:0] {
 } tlb_state_t;
 tlb_state_t state = ST_RST;
 
-wire [AWID-1:0] rstip = RSTIP;
+code_address_t rstip = RSTIP;
 reg [3:0] randway;
 TLBE tentryi [0:ASSOC-1];
 TLBE tentryo [0:ASSOC-1];
@@ -176,19 +175,19 @@ edge_det u5 (
 
 // Detect a change in the page number
 wire cd_dadr, cd_iadr;
-change_det #(.WID($bits(Address)-16)) ucd1 (
+change_det #(.WID($bits(Address)-14)) ucd1 (
 	.rst(rst_i),
 	.clk(clk_g),
 	.ce(1'b1),
-	.i(dadr_i[$bits(Address)-1:16]),
+	.i(dadr_i[$bits(Address)-1:14]),
 	.cd(cd_dadr)
 );
 
-change_det #(.WID($bits(Address)-16)) ucd2 (
+change_det #(.WID($bits(Address)-14)) ucd2 (
 	.rst(rst_i),
 	.clk(clk_g),
 	.ce(1'b1),
-	.i(iadr_i[$bits(Address)-1:16]),
+	.i(iadr_i[$bits(Address)-1:14]),
 	.cd(cd_iadr)
 );
 
@@ -208,7 +207,7 @@ TLBE tlbdat_rst;
 TLBE [ASSOC-1:0] tlbdati;
 TLBE tlbdati_r;
 reg [9:0] tlbadri_r;
-reg [5:0] count;
+reg [4:0] count;
 reg [ASSOC-1:0] tlbwrr;
 reg [ASSOC-1:0] tlbwr_r;
 reg tlbeni;
@@ -236,7 +235,7 @@ if (rst_i) begin
 	state <= ST_RST;
 	tlbeni <= 1'b1;		// forces ready low
 	tlbwrr <= 'd0;
-	count <= 6'h0;		// Map only last 256kB
+	count <= 'd0;		// Map only last 256kB
 	clock_r <= 1'b0;
 	m_cyc_o <= 1'b0;
 	m_dat_o <= 'd0;
@@ -253,7 +252,7 @@ ST_RST:
 	begin
 		tlbeni <= 1'b1;
 		tlbwrr <= 'd0;
-		case(count[5])
+		case(count[4])
 //		13'b000: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b001: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b010: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
@@ -268,10 +267,10 @@ ST_RST:
 				tlbdat_rst.pte.rwx <= 3'd7;
 				tlbdat_rst.pte.c <= 1'b1;
 				// FFFC0000
-				// 1111_1111_ 11_11_1100_000 0_0000_0000_0000
-				tlbdat_rst.vpn <= {14'h3FFF,count[4:0]};
-				tlbdat_rst.pte.ppn <= {14'h3FFF,count[4:0]};
-				rcount <= {5'h1F,count[4:0]};
+				// 1111_1111_1111_1100_00 00_0000_0000_0000
+				tlbdat_rst.vpn <= {14'h3FFF,count[3:0]};
+				tlbdat_rst.pte.ppn <= {14'h3FFF,count[3:0]};
+				rcount <= {6'h3F,count[3:0]};
 			end // Map 16MB ROM/IO area
 		1'b1: begin state <= ST_RUN; tlbwrr[ASSOC-1] <= 1'd1; end
 		default:	;
@@ -354,7 +353,7 @@ begin
 			for (n2 = 0; n2 < ASSOC; n2 = n2 + 1)
 				tlbdati[n2] <= tlbdat_i;
 			tlbwr_r <= next_wrtlb;
-			tlbadri_r <= tlbadr_i[15:5];
+			tlbadri_r <= tlbadr_i[14:5];
 			tlbdati_r <= tlbdat_i;
 		end
 	ST_AGE1,ST_AGE2,ST_AGE3:
@@ -372,7 +371,7 @@ begin
 		end
 	default:
 		begin
-			tlbadri <= tlbadr_i[15:5];
+			tlbadri <= tlbadr_i[14:5];
 			for (n2 = 0; n2 < ASSOC; n2 = n2 + 1)
 				tlbdati[n2] <= tlbdat_i;
 		end
@@ -439,7 +438,7 @@ for (g = 0; g < ASSOC; g = g + 1)
 	  .clkb(clk_g),    // input wire clkb
 	  .enb(xlaten_i),      // input wire enb
 	  .web(wr[g]),      // input wire [0 : 0] web
-	  .addrb(adr_i[23:13]),  // input wire [9 : 0] addrb
+	  .addrb(adr_i[23:14]),  // input wire [9 : 0] addrb
 	  .dinb(tentryi[g]),    // input wire [63 : 0] dinb
 	  .doutb(tentryo[g])  // output wire [63 : 0] doutb
 	);
@@ -449,7 +448,7 @@ endgenerate
 always_ff @(posedge clk_g, posedge rst_i)
 if (rst_i) begin
   padr_o[15:0] <= rstip[15:0];
-  padr_o[AWID-1:16] <= rstip[AWID-1:16];
+  padr_o[$bits(Address)-1:16] <= rstip[$bits(Address)-1:16];
   hit <= 4'd15;
   tlbmiss_o <= FALSE;
 	tlbmiss_adr_o <= 'd0;
@@ -475,10 +474,10 @@ else begin
 			acr_o <= 4'h0;
 			for (n = 0; n < ASSOC; n = n + 1) begin
 				tentryo2[n] <= tentryo[n];
-				if (tentryo[n].vpn[18:10]==iadrd[31:23] && (tentryo[n].asid==asid_i || tentryo[n].pte.g) && tentryo[n].pte.v) begin
-			  	padr_o[12:0] <= iadrd[12:0];
-					padr_o[31:13] <= tentryo[n].pte.ppn[18:0];
-					acr_o <= {tentryo[n].pte.ppn < 19'h07FFF || tentryo[n].pte.ppn > 19'h7FFE0,tentryo[n].pte.rwx};
+				if (tentryo[n].vpn[17:10]==iadrd[31:24] && (tentryo[n].asid==asid_i || tentryo[n].pte.g) && tentryo[n].pte.v) begin
+			  	padr_o[13:0] <= iadrd[13:0];
+					padr_o[31:14] <= tentryo[n].pte.ppn[17:0];
+					acr_o <= {tentryo[n].pte.ppn < 18'h03FFF || tentryo[n].pte.ppn > 18'h3FFF0,tentryo[n].pte.rwx};
 					tlbmiss_o <= FALSE;
 					hit <= n;
 				end

@@ -37,7 +37,7 @@
 import rfPhoenixPkg::*;
 
 module rfPhoenixAlu(ir, a, b, c, t, imm, asid, hmask, trace_dout, trace_empty, trace_valid, trace_count, o);
-input Instruction ir;
+input instruction_t ir;
 input Value a;
 input Value b;
 input Value c;
@@ -139,42 +139,42 @@ rfPhoenix_ipt_hash uhash1
 
 always_comb
 case(ir.any.opcode)
-R2:
+OP_R2:
 	case(ir.r2.func)
-	R1:
+	OP_R1:
 		case(ir.r2.Rb)
-		CNTLZ:		o = {26'd0,cntlz_o};
-		CNTPOP:		o = {26'd0,cntpop_o};
-		PTGHASH:	o = {16'h0,hash};
-		FABS:			o = {1'b0,a[30:0]};
-		FNABS:		o = {1'b1,a[30:0]};
-		FNEG:			o = {~a[31],a[30:0]};
-		FCLASS:		o = fclass_o;
-		FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
-		FFINITE:	o = {31'd0,~xinf};
-		PEEKQ:		
+		OP_CNTLZ:		o = {26'd0,cntlz_o};
+		OP_CNTPOP:		o = {26'd0,cntpop_o};
+		OP_PTGHASH:	o = {16'h0,hash};
+		OP_FABS:			o = {1'b0,a[30:0]};
+		OP_FNABS:		o = {1'b1,a[30:0]};
+		OP_FNEG:			o = {~a[31],a[30:0]};
+		OP_FCLASS:		o = fclass_o;
+		OP_FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
+		OP_FFINITE:	o = {31'd0,~xinf};
+		OP_PEEKQ:		
 			case(imm[3:0])
 			4'd15:	o = trace_dout;
 			default:	o = 'd0;
 			endcase
-		POPQ:
+		OP_POPQ:
 			case(imm[3:0])
 			4'd15:	o = trace_dout;
 			default:	o = 'd0;
 			endcase
-		STATQ:		
+		OP_STATQ:		
 			case(imm[3:0])
 			4'd15:	o = {trace_empty,trace_valid,19'd0,trace_count};
 			default:	o = 'd0;
 			endcase
 		default:	o = 'd0;
 		endcase
-	ADD:		o = a + b;
-	SUB:		o = a - b;
-	AND:		o = a & b;
-	OR:			o = a | b;
-	XOR:		o = a ^ b;
-	CMP:
+	OP_ADD:		o = a + b;
+	OP_SUB:		o = a - b;
+	OP_AND:		o = a & b;
+	OP_OR:			o = a | b;
+	OP_XOR:		o = a ^ b;
+	OP_CMP:
 		begin
 			o[0] = a == b;
 			o[1] = $signed(a) < $signed(b);
@@ -202,36 +202,53 @@ R2:
 			o[25] = fcmp_o[12];	// ordered
 			o[31:26] = 6'd0;
 		end
-	CMP_EQ:	o = a == b;
-	CMP_NE:	o = a != b;
-	CMP_LT:	o = $signed(a) < $signed(b);
-	CMP_GE:	o = $signed(a) >= $signed(b);
-	CMP_LE: o = $signed(a) <= $signed(b);
-	CMP_GT:	o = $signed(a) > $signed(b);
-	CMP_LTU:	o = a < b;
-	CMP_GEU:	o = a >= b;
-	CMP_LEU:	o = a <= b;
-	CMP_GTU:	o = a > b;
-	FCMP_EQ:	o = fcmp_o[0];
-	FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
-	FCMP_LT:	o = fcmp_o[1];
-	FCMP_LE:	o = fcmp_o[2];
-	FCMP_GT:	o = fcmp_o[10];
-	FCMP_GE:	o = fcmp_o[9];
-	SLLI:			o = slli[63:32];
-	SRLI:			o = srli[31: 0];
-	SRAI:			o = srai[31: 0];
-	SLL:			o = sllr[63:32];
-	SRL:			o = srlr[31 :0];
-	SRA:			o = srar[31 :0];
+	OP_CMP_EQ:	o = a == b;
+	OP_CMP_NE:	o = a != b;
+	OP_CMP_LT:	o = $signed(a) < $signed(b);
+	OP_CMP_GE:	o = $signed(a) >= $signed(b);
+	OP_CMP_LE: o = $signed(a) <= $signed(b);
+	OP_CMP_GT:	o = $signed(a) > $signed(b);
+	OP_CMP_LTU:	o = a < b;
+	OP_CMP_GEU:	o = a >= b;
+	OP_CMP_LEU:	o = a <= b;
+	OP_CMP_GTU:	o = a > b;
+	OP_FCMP_EQ:	o = fcmp_o[0];
+	OP_FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
+	OP_FCMP_LT:	o = fcmp_o[1];
+	OP_FCMP_LE:	o = fcmp_o[2];
+	OP_FCMP_GT:	o = fcmp_o[10];
+	OP_FCMP_GE:	o = fcmp_o[9];
+	OP_SLLI:			o = slli[63:32];
+	OP_SRLI:			o = srli[31: 0];
+	OP_SRAI:			o = srai[31: 0];
+	OP_SLL:			o = sllr[63:32];
+	OP_SRL:			o = srlr[31 :0];
+	OP_SRA:			o = srar[31 :0];
+	OP_REMASK:
+		if (ir.r2.Rb.vec) begin	// same bit as E xpand
+			case(ir.r2.Rb)
+			6'd1: o = a;		// 1:1 map
+			6'd2:	o = {{2{a[7]}},{2{a[6]}},{2{a[5]}},{2{a[4]}},{2{a[3]}},{2{a[2]}},{2{a[1]}},{2{a[0]}}};	// 1:2
+			6'd4: o = {{4{a[3]}},{4{a[2]}},{4{a[1]}},{4{a[0]}}};	// 1:4 map (converting 128-bit lanes to 32-bit lanes)
+			default:	o = a;
+			endcase
+		end
+		else begin
+			case(ir.r2.Rb)
+			6'd1: o = a;		// 1:1 map
+			6'd2:	o = {a[14],a[12],a[10],a[8],a[6],a[4],a[2],a[0]};
+			6'd4:	o = {a[12],a[8],a[4],a[0]};
+			default:	o = a;
+			endcase
+		end
 	default:	o = 'd0;
 	endcase
-ADDI:			o = a + imm;
-SUBFI:		o = imm - a;
-ANDI:			o = a & imm;
-ORI:			o = a | imm;
-XORI:			o = a ^ imm;
-CMPI:
+OP_ADDI:			o = a + imm;
+OP_SUBFI:		o = imm - a;
+OP_ANDI:			o = a & imm;
+OP_ORI:			o = a | imm;
+OP_XORI:			o = a ^ imm;
+OP_CMPI:
 	begin
 		o[0] = a == imm;
 		o[1] = $signed(a) < $signed(imm);
@@ -259,24 +276,24 @@ CMPI:
 		o[25] = fcmpi_o[12];	// ordered
 		o[31:26] = 6'd0;
 	end
-CMP_EQI:	o = a == imm;
-CMP_NEI:	o = a != imm;
-CMP_LTI:	o = $signed(a) < $signed(imm);
-CMP_GEI:	o = $signed(a) >= $signed(imm);
-CMP_LEI:	o = $signed(a) <= $signed(imm);
-CMP_GTI:	o = $signed(a) > $signed(imm);
-CMP_LTUI:	o = a < imm;
-CMP_GEUI:	o	= a >= imm;
-CMP_LEUI:	o = a <= imm;
-CMP_GTUI:	o = a > imm;
-FCMP_EQI:	o = fcmpi_o[0];
-FCMP_NEI:	o = fcmpi_o[8]|fcmpi_o[4];	// return 1 if Nan
-FCMP_LTI:	o = fcmpi_o[1];
-FCMP_LEI:	o = fcmpi_o[2];
-FCMP_GTI:	o = fcmpi_o[10];
-FCMP_GEI:	o = fcmpi_o[9];
-CSR:			o = c;
-RET:			o = t + imm;
+OP_CMP_EQI:	o = a == imm;
+OP_CMP_NEI:	o = a != imm;
+OP_CMP_LTI:	o = $signed(a) < $signed(imm);
+OP_CMP_GEI:	o = $signed(a) >= $signed(imm);
+OP_CMP_LEI:	o = $signed(a) <= $signed(imm);
+OP_CMP_GTI:	o = $signed(a) > $signed(imm);
+OP_CMP_LTUI:	o = a < imm;
+OP_CMP_GEUI:	o	= a >= imm;
+OP_CMP_LEUI:	o = a <= imm;
+OP_CMP_GTUI:	o = a > imm;
+OP_FCMP_EQI:	o = fcmpi_o[0];
+OP_FCMP_NEI:	o = fcmpi_o[8]|fcmpi_o[4];	// return 1 if Nan
+OP_FCMP_LTI:	o = fcmpi_o[1];
+OP_FCMP_LEI:	o = fcmpi_o[2];
+OP_FCMP_GTI:	o = fcmpi_o[10];
+OP_FCMP_GEI:	o = fcmpi_o[9];
+OP_CSR:			o = c;
+OP_RET:			o = t + imm;
 default:	o = 'd0;
 endcase
 

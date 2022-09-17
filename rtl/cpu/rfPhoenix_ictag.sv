@@ -44,15 +44,15 @@ parameter WAYS=4;
 input rst;
 input clk;
 input wr;
-input CodeAddress ipo;
+input code_address_t ipo;
 input [1:0] way;
 input rclk;
 input [6:0] ndx;
 (* ram_style="block" *)
-output [$bits(CodeAddress)-1:7] tag [0:3];
+output [$bits(code_address_t)-1:7] tag [0:3];
 
 (* ram_style="block" *)
-reg [$bits(CodeAddress)-1:7] tags [0:WAYS*LINES-1];
+reg [$bits(code_address_t)-1:7] tags [0:WAYS*LINES-1];
 reg [6:0] rndx;
 
 integer g,g1;
@@ -79,7 +79,7 @@ else
 `endif
 begin
 	if (wr)
-		tags[way * LINES + ipo[13:7]] <= ipo[$bits(CodeAddress)-1:7];	// We know bit[6]
+		tags[way * LINES + ipo[13:7]] <= ipo[$bits(code_address_t)-1:7];	// We know bit[6]
 end
 
 always_ff @(posedge rclk)

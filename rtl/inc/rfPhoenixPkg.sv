@@ -1,7 +1,7 @@
 package rfPhoenixPkg;
 
 `undef IS_SIM
-`define IS_SIM	1
+//`define IS_SIM	1
 
 `define TRUE	1
 `define FALSE	0
@@ -16,7 +16,7 @@ parameter FALSE = `FALSE;
 parameter VAL = `VAL;
 parameter INV = `INV;
 
-`define NLANES	8
+`define NLANES	10
 `define NTHREADS	4
 `define NREGS		64
 
@@ -50,56 +50,60 @@ parameter TidMSB = $clog2(`NTHREADS)-1;
 parameter RAS_DEPTH	= 4;
 
 typedef enum logic [5:0] {
-	BRK			= 6'h00,
-	PFX			= 6'h01,
-	R2			= 6'h02,
-	ADDI		= 6'h04,
-	SUBFI		= 6'h05,
-	MULI		= 6'h06,
-	CSR			= 6'h07,
-	ANDI		= 6'h08,
-	ORI			= 6'h09,
-	XORI		= 6'h0A,
-	NOP			= 6'h0B,
-	CMPI		= 6'h0D,
-	CMP_EQI	= 6'h0E,
-	CMP_NEI	= 6'h0F,
-	CMP_LTI	= 6'h10,
-	CMP_GEI	= 6'h11,
-	CMP_LEI	= 6'h12,
-	CMP_GTI	= 6'h13,
-	CMP_LTUI	= 6'h14,
-	CMP_GEUI	= 6'h15,
-	CMP_LEUI	= 6'h16,
-	CMP_GTUI	= 6'h17,
-	CALL		= 6'h18,
-	BSR			= 6'h19,
-	RET			= 6'h1A,
-	Bcc			= 6'h1C,
-	FBcc		= 6'h1D,
-	FCMP_EQI	= 6'h1E,
-	FCMP_NEI	= 6'h1F,
-	FCMP_LTI	= 6'h24,
-	FCMP_GEI	= 6'h25,
-	FCMP_LEI	= 6'h26,
-	FCMP_GTI	= 6'h27,
-	FMA 		= 6'h2C,
-	FMS 		= 6'h2D,
-	FNMA		= 6'h2E,
-	FNMS 		= 6'h2F,
-	LDB			= 6'h30,
-	LDBU		= 6'h31,
-	LDW			= 6'h32,
-	LDWU		= 6'h33,
-	LDT			= 6'h34,
-	LDC			= 6'h35,
-	LDSR		= 6'h36,
-	STB			= 6'h38,
-	STW			= 6'h39,
-	STT			= 6'h3A,
-	STC			= 6'h3B,
-	STCR		= 6'h3D
-} Opcode;
+	OP_BRK			= 6'h00,
+	OP_PFX			= 6'h01,
+	OP_R2				= 6'h02,
+	OP_ADDI			= 6'h04,
+	OP_SUBFI		= 6'h05,
+	OP_MULI			= 6'h06,
+	OP_CSR			= 6'h07,
+	OP_ANDI			= 6'h08,
+	OP_ORI			= 6'h09,
+	OP_XORI			= 6'h0A,
+	OP_NOP			= 6'h0B,
+	OP_CMPI			= 6'h0D,
+	OP_CMP_EQI	= 6'h0E,
+	OP_CMP_NEI	= 6'h0F,
+	OP_CMP_LTI	= 6'h10,
+	OP_CMP_GEI	= 6'h11,
+	OP_CMP_LEI	= 6'h12,
+	OP_CMP_GTI	= 6'h13,
+	OP_CMP_LTUI	= 6'h14,
+	OP_CMP_GEUI	= 6'h15,
+	OP_CMP_LEUI	= 6'h16,
+	OP_CMP_GTUI	= 6'h17,
+	OP_CALL			= 6'h18,
+	OP_BSR			= 6'h19,
+	OP_RET			= 6'h1A,
+	OP_Bcc			= 6'h1C,
+	OP_FBcc			= 6'h1D,
+	OP_FCMP_EQI	= 6'h1E,
+	OP_FCMP_NEI	= 6'h1F,
+	OP_FCMP_LTI	= 6'h24,
+	OP_FCMP_GEI	= 6'h25,
+	OP_FCMP_LEI	= 6'h26,
+	OP_FCMP_GTI	= 6'h27,
+	OP_FMA128		= 6'h28,
+	OP_FMS128		= 6'h29,
+	OP_FNMA128	= 6'h2A,
+	OP_FNMS128	= 6'h2B,
+	OP_FMA 			= 6'h2C,
+	OP_FMS 			= 6'h2D,
+	OP_FNMA			= 6'h2E,
+	OP_FNMS 		= 6'h2F,
+	OP_LDB			= 6'h30,
+	OP_LDBU			= 6'h31,
+	OP_LDW			= 6'h32,
+	OP_LDWU			= 6'h33,
+	OP_LDT			= 6'h34,
+	OP_LDC			= 6'h35,
+	OP_LDSR			= 6'h36,
+	OP_STB			= 6'h38,
+	OP_STW			= 6'h39,
+	OP_STT			= 6'h3A,
+	OP_STC			= 6'h3B,
+	OP_STCR			= 6'h3D
+} opcode_t;
 
 typedef enum logic [2:0] {
 	BLT		= 3'd0,
@@ -121,90 +125,99 @@ typedef enum logic [2:0] {
 
 // R2 ops
 typedef enum logic [5:0] {
-	R1			= 6'h01,
-	VSHUF		= 6'h02,
-	VEX			= 6'h03,
-	ADD			= 6'h04,
-	SUB			= 6'h05,
-	MUL			= 6'h06,
-	TLBRW		= 6'h07,
-	AND			= 6'h08,
-	OR			= 6'h09,
-	XOR			= 6'h0A,
-	VEINS		= 6'h0C,
-	CMP			= 6'h0D,
-	CMP_EQ	= 6'h0E,
-	CMP_NE	= 6'h0F,
-	CMP_LT	= 6'h10,
-	CMP_GE	= 6'h11,
-	CMP_LE	= 6'h12,
-	CMP_GT	= 6'h13,
-	CMP_LTU	= 6'h14,
-	CMP_GEU	= 6'h15,
-	CMP_LEU	= 6'h16,
-	CMP_GTU	= 6'h17,
-	SLLI		= 6'h18,
-	SRLI		= 6'h19,
-	SRAI		= 6'h1A,
-	SLL			= 6'h1B,
-	SRL			= 6'h1C,
-	SRA			= 6'h1D,
-	FCMP_EQ	= 6'h1E,
-	FCMP_NE	= 6'h1F,
-	VSLLVI	= 6'h20,
-	VSRLVI	= 6'h21,
-	VSLLV		= 6'h22,
-	VSRLV		= 6'h23,
-	FCMP_LT	= 6'h24,
-	FCMP_GE	= 6'h25,
-	FCMP_LE	= 6'h26,
-	FCMP_GT	= 6'h27,
-	SHPTENDX	= 6'h28,
-	PUSHQ		= 6'h29,
-	FADD		= 6'h2C,
-	FSUB		= 6'h2D,
-	FMUL		= 6'h2E,
-	LDBX		= 6'h30,
-	LDBUX		= 6'h31,
-	LDWX		= 6'h32,
-	LDWUX		= 6'h33,
-	LDTX		= 6'h34,
-	LDCX		= 6'h35,
-	LDSRX		= 6'h36,
-	STBX		= 6'h38,
-	STWX		= 6'h39,
-	STTX		= 6'h3A,
-	STCX		= 6'h3B,
-	STCRX		= 6'h3D
-} R2Func;
+	OP_R1			= 6'h01,
+	OP_VSHUF		= 6'h02,
+	OP_VEX			= 6'h03,
+	OP_ADD			= 6'h04,
+	OP_SUB			= 6'h05,
+	OP_MUL			= 6'h06,
+	OP_TLBRW		= 6'h07,
+	OP_AND			= 6'h08,
+	OP_OR			= 6'h09,
+	OP_XOR			= 6'h0A,
+	OP_VEINS		= 6'h0C,
+	OP_CMP			= 6'h0D,
+	OP_CMP_EQ	= 6'h0E,
+	OP_CMP_NE	= 6'h0F,
+	OP_CMP_LT	= 6'h10,
+	OP_CMP_GE	= 6'h11,
+	OP_CMP_LE	= 6'h12,
+	OP_CMP_GT	= 6'h13,
+	OP_CMP_LTU	= 6'h14,
+	OP_CMP_GEU	= 6'h15,
+	OP_CMP_LEU	= 6'h16,
+	OP_CMP_GTU	= 6'h17,
+	OP_SLLI		= 6'h18,
+	OP_SRLI		= 6'h19,
+	OP_SRAI		= 6'h1A,
+	OP_SLL			= 6'h1B,
+	OP_SRL			= 6'h1C,
+	OP_SRA			= 6'h1D,
+	OP_FCMP_EQ	= 6'h1E,
+	OP_FCMP_NE	= 6'h1F,
+	OP_VSLLVI	= 6'h20,
+	OP_VSRLVI	= 6'h21,
+	OP_VSLLV		= 6'h22,
+	OP_VSRLV		= 6'h23,
+	OP_FCMP_LT	= 6'h24,
+	OP_FCMP_GE	= 6'h25,
+	OP_FCMP_LE	= 6'h26,
+	OP_FCMP_GT	= 6'h27,
+	OP_FADD128	= 6'h28,
+	OP_FSUB128	= 6'h29,
+	OP_SHPTENDX	= 6'h2A,
+	OP_FADD		= 6'h2C,
+	OP_FSUB		= 6'h2D,
+	OP_REMASK		= 6'h2E,
+//	OP_FMUL		= 6'h2E,
+	OP_PUSHQ		= 6'h2F,
+	OP_LDBX		= 6'h30,
+	OP_LDBUX		= 6'h31,
+	OP_LDWX		= 6'h32,
+	OP_LDWUX		= 6'h33,
+	OP_LDTX		= 6'h34,
+	OP_LDCX		= 6'h35,
+	OP_LDSRX		= 6'h36,
+	OP_STBX		= 6'h38,
+	OP_STWX		= 6'h39,
+	OP_STTX		= 6'h3A,
+	OP_STCX		= 6'h3B,
+	OP_STCRX		= 6'h3D
+} r2func_t;
 
 // R1 ops
 typedef enum logic [5:0] {
-	CNTLZ		= 6'h00,
-	CNTPOP	= 6'h02,
-	PTGHASH	= 6'h07,
-	PEEKQ		= 6'h08,
-	POPQ		= 6'h09,
-	STATQ		= 6'h0B,
-	RESETQ 	= 6'h0C,
-	RTI			= 6'h19,
-	REX			= 6'h1A,
-	FFINITE = 6'h20,
-	FNEG		= 6'h23,
-	FRSQRTE	= 6'h24,
-	FRES		= 6'h25,
-	FSIGMOID= 6'h26,
-	I2F			= 6'h28,
-	F2I			= 6'h29,
-	FABS		= 6'h2A,
-	FNABS		= 6'h2B,
-	FCLASS	= 6'h2C,
-	FMAN		= 6'h2D,
-	FSIGN		= 6'h2E,
-	FTRUNC	= 6'h2F
-} R1Func;
+	OP_CNTLZ		= 6'h00,
+	OP_CNTPOP		= 6'h02,
+	OP_PTGHASH	= 6'h07,
+	OP_PEEKQ		= 6'h08,
+	OP_POPQ			= 6'h09,
+	OP_STATQ		= 6'h0B,
+	OP_RESETQ 	= 6'h0C,
+	OP_RTI			= 6'h19,
+	OP_REX			= 6'h1A,
+	OP_FFINITE 	= 6'h20,
+	OP_FNEG			= 6'h23,
+	OP_FRSQRTE	= 6'h24,
+	OP_FRES			= 6'h25,
+	OP_FSIGMOID	= 6'h26,
+	OP_I2F			= 6'h28,
+	OP_F2I			= 6'h29,
+	OP_FABS			= 6'h2A,
+	OP_FNABS		= 6'h2B,
+	OP_FCLASS		= 6'h2C,
+	OP_FMAN			= 6'h2D,
+	OP_FSIGN		= 6'h2E,
+	OP_FTRUNC		= 6'h2F
+} r1func_t;
 
-parameter NOP_INSN	= {34'd0,NOP};
+typedef enum logic [1:0] {
+	PRC16 = 2'd0,
+	PRC32 = 2'd1,
+	PRC128 = 2'd2
+} float_prec_t;
+
+parameter NOP_INSN	= {34'd0,OP_NOP};
 
 typedef enum logic [3:0] {
 	MR_NOP = 4'd0,
@@ -298,7 +311,7 @@ typedef enum logic [11:0] {
 	FLT_RTI		= 12'h0ED,
 	FLT_IRQ		= 12'h8EE,
 	FLT_NMI		= 12'h8FE
-} CauseCode;
+} cause_code_t;
 
 typedef enum logic [2:0] {
 	nul = 3'd0,
@@ -310,13 +323,16 @@ typedef enum logic [2:0] {
 } memsz_t;
 
 typedef logic [TidMSB:0] Tid;
+typedef logic [11:0] order_tag_t;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
 typedef logic [31:0] VirtualAddress;
 typedef logic [31:0] PhysicalAddress;
-typedef logic [31:0] CodeAddress;
+typedef logic [31:0] code_address_t;
 typedef logic [31:0] Value;
 typedef logic [63:0] DoubleValue;
+typedef logic [127:0] quad_value_t;
+typedef quad_value_t [NLANES/4-1:0] vector_quad_value_t;
 typedef Value [NLANES-1:0] VecValue;
 typedef logic [5:0] Func;
 typedef logic [127:0] regs_bitmap_t;
@@ -325,7 +341,7 @@ typedef struct packed
 {
 	logic vec;					// 1=vector register
 	logic [5:0] num;
-} Regspec;
+} regspec_t;
 
 typedef struct packed
 {
@@ -344,150 +360,150 @@ typedef struct packed
 	logic uie;					// user interrupt enable
 } status_reg_t;				// 32 bits
 
-// Instruction types
+// Instruction types, makes decoding easier
 
 typedef struct packed
 {
 	logic [15:0] pad2;
 	logic [15:0] imm;
 	logic [1:0] pad;
-	Opcode opcode;
+	opcode_t opcode;
 } Postfix;
 
 typedef struct packed
 {
 	logic [33:0] payload;
-	Opcode opcode;
-} anyinst;
+	opcode_t opcode;
+} anyinst_t;
 
 typedef struct packed
 {
-	logic m;
-	logic [1:0] rm;
-	Regspec Rc;
-	Regspec Rb;
+	logic [2:0] rm;
+	regspec_t Rc;
+	regspec_t Rb;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} f3inst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} f3inst_t;
 
 typedef struct packed
 {
-	logic m;
-	logic [2:0] pad;
-	R2Func func;
-	Regspec Rb;
+	logic [2:0] rm;
+	logic resv;
+	r2func_t func;
+	regspec_t Rb;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} r2inst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} r2inst_t;
 
 typedef struct packed
 {
-	logic m;
-	logic [2:0] pad;
-	R2Func func;
+	logic [2:0] rm;
+	logic resv;
+	r2func_t func;
 	logic Tb;
-	R1Func func1;
+	r1func_t func1;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} r1inst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} r1inst_t;
 
 typedef struct packed
 {
-	logic m;
+	logic resv;
 	logic [15:0] imm;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} imminst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} imminst_t;
 
 typedef struct packed
 {
-	logic m;
+	logic resv;
 	logic [1:0] func;
 	logic [13:0] imm;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} csrinst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} csrinst_t;
 
 typedef struct packed
 {
-	logic m;
+	logic resv;
 	logic [15:0] disp;
 	logic [2:0] Rm;
-	Regspec Ra;
-	Regspec Rt;
-	Opcode opcode;
-} lsinst;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} lsinst_t;
 
 typedef struct packed
 {
 	logic resv;
 	logic [15:0] disp;
 	branch_cnd_t cnd;	
-	Regspec	Ra;
-	Regspec Rb;
-	Opcode opcode;
-} brinst;
+	regspec_t	Ra;
+	regspec_t Rb;
+	opcode_t opcode;
+} brinst_t;
 
 typedef struct packed
 {
 	logic [31:0] target;
 	logic [1:0] Rt;
-	Opcode opcode;
-} callinst;
+	opcode_t opcode;
+} callinst_t;
 
 typedef struct packed
 {
-	logic [31:0] cnst;
-	logic [1:0] sh;
-	Opcode opcode;
-} pfxinst;
+	logic [33:0] cnst;
+	opcode_t opcode;
+} pfxinst_t;
 
 typedef union packed
 {
-	f3inst 	f3;
-	r2inst	r2;
-	r1inst	r1;
-	brinst	br;
-	callinst	call;
-	callinst	jmp;
-	imminst	imm;
-	imminst	ri;
-	csrinst	csr;
-	lsinst	ls;
-	r2inst	lsn;
-	pfxinst	pfx;
-	anyinst any;
-} Instruction;
+	f3inst_t 	f3;
+	r2inst_t	r2;
+	r1inst_t	r1;
+	brinst_t	br;
+	callinst_t	call;
+	callinst_t	jmp;
+	imminst_t	imm;
+	imminst_t	ri;
+	csrinst_t	csr;
+	lsinst_t	ls;
+	r2inst_t	lsn;
+	pfxinst_t	pfx;
+	anyinst_t any;
+} instruction_t;
 
 typedef struct packed
 {
 	Tid thread;
 	logic v;
-	CodeAddress ip;
-	Instruction insn;
+	order_tag_t tag;
+	code_address_t ip;
+	instruction_t insn;
 	Postfix pfx;
-	CauseCode cause;
+	Postfix pfx2;
+	cause_code_t cause;
 	logic [2:0] sp_sel;
 } InstructionFetchbuf;
 
 typedef struct packed
 {
 	logic v;
-	Regspec Ra;
-	Regspec Rb;
-	Regspec Rc;
-	Regspec Rm;
-	Regspec Rt;
+	regspec_t Ra;
+	regspec_t Rb;
+	regspec_t Rc;
+	regspec_t Rm;
+	regspec_t Rt;
 	logic Ta;
 	logic Tb;
 	logic Tt;
@@ -497,7 +513,8 @@ typedef struct packed
 	logic hasRm;
 	logic hasRt;
 	logic Rtsrc;	// Rt is a source register
-	Value imm;
+	logic [79:0] imm;
+	float_prec_t prc;
 	logic rfwr;
 	logic vrfwr;
 	logic csr;
@@ -546,7 +563,7 @@ typedef struct packed
 	logic [3:0] count;
 	logic [3:0] step;
 	logic [2:0] retry;		// retry count
-	CauseCode cause;
+	cause_code_t cause;
 	Address badAddr;
 	VecValue a;
 	VecValue b;
@@ -554,19 +571,19 @@ typedef struct packed
 	VecValue t;
 	Value mask;
 	VecValue res;
-} ExecuteBuffer;
+} pipeline_reg_t;
 
 typedef struct packed {
 	logic [4:0] imiss;
 	logic sleep;
-	CodeAddress ip;				// current instruction pointer
-	CodeAddress miss_ip;	// I$ miss address
+	code_address_t ip;				// current instruction pointer
+	code_address_t miss_ip;	// I$ miss address
 } ThreadInfo_t;
 
 typedef struct packed {
 	logic loaded;						// 1=loaded internally
 	logic stored;						// 1=stored externally
-	CodeAddress ip;					// return address
+	code_address_t ip;					// return address
 	Address sp;							// Stack pointer location
 } return_stack_t;
 
@@ -599,21 +616,25 @@ parameter MR_STPTR	= 4'd9;
 typedef struct packed
 {
 	logic [7:0] tid;		// tran id
+	order_tag_t tag;
 	Tid thread;
 	logic [1:0] omode;	// operating mode
-	CodeAddress ip;			// Debugging aid
+	code_address_t ip;			// Debugging aid
 	logic [5:0] step;		// vector step number
 	logic [5:0] count;	// vector operation count
 	logic wr;
 	memop_t func;				// operation to perform
 	logic [3:0] func2;	// more resolution to function
+	logic load;					// needed to place results
+	logic store;
+	logic need_steps;
 	logic v;
 	logic empty;
-	CauseCode cause;
+	cause_code_t cause;
 	logic [127:0] sel;
 	ASID asid;
 	Address adr;
-	CodeAddress vcadr;		// victim cache address
+	code_address_t vcadr;		// victim cache address
 	logic [1023:0] res;		// stores unaligned data as well
 	logic dchit;
 	logic cmt;
@@ -625,9 +646,29 @@ typedef struct packed
 	logic ptgram_en;
 	logic rgn_en;
 	logic pmtram_ena;
-	Regspec tgt;				// target register
+	logic wr_tgt;
+	regspec_t tgt;				// target register
 } MemoryArg_t;		//
 
-const CodeAddress RSTIP	= 32'hFFFD0000;
+// The full pipeline structure is not needed for writeback. The writeback fifos
+// can be made smaller using a smaller structure.
+// Ah, but it appears that writeback needs some of the instruction buffer.
+// To support a few instructions like RTI and REX.
+/*
+typedef struct packed
+{
+	logic v;
+	order_tag_t tag;
+	cause_code_t cause;		// cause code
+	code_address_t ip;		// address of instruction
+	Address adr;					// bad load/store address
+	logic [5:0] step;			// vector step number
+	logic [1023:0] res;		// instruction results
+	logic wr_tgt;					// target register needs updating
+	regspec_t tgt;				// target register
+} writeback_info_t;
+*/
+
+const code_address_t RSTIP	= 32'hFFFD0000;
 
 endpackage

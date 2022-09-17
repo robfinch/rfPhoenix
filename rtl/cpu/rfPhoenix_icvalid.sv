@@ -44,8 +44,8 @@ parameter WAYS=4;
 input rst;
 input clk;
 input invce;
-input CodeAddress ip;
-input CodeAddress adr;		// physical address
+input code_address_t ip;
+input code_address_t adr;		// physical address
 input wr;
 input [1:0] way;
 input invline;

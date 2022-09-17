@@ -39,7 +39,7 @@ import rfPhoenixPkg::*;
 module rfPhoenixVecAlu(ir, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask, 
 	trace_dout, trace_empty, trace_valid, trace_count,
 	o);
-input Instruction ir;
+input instruction_t ir;
 input VecValue a;
 input VecValue b;
 input VecValue c;
@@ -91,16 +91,16 @@ end
 
 always_comb
 	case(ir.any.opcode)
-	R2:
+	OP_R2:
 		case (ir.r2.func)
-		FCMP_EQ,FCMP_NE,FCMP_LT,FCMP_GE,FCMP_LE,FCMP_GT:
+		OP_FCMP_EQ,OP_FCMP_NE,OP_FCMP_LT,OP_FCMP_GE,OP_FCMP_LE,OP_FCMP_GT:
 			if (Tt)
 				o = o1;
 			else if (Ta|Tb) begin
 				o = 'd0;
 				if (ir[30:29]==2'b00)
-					for (n = 0; n < NLANES*2; n = n + 1)
-						o[0][n] = o1[n[4:0]];
+					for (n = 0; n < NLANES; n = n + 1)
+						o[0][n] = o1[n[3:0]];
 				else
 					for (n = 0; n < NLANES*2; n = n + 2) begin
 						o[0][n+0] = o1[n[4:1]];
@@ -109,8 +109,8 @@ always_comb
 			end
 			else
 				o = o1;
-		CMP_EQ,CMP_NE,CMP_LT,CMP_GE,CMP_LE,CMP_GT,
-		CMP_LTU,CMP_GEU,CMP_LEU,CMP_GTU:
+		OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
+		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
 			if (Tt)
 				o = o1;
 			else if (Ta|Tb) begin
@@ -122,21 +122,21 @@ always_comb
 			end
 			else
 				o = o1;
-		VEX:	o = {NLANES{a[imm[3:0]]}};
+		OP_VEX:	o = {NLANES{a[imm[3:0]]}};
 //		VEINS:
-		VSHUF:
+		OP_VSHUF:
 			for (n = 0; n < NLANES; n = n + 1)
 				o[n] = a[b[n][3:0]];
-		VSLLV:		o = a << {b[0][3:0],5'd0};
-		VSRLV:		o = a >> {b[0][3:0],5'd0};
-		VSLLVI:		o = a << {imm[3:0],5'd0};
-		VSRLVI:		o = a >> {imm[3:0],5'd0};
-		SHPTENDX:	o = {NLANES{ptendx}};
+		OP_VSLLV:		o = a << {b[0][3:0],5'd0};
+		OP_VSRLV:		o = a >> {b[0][3:0],5'd0};
+		OP_VSLLVI:		o = a << {imm[3:0],5'd0};
+		OP_VSRLVI:		o = a >> {imm[3:0],5'd0};
+		OP_SHPTENDX:	o = {NLANES{ptendx}};
 		default:	o = o1;
 		endcase
-	FCMP_EQI,FCMP_NEI,FCMP_LTI,FCMP_GEI,FCMP_LEI,FCMP_GTI,
-	CMP_EQI,CMP_NEI,CMP_LTI,CMP_GEI,CMP_LEI,CMP_GTI,
-	CMP_LTUI,CMP_GEUI,CMP_LEUI,CMP_GTUI:
+	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI,
+	OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
+	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
 		if (Tt)
 			o = o1;
 		else if (Ta) begin

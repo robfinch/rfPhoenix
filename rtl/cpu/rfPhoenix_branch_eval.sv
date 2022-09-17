@@ -37,7 +37,7 @@
 import rfPhoenixPkg::*;
 
 module rfPhoenix_branch_eval(ir, a, b, o);
-input Instruction ir;
+input instruction_t ir;
 input Value a;
 input Value b;
 output reg o;
@@ -55,7 +55,7 @@ fpCompare32 ucmp1
 
 always_comb
 case(ir.any.opcode)
-Bcc:
+OP_Bcc:
 	case(ir.br.cnd)
 	BLT:		o = $signed(a) <  $signed(b);
 	BGE:		o = $signed(a) >= $signed(b);
@@ -66,14 +66,14 @@ Bcc:
 	BNE:		o = a!=b;
 	default:		o = 1'b0;
 	endcase
-FBcc:
+OP_FBcc:
 	case(ir.br.cnd)
-	3'd0:		o = fcmp_o[0];
-	3'd1:		o = fcmp_o[8]|fcmp_o[4];	// matches NE if Nan
-	3'd2:		o = fcmp_o[1];
-	3'd3:		o = fcmp_o[2];
-	3'd4:		o = fcmp_o[10];
-	3'd5:		o = fcmp_o[9];
+	3'd0:		o = fcmp_o[1];	// LT
+	3'd1:		o = fcmp_o[9];	// GE
+	3'd2:		o = fcmp_o[2];	// LE
+	3'd3:		o = fcmp_o[10];	// GT
+	3'd6:		o = fcmp_o[0];	// EQ
+	3'd7:		o = fcmp_o[8]|fcmp_o[4];	// matches NE if Nan
 	default:		o = 1'b0;
 	endcase
 default:	o = 1'b0;

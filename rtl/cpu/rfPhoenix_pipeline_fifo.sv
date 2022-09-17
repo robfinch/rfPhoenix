@@ -6,7 +6,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	rfPhoenix_insn_fifo.sv
+//	rfPhoenix_pipeline_fifo.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -38,15 +38,13 @@
 //
 import rfPhoenixPkg::*;
 
-module rfPhoenix_insn_fifo(rst, clk, wr, decin, ifbin, rd, decout, ifbout, cnt, almost_full, full, empty, v);
+module rfPhoenix_pipeline_fifo(rst, clk, wr, pin, rd, pout, cnt, almost_full, full, empty, v);
 parameter DEP=16;
 input rst;
 input clk;
 input wr;
-input DecodeBus decin;
-output DecodeBus decout;
-input InstructionFetchbuf ifbin;
-output InstructionFetchbuf ifbout;
+input pipeline_reg_t pin;
+output pipeline_reg_t pout;
 input rd;
 output [$clog2(DEP)-1:0] cnt;
 output almost_full;
@@ -78,19 +76,19 @@ output v;
    xpm_fifo_sync #(
       .DOUT_RESET_VALUE("0"),    // String
       .ECC_MODE("no_ecc"),       // String
-      .FIFO_MEMORY_TYPE("distributed"), // String
-      .FIFO_READ_LATENCY(1),     // DECIMAL
+      .FIFO_MEMORY_TYPE("auto"), // String
+      .FIFO_READ_LATENCY(0),     // DECIMAL
       .FIFO_WRITE_DEPTH(16),   // DECIMAL
       .FULL_RESET_VALUE(0),      // DECIMAL
       .PROG_EMPTY_THRESH(3),    // DECIMAL
       .PROG_FULL_THRESH(9),     // DECIMAL
       .RD_DATA_COUNT_WIDTH(4),   // DECIMAL
-      .READ_DATA_WIDTH($bits(DecodeBus)+$bits(InstructionFetchbuf)),      // DECIMAL
+      .READ_DATA_WIDTH($bits(pipeline_reg_t)),      // DECIMAL
       .READ_MODE("std"),         // String
       .SIM_ASSERT_CHK(0),        // DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       .USE_ADV_FEATURES("070F"), // String
       .WAKEUP_TIME(0),           // DECIMAL
-      .WRITE_DATA_WIDTH($bits(DecodeBus)+$bits(InstructionFetchbuf)),     // DECIMAL
+      .WRITE_DATA_WIDTH($bits(pipeline_reg_t)),     // DECIMAL
       .WR_DATA_COUNT_WIDTH(4)    // DECIMAL
    )
    xpm_fifo_sync_inst (
@@ -106,7 +104,7 @@ output v;
       .dbiterr(),             // 1-bit output: Double Bit Error: Indicates that the ECC decoder detected
                                      // a double-bit error and data in the FIFO core is corrupted.
 
-      .dout({decout,ifbout}),                   // READ_DATA_WIDTH-bit output: Read Data: The output data bus is driven
+      .dout(pout),                   // READ_DATA_WIDTH-bit output: Read Data: The output data bus is driven
                                      // when reading the FIFO.
 
       .empty(empty),                 // 1-bit output: Empty Flag: When asserted, this signal indicates that the
@@ -155,7 +153,7 @@ output v;
       .wr_rst_busy(),     					// 1-bit output: Write Reset Busy: Active-High indicator that the FIFO
                                      // write domain is currently in a reset state.
 
-      .din({decin,ifbin}),           // WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
+      .din(pin),           // WRITE_DATA_WIDTH-bit input: Write Data: The input data bus used when
                                      // writing the FIFO.
 
       .injectdbiterr(1'b0), // 1-bit input: Double Bit Error Injection: Injects a double bit error if

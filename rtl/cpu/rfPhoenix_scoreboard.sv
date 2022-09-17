@@ -41,7 +41,7 @@ input rst;
 input clk;
 input DecodeBus db;
 input wb_v;
-input Regspec wb_Rt;
+input regspec_t wb_Rt;
 input will_issue;
 output reg can_issue;
 input rollback;
@@ -58,7 +58,7 @@ regs_bitmap_t clr_bm;
 regs_bitmap_t set_bm;
 regs_bitmap_t rollback_bm;
 logic [ROLLBACK_STAGES-1:0] has_wb;
-Regspec [ROLLBACK_STAGES-1:0] wb_Rts;
+regspec_t [ROLLBACK_STAGES-1:0] wb_Rts;
 
 always_comb
 begin
@@ -115,7 +115,7 @@ begin
 		wb_Rts[n1] <= wb_Rts[n1-1];	
 end
 
-always_comb
-	can_issue = (nxt_valid[127:1] & srcs[127:1]) == srcs[127:1];
+always_ff @(posedge clk)
+	can_issue <= (nxt_valid[127:1] & srcs[127:1]) == srcs[127:1];
 
 endmodule

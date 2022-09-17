@@ -35,6 +35,7 @@
 // ============================================================================
 
 import rfPhoenixPkg::*;
+import rfPhoenixMmupkg::*;
 
 module rfPhoenix(hartid_i, rst_i, clk_i, clk2x_i, clk2d_i, wc_clk_i, clock,
 		nmi_i, irq_i, icause_i,
@@ -73,47 +74,47 @@ output sr_o;
 input rb_i;
 output [5:0] state_o;
 output reg trigger_o;
-output CauseCode wcause;
+output cause_code_t wcause;
 
 parameter IC_LATENCY = 2;
 
 integer n10;
 
 wire clk_g = clk_i;
-ExecuteBuffer [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb;
-ExecuteBuffer ebq [0:NTHREADS-1];
+pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb, wbb2;
 
 reg [NTHREADS-1:0] gie;
 reg [7:0] vl = 8'd8;
 Tid xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+order_tag_t insn_otag;
 wire dcndx_v,exndx_v,wbndx_v;
 wire agndx_v,oundx_v;
 reg itndx_v;
 reg rfndx1_v, rfndx2_v;
-Tid dcndx,itndx,exndx,oundx,wbndx,rfndx1,rfndx2,agndx;
+Tid dcndx,itndx,exndx,oundx,wbndx,wbndx2,rfndx1,rfndx2,agndx;
 reg xrid_v,mcrid_v;
 Tid mcv_ridi, mcv_rido;
 Tid ithread, dthread, xthread, commit_thread;
-reg dcndx_v, dthread_v;
+reg dthread_v;
 reg [3:0] commit_wr;
 reg commit_wrv;
 reg [63:0] commit_mask;
-Regspec commit_tgt;
+regspec_t commit_tgt;
 VecValue commit_bus;
 Tid ip_thread, ip_thread1, ip_thread2, ip_thread3, ip_thread4, ip_thread5;
 reg ip_thread_v,ip_thread1_v, ip_thread2_v, ip_thread3_v;
 ThreadInfo_t [NTHREADS-1:0] thread;
 ThreadInfo_t [NTHREADS-1:0] thread_hist [0:3];
-CodeAddress [NTHREADS-1:0] thread_ip;
+code_address_t [NTHREADS-1:0] thread_ip;
 reg [31:0] ip, ip2, ip3, ip4;
 reg [NTHREADS-1:0] thread_busy;
-CodeAddress iip, dip, ip_icline, ip_insn, ip1;
-Instruction ir,dir,xir,mir,insn,mir1,mir2;
-Instruction rf_insn;
+code_address_t iip, dip, ip_icline, ip_insn, ip1;
+instruction_t ir,dir,xir,mir,insn,mir1,mir2;
+instruction_t rf_insn;
 Postfix pfx,irpfx,rf_pfx;
 DecodeBus deco;
 DecodeBus [NTHREADS-1:0] dco;
-Regspec ra0,ra1,ra2,ra3,ra4;
+regspec_t ra0,ra1,ra2,ra3,ra4;
 Value rfo0, rfo1, rfo2, rfo3, rfo4;
 Value ximm,mcimm;
 ASID xasid;
@@ -137,8 +138,8 @@ wire memreq_full;
 reg memresp_fifo_rd;
 wire memresp_fifo_empty;
 wire memresp_fifo_v;
-wire [pL1ICacheLineSize:0] ic_line;
-reg [pL1ICacheLineSize:0] ic_line2;
+wire [$bits(ICacheLine)*2-1:0] ic_line;
+reg [$bits(ICacheLine)*2-1:0]  ic_line2;
 wire ic_valid;
 //reg [31:0] ptbr;
 wire ipage_fault;
@@ -156,21 +157,21 @@ reg [2:0] sp_sel [0:NTHREADS-1];
 reg [2:0] sp_sel2;
 reg [2:0] ic_sp_sel [0:NTHREADS-1];
 reg [2:0] istk_depth [0:NTHREADS-1];
-Instruction [NTHREADS-1:0] exc_bucket;
-CodeAddress [NTHREADS-1:0] exc_ip;
-CauseCode icause,dcause;
+instruction_t [NTHREADS-1:0] exc_bucket;
+code_address_t [NTHREADS-1:0] exc_ip;
+cause_code_t icause,dcause;
 reg [7:0] tid;
-CodeAddress last_adr;
+code_address_t last_adr;
 reg [15:0] exv;
-wire [25:0] ic_tag;
-reg [25:0] ic_tag2;
-ExecuteBuffer [NTHREADS-1:0] dcbuf;
-ExecuteBuffer [NTHREADS-1:0] mceb;
+wire [25:0] ic_tage, ic_tago;
+reg [25:0] ic_tag2e, ic_tag2o;
+pipeline_reg_t [NTHREADS-1:0] dcbuf;
+pipeline_reg_t [NTHREADS-1:0] mceb;
 reg [NTHREADS-1:0] mem_rollback, ou_rollback, rollback, rolledback1, rolledback2;
 regs_bitmap_t mem_rollback_bitmaps [0:NTHREADS-1];
 regs_bitmap_t ou_rollback_bitmaps [0:NTHREADS-1];
 regs_bitmap_t rollback_bitmaps [0:NTHREADS-1];
-CodeAddress [NTHREADS-1:0] rollback_ip;
+code_address_t [NTHREADS-1:0] rollback_ip;
 reg [NTHREADS-1:0] rollback_ipv;
 reg [NTHREADS-1:0] sb_will_issue, sb_issue;
 wire [NTHREADS-1:0] sb_can_issue;
@@ -180,6 +181,14 @@ InstructionFetchbuf ic_ifb;
 InstructionFetchbuf [NTHREADS-1:0] dc_ifb, dc1_ifb;
 reg [5:0] imiss_count;
 reg [NTHREADS-1:0] ou_stall;
+// pipeline fifo signals
+reg exbrf_wr, memf_wr, mcbf_wr;
+reg exbrf_rd, memf_rd, mcbf_rd;
+pipeline_reg_t exbr, exbrf, memf, mcbi, mcbo, mcbf;
+pipeline_reg_t memp;
+wire exbrf_full, memf_full, mcbf_full;
+wire exbrf_empty, memf_empty, mcbf_empty;
+wire exbrf_v, memf_v, mcbf_v;
 
 // CSRs
 reg [31:0] cr0;
@@ -187,8 +196,8 @@ reg [31:0] ptbr [0:NTHREADS-1];
 reg [9:0] asid [0:NTHREADS-1];
 reg [31:0] hmask,xhmask;
 Address badaddr [0:NTHREADS-1][0:3];
-CauseCode cause [0:NTHREADS-1][0:3];
-CodeAddress tvec [0:3];
+cause_code_t cause [0:NTHREADS-1][0:3];
+code_address_t tvec [0:3];
 reg [63:0] plStack [0:NTHREADS-1];
 reg [255:0] ipStack [0:NTHREADS-1];
 status_reg_t [7:0] status [0:NTHREADS-1];
@@ -288,10 +297,10 @@ input [5:0] i;
 begin
 	if (i==6'd31)
 		case(sp_sel[thread])
-		3'd1:	fnSpSel = 6'd52;
-		3'd2:	fnSpSel = 6'd53;
-		3'd3:	fnSpSel = 6'd54;
-		3'd4:	fnSpSel = 6'd55;
+		3'd1:	fnSpSel = 6'd60;
+		3'd2:	fnSpSel = 6'd61;
+		3'd3:	fnSpSel = 6'd62;
+		3'd4:	fnSpSel = 6'd63;
 		default:	fnSpSel = 6'd31;
 		endcase
 	else
@@ -323,9 +332,9 @@ initial begin
 	gie = 'd0;
 	ip = RSTIP;
 	iip = RSTIP;
-	ir = NOP;//_INSN;
-	xir = NOP;//_INSN;
-	mir = NOP;//_INSN;
+	ir = OP_NOP;//_INSN;
+	xir = OP_NOP;//_INSN;
+	mir = OP_NOP;//_INSN;
 	for (n = 0; n < NLANES; n = n + 1) begin
 		xa[n] = 'd0;
 		xb[n] = 'd0;
@@ -370,7 +379,8 @@ rfPhoenix_biu ubiu
 	.ifStall(1'b0),
 	.ic_line(ic_line),
 	.ic_valid(ic_valid),
-	.ic_tag(ic_tag),
+	.ic_tage(ic_tage),
+	.ic_tago(ic_tago),
 	.fifoToCtrl_i(memreq),
 	.fifoToCtrl_full_o(memreq_full),
 	.fifoToCtrl_wack(memreq_wack),
@@ -543,10 +553,61 @@ rfPhoenixMcVecAlu uvalu2 (
 	.b(mcb),
 	.c(mcc),
 	.imm(mcimm),
-	.o(mc_vres),
+	.i(mcbi),
+	.o(mcbo),
 	.done(mcv_done),
 	.ridi(mcv_ridi),
 	.rido(mcv_rido)
+);
+
+// Responses coming back from the memory pipeline can vary in latency. It is
+// basically unknown, so some means of capturing results while the pipelines
+// are active is needed. Fifos are used to store data until the writeback
+// stage is ready for it.
+
+rfPhoenix_pipeline_fifo uplf1
+(
+	.rst(rst_i),
+	.clk(clk_g),
+	.wr(exbrf_wr),
+	.pin(exbr),
+	.rd(exbrf_rd),
+	.pout(exbrf),
+	.cnt(),
+	.almost_full(exbrf_full),
+	.full(),
+	.empty(exbrf_empty),
+	.v(exbrf_v)
+);
+
+rfPhoenix_pipeline_fifo uplf2
+(
+	.rst(rst_i),
+	.clk(clk_g),
+	.wr(memf_wr),
+	.pin(memp),
+	.rd(memf_rd),
+	.pout(memf),
+	.cnt(),
+	.almost_full(memf_full),
+	.full(),
+	.empty(memf_empty),
+	.v(memf_v)
+);
+
+rfPhoenix_pipeline_fifo uplf3
+(
+	.rst(rst_i),
+	.clk(clk_g),
+	.wr(mcbf_wr),
+	.pin(mcbo),
+	.rd(mcbf_rd),
+	.pout(mcbf),
+	.cnt(),
+	.almost_full(mcbf_full),
+	.full(),
+	.empty(mcbf_empty),
+	.v(mcbf_v)
 );
 
 always_ff @(posedge clk_g)
@@ -560,7 +621,9 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	ihito2 <= ihito;
 always_ff @(posedge clk_g)
-	ic_tag2 <= ic_tag;
+	ic_tag2e <= ic_tage;
+always_ff @(posedge clk_g)
+	ic_tag2o <= ic_tago;
 reg [NTHREADS-1:0] wr_ififo;
 generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
@@ -569,7 +632,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_ff @(posedge clk_g)
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
-		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=PFX;
+		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX;
 
 	rfPhoenix_insn_fifo #(.DEP(14)) ufifo1
 	(
@@ -634,9 +697,9 @@ begin
 	ip2 <= RSTIP;
 	ip3 <= RSTIP;
 	iip <= RSTIP;
-	ir <= NOP;//_INSN;
-	xir <= NOP;//_INSN;
-	mir <= NOP;//_INSN;
+	ir <= OP_NOP;//_INSN;
+	xir <= OP_NOP;//_INSN;
+	mir <= OP_NOP;//_INSN;
 
 	ximm <= 'd0;
 	mcimm <= 'd0;
@@ -715,6 +778,7 @@ begin
 	rollback_ipv <= 'd0;
 	mcrid_v <= 1'b0;
 	rd_trace <= 1'b0;
+	insn_otag <= 'd1;
 end
 endtask
 
@@ -740,10 +804,10 @@ output [5:0] o;
 begin
 	if (i==6'd31)
 		case(sp_sel[thread])
-		3'd1:	o <= 6'd52;
-		3'd2:	o <= 6'd53;
-		3'd3:	o <= 6'd54;
-		3'd4:	o <= 6'd55;
+		3'd1:	o <= 6'd60;
+		3'd2:	o <= 6'd61;
+		3'd3:	o <= 6'd62;
+		3'd4:	o <= 6'd63;
 		default:	o <= 6'd31;
 		endcase
 	else
@@ -771,14 +835,18 @@ generate begin : gItsel
 end
 endgenerate
 
-rfPhoenix_round_robin_select rr1
+roundRobin rr1
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(itsel),
-	.o(itndx),
-	.ov(itndx_v)
+	.ce(1'b1),
+	.req({8'h00,itsel}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(itndx)
 );
+
+assign itndx_v = |itsel;
 
 // dcndx selects a decoded instruction from the fifo for register fetch.
 // The execution buffer for the thread must be empty and the scoreboard
@@ -791,11 +859,16 @@ rfPhoenix_round_robin_select rr1
 // Two cycles later the register file values are available the thread to
 // update will have been dcndx delayed by two cycles. 
 
+reg [NTHREADS-1:0] dcsel2;
+always_ff @(posedge clk_g)
+	dcsel2 <= dcsel;
+
 reg [NTHREADS-1:0] dcsel;
 generate begin : gDcsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			dcsel[g] = sb_can_issue[g] &&							// There are no dependencies
+			dcsel[g] = !dcsel2[g] &&
+				sb_can_issue[g] &&							// There are no dependencies
 				(!dcb[g].v || (exndx_v && exndx==g)) &&	// The buffer is empty or is going to be empty.
 				cr0[g] &&	// The thread is enabled
 				!ififo_empty[g] &&	// There is something in the fifo
@@ -804,14 +877,18 @@ generate begin : gDcsel
 end
 endgenerate
 
-rfPhoenix_round_robin_select rr2
+roundRobin rr2
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(dcsel),
-	.o(dcndx),
-	.ov(dcndx_v)
+	.ce(1'b1),
+	.req({8'h00,dcsel}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(dcndx)
 );
+
+assign dcndx_v = |dcsel;
 
 generate begin : gIssue
 	for (g = 0; g < NTHREADS; g = g + 1)
@@ -838,14 +915,18 @@ generate begin : gExsel
 end
 endgenerate
 
-rfPhoenix_round_robin_select2 rr3
+roundRobin rr3
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(exsel),
-	.o(exndx),
-	.ov(exndx_v)
+	.ce(1'b1),
+	.req({8'h00,exsel}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(exndx)
 );
+
+assign exndx_v = |exsel;
 
 // Select thread for address generation
 
@@ -857,14 +938,18 @@ generate begin : gAgsel
 end
 endgenerate
 
-rfPhoenix_round_robin_select2 rr4
+roundRobin rr4
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(agsel),
-	.o(agndx),
-	.ov(agndx_v)
+	.ce(1'b1),
+	.req({8'h00,agsel}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(agndx)
 );
+
+assign agndx_v = |agsel;
 
 // Pick an rob entry thats had its address generated.
 
@@ -879,14 +964,20 @@ end
 endgenerate
 
 
-rfPhoenix_round_robin_select2 rr5
+roundRobin rr5
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(aggen),
-	.o(oundx),
-	.ov(oundx_v)
+	.ce(1'b1),
+	.req({8'h00,aggen}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(oundx)
 );
+
+assign oundx_v = |aggen;
+
+wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
 
 always_comb
 begin
@@ -909,14 +1000,19 @@ generate begin : gOubfin
 end
 endgenerate
 
-rfPhoenix_round_robin_select2 rr6
+roundRobin rr6
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.i(oubfin),
-	.o(wbndx),
-	.ov(wbndx_v)
+	.ce(1'b1),
+	.req({8'h00,oubfin}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(wbndx)
 );
+
+assign wbndx_v = |oubfin;
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Instruction Pointers
@@ -924,8 +1020,17 @@ rfPhoenix_round_robin_select2 rr6
 
 task tIfIp;
 begin
-	if (itndx_v)
+	if (itndx_v) begin
 		thread_ip[itndx] <= thread_ip[itndx] + 4'd5;
+		/* The following for when instructions do not cross cache lines.
+		if (thread_ip[itndx][5:0] < 6'd45)
+			thread_ip[itndx][5:0] <= thread_ip[itndx][5:0] + 4'd5;
+		else begin
+			thread_ip[itndx][5:0] <= 6'd0;
+			thread_ip[itndx][31:6] <= thread_ip[itndx][31:6] + 2'd1;
+		end
+		*/
+	end
 	if (ip_thread2_v && !ihit) begin
 		if (thread[ip_thread2].imiss[0]==1'b0)
 			thread_ip[ip_thread2] <= ip1;
@@ -938,15 +1043,15 @@ endtask
 task tExIp;
 begin
 	case(exb[exndx].ifb.insn.any.opcode)
-	NOP:	thread_ip[exndx] <= exb[exndx].ifb.ip - 4'd4;
-	CALL:	thread_ip[exndx] <= exb[exndx].dec.imm;
-	BSR:	thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
-	RET:	thread_ip[exndx] <= exb[exndx].a[0];
-	Bcc:	if (takb) 
+	OP_NOP:	thread_ip[exndx] <= exb[exndx].ifb.ip - 4'd4;
+	OP_CALL:	thread_ip[exndx] <= exb[exndx].dec.imm;
+	OP_BSR:	thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
+	OP_RET:	thread_ip[exndx] <= exb[exndx].a[0];
+	OP_Bcc:	if (takb) 
 					thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
 				else
 					tIfIp();
-	FBcc:	if (takb)
+	OP_FBcc:	if (takb)
 					thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
 				else
 					tIfIp();
@@ -993,14 +1098,16 @@ task tInsnFetch;
 integer n;
 begin
 	begin
-		{ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
+		{ic_ifb.pfx2,ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
 		ic_ifb.ip <= ip_icline;
 		ic_ifb.v <= ihit2 && ip_thread2_v;
 		ic_ifb.sp_sel <= sp_sel[ip_thread2];
 		ic_ifb.thread <= ip_thread2;
+		ic_ifb.tag <= insn_otag;
+		insn_otag <= insn_otag + 2'd1;
 		// External interrupt has highest priority.
 		if (irq_i > status[ip_thread2][0].ipl && gie[ip_thread2] && status[ip_thread2][0].mie)
-			ic_ifb.cause <= CauseCode'({irq_i,8'h00}|FLT_IRQ);
+			ic_ifb.cause <= cause_code_t'({irq_i,8'h00}|FLT_IRQ);
 		else if (dbg_cr[0] && dbg_cr[9:8]==2'b00 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==ip_icline) begin
 			ic_ifb.cause <= FLT_DBG;
 			dbg_sr[0] <= 1'b1;
@@ -1075,7 +1182,7 @@ begin
 					memreq.omode <= status[ip_thread3][0].om;
 					memreq.asid <= asid[ip_thread3];
 					memreq.adr <= {ip_icline[31:6],6'd0};
-					memreq.vcadr <= {ic_tag,6'b0};
+					memreq.vcadr <= {ip_icline[31:6],6'd0};//{ic_tag,6'b0};
 					memreq.res <= ic_line;
 					memreq.sz <= ic_valid ? tetra : nul;
 					// But, which line do we need?
@@ -1135,23 +1242,23 @@ endtask
 
 Value csro;
 always_comb
-	tReadCSR(csro,rfndx1,rfb1[rfndx1].dec.imm[13:0]);
-	
+	tReadCSR(csro,rfndx2,rfb1[rfndx2].dec.imm[13:0]);
+
 task tRegf;
 integer n;
 begin
 	//exb[rfndx].cause <= dcause;
-	rfb2[rfndx2].a <= rfb1[rfndx1].dec.Ra.vec ? vrfo0 : {NLANES{rfo0}};
-	rfb2[rfndx2].b <= rfb1[rfndx1].dec.Rb.vec ? vrfo1 : {NLANES{rfo1}};
+	rfb2[rfndx2].a <= rfb1[rfndx2].dec.Ra.vec ? vrfo0 : {NLANES{rfo0}};
+	rfb2[rfndx2].b <= rfb1[rfndx2].dec.Rb.vec ? vrfo1 : {NLANES{rfo1}};
 	if (rfb1[rfndx1].dec.csr)
 		rfb2[rfndx2].c <= {NLANES{csro}};
 	else
-		rfb2[rfndx2].c <= rfb1[rfndx1].dec.Rc.vec ? vrfo2 : {NLANES{rfo2}};
+		rfb2[rfndx2].c <= rfb1[rfndx2].dec.Rc.vec ? vrfo2 : {NLANES{rfo2}};
 	rfb2[rfndx2].mask <= rfo3;
 	//rfb2[rfndx2].t <= rfb1[rfndx1].dec.Rt.vec ? vrfo4 : {NLANES{rfo4}};
 	rfb2[rfndx2].regfetched <= 1'b1;//rfb1[rfndx1].v & ~rollback[rfndx1];
-	if ((rfb1[rfndx1].dec.rfwr & ~rfb1[rfndx1].dec.Rt.vec) | (rfb1[rfndx1].dec.vrfwr & rfb1[rfndx1].dec.Rt.vec))
-		ou_rollback_bitmaps[rfndx1][rfb1[rfndx1].dec.Rt] <= 1'b1;
+	if ((rfb1[rfndx2].dec.rfwr & ~rfb1[rfndx2].dec.Rt.vec) | (rfb1[rfndx2].dec.vrfwr & rfb1[rfndx2].dec.Rt.vec))
+		ou_rollback_bitmaps[rfndx2][rfb1[rfndx2].dec.Rt] <= 1'b1;
 end
 endtask
 
@@ -1194,18 +1301,18 @@ task tExCall;
 integer n;
 begin
 	case(rfb2[exndx].ifb.insn.any.opcode)
-	PFX:
+	OP_PFX:
 		begin
 			exb[exndx].out <= 1'b0;
 			exb[exndx].executed <= 1'b1;
 		end
-	NOP:
+	OP_NOP:
 		begin
 			exb[exndx].out <= 1'b0;
 			exb[exndx].executed <= 1'b1;
 			thread[exndx].ip <= rfb2[exndx].ifb.ip - 4'd4;
 		end
-	CALL:
+	OP_CALL:
 		begin
 			thread[exndx].ip <= rfb2[exndx].dec.imm;
 			rollback_ip[exndx] <= rfb2[exndx].dec.imm;
@@ -1217,7 +1324,7 @@ begin
 			exb[exndx].out <= 1'b0;
 			exb[exndx].executed <= 1'b1;
 		end
-	BSR:
+	OP_BSR:
 		begin
 			thread[exndx].ip <= rfb2[exndx].dec.imm + rfb2[exndx].ifb.ip;
 			rollback_ip[exndx] <= rfb2[exndx].dec.imm + rfb2[exndx].ifb.ip;
@@ -1229,7 +1336,7 @@ begin
 			exb[exndx].out <= 1'b0;
 			exb[exndx].executed <= 1'b1;
 		end
-	RET:
+	OP_RET:
 		begin
 			exb[exndx].out <= 1'b0;
 			exb[exndx].executed <= 1'b1;
@@ -1261,15 +1368,22 @@ endtask
 
 task tExecute;
 begin
+	exbrf_wr <= FALSE;
+	mcbi.v <= 1'b0;
 	if (!ou_stall[exndx] && exndx_v) begin
 		exb[exndx] <= rfb2[exndx];
 		exb[exndx].regfetched <= 1'b0;
 		exb[exndx].out <= 1'b1;
 		exb[exndx].retry <= 'd0;
+
+		exbr <= exb[exndx];
+		exbr.res <= vres;
+		exbr.v <= !exb[exndx].dec.mem && !exb[exndx].dec.multicycle;
+		exbrf_wr <= !exb[exndx].dec.mem && !exb[exndx].dec.multicycle;
+		
 		if (rfb2[exndx].dec.multicycle) begin
-			mcrid_v <= 1'b1;
-			mc_rid <= exndx;
-			mcv_ridi <= exndx;
+			mcbi <= rfb2[exndx];
+			mcbi.v <= 1'b1;
 			mir <= rfb2[exndx].ifb.insn;
 			mca <= rfb2[exndx].a;
 			mcb <= rfb2[exndx].b;
@@ -1287,7 +1401,7 @@ begin
 			xta <= rfb2[exndx].dec.Ta;
 			xtb <= rfb2[exndx].dec.Tb;
 			xtt <= rfb2[exndx].dec.Tt;
-			xm <= rfb2[exndx].ifb.insn.r2.m ? rfb2[exndx].mask : 16'hFFFF;
+			xm <= rfb2[exndx].mask;
 			ximm <= rfb2[exndx].dec.imm;
 			xasid <= asid[exndx];
 			xhmask <= hmask;
@@ -1299,10 +1413,12 @@ begin
 		tExCall();
 		tExBranch();
 	end
-	if (mcv_rido < NTHREADS) begin
-		exb[mcv_rido].res <= mc_vres;
-		exb[mcv_rido].out <= 1'b0;
-		exb[mcv_rido].executed <= 1'b1;
+	mcbf_wr <= FALSE;
+	if (mcbo.v) begin
+		//mcb.tag <= 
+		if (!mcbf_full) begin
+			mcbf_wr <= TRUE;
+		end
 	end
 end
 endtask
@@ -1322,11 +1438,14 @@ Address tmpadr;
 task tAgen;	// placeholder task
 integer n;
 begin
-	if (!ou_stall[agndx]) begin
+	if (!ou_stall[agndx] && agndx_v) begin
 		if (wbb[agndx].dec.need_steps && wbb[agndx].dec.mem && wbb[agndx].count != 'd0)
 			agb[agndx] <= wbb[agndx];
 		else
 			agb[agndx] <= exb[agndx];
+		// Get result
+		if (!exb[agndx].dec.cjb)
+			agb[agndx].res <= vres;
 		agb[agndx].agen <= 1'b1;
 		casez({exb[agndx].dec.storer|exb[agndx].dec.loadr,exb[agndx].dec.Rb.vec,exb[agndx].dec.Ra.vec})
 		3'b000:	tmpadr <= exb[agndx].a[0] + exb[agndx].b[0];
@@ -1336,7 +1455,8 @@ begin
 		3'b1?0:	tmpadr <= exb[agndx].a[0] + exb[agndx].dec.imm;
 		3'b1?1:	tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].dec.imm;
 		endcase
-		thread[agndx].sleep <= TRUE;
+		if (exb[agndx].dec.mem)
+			thread[agndx].sleep <= TRUE;
 	end
 end
 endtask
@@ -1366,18 +1486,22 @@ begin
 		end
 		tid <= tid + 2'd1;
 		memreq.tid <= tid;
+		memreq.tag <= agb[oundx].ifb.tag;
 		// Skip masked memory operation when mask is zero
 		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
 			memreq.wr <= 1'b0;
 		else begin
 			memreq.wr <= 1'b1;
-			thread[oundx].sleep = TRUE;
+			thread[oundx].sleep <= TRUE;
 		end
 		memreq.func <= agb[oundx].dec.loadu ? MR_LOADZ : MR_LOAD;
 		if (agb[oundx].dec.ldsr)
 			memreq.func2 <= MR_LDR;
 		else
 			memreq.func2 <= MR_NOP;
+		memreq.load <= agb[oundx].dec.load;
+		memreq.store <= agb[oundx].dec.store;
+		memreq.need_steps <= agb[oundx].dec.need_steps;
 		memreq.sz <= agb[oundx].dec.memsz;
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
@@ -1440,18 +1564,22 @@ begin
 		end
 		tid <= tid + 2'd1;
 		memreq.tid <= tid;
+		memreq.tag <= agb[oundx].ifb.tag;
 		// Skip masked memory operation when mask is zero
 		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
 			memreq.wr <= 1'b0;
 		else begin
 			memreq.wr <= 1'b1;
-			thread[oundx].sleep = TRUE;
+			thread[oundx].sleep <= TRUE;
 		end
 		memreq.func <= MR_STORE;
 		if (agb[oundx].dec.stcr)
 			memreq.func2 <= MR_STC;
 		else
 			memreq.func2 <= MR_NOP;
+		memreq.load <= agb[oundx].dec.load;
+		memreq.store <= agb[oundx].dec.store;
+		memreq.need_steps <= agb[oundx].dec.need_steps;
 		memreq.sz <= agb[oundx].dec.memsz;
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
@@ -1468,7 +1596,7 @@ begin
 		endcase
 		// BIU works with 128-bit chunks for stores.
 		if (agb[oundx].dec.memsz==vect) begin
-			memreq.sel <= agb[oundx].ifb.insn.r2.m ? (
+			memreq.sel <= (
 				{	{4{agb[oundx].mask[15]}},
 					{4{agb[oundx].mask[14]}},
 					{4{agb[oundx].mask[13]}},
@@ -1484,15 +1612,14 @@ begin
 					{4{agb[oundx].mask[3]}},
 					{4{agb[oundx].mask[2]}},
 					{4{agb[oundx].mask[1]}},
-					{4{agb[oundx].mask[0]}}} >> {agb[oundx].step,2'h0}) & 64'hFFFF
-				 	: 64'hFFFF;
+					{4{agb[oundx].mask[0]}}} >> {agb[oundx].step,2'h0}) & 64'hFFFF;
 			if (agb[oundx].dec.storen)
 				memreq.sz <= tetra;
 			// For a scatter store select the current vector element, otherwise select entire vector (set above).
 			if (agb[oundx].dec.storen) begin
 				memreq.sel <= 64'h000000000000000F;	// 32 bit at a time
 				// Dont bother storing if masked
-				if (agb[oundx].ifb.insn.r2.m && !agb[oundx].mask[agb[oundx].step])
+				if (!agb[oundx].mask[agb[oundx].step])
 					memreq.wr <= 1'b0;
 				memreq.res <= agb[oundx].t[agb[oundx].step];
 			end
@@ -1511,16 +1638,11 @@ end
 endtask
 
 
-wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
-
 task tOut;
 begin
 	if (!ou_stall[oundx]) begin
 		oub[oundx] <= agb[oundx];
 		oub[oundx].agen <= 1'b1;
-		// We want this before CALL is processed which also sets res.
-		if (oundx_v && !exb[oundx].dec.cjb)
-			oub[oundx].res <= vres;
 		if (oundx_v) begin
 			oub[oundx].out <= (agb[oundx].dec.load|agb[agndx].dec.store) ? ~agb[agndx].agen : 1'b0;
 			oub[oundx].executed <= (agb[oundx].dec.load|agb[agndx].dec.store) ? agb[agndx].agen : 1'b1;
@@ -1548,10 +1670,6 @@ begin
 					end
 				end
 			end
-`ifdef IS_SIM
-			$display("Out %d:", exndx);
-			$display("  res=%h",vres);
-`endif		
 		end
 		if (mcrid_v) begin
 			if (exb[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
@@ -1573,17 +1691,38 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // MEM stage 
 // - process responses coming back from the BIU for requests sent by EX stage.
+// - the responses are sent to a fifo at the tail of the memory pipe
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 task tMemory;
 integer n;
 begin
-	if (!memresp_fifo_empty)
+	memf_wr <= FALSE;
+	if (!memresp_fifo_empty && !memf_full)
 		memresp_fifo_rd <= 1'b1;
 	if (memresp_fifo_rd & memresp_fifo_v) begin
 		thread[memresp.thread].sleep <= FALSE;
-		if (|memresp.cause && oub[memresp.thread].cause=='d0)
-			oub[memresp.thread].cause <= memresp.cause;
+		// For a load the tag, target register, result and cause code are needed
+		// For a store the tag and cause code are needed.
+		// The writeback stage wants to see a pipeline register as input, but to
+		// conserver hardware the memory pipeline does not include everything from
+		// the main pipeline. So, some of the field information needs to be
+		// updated here.
+		memf_wr <= TRUE;	// update the pipeline fifo
+		memp <= 'd0;
+		memp.ifb.ip <= memresp.ip;
+		memp.badAddr <= memresp.adr;
+		memp.ifb.tag <= memresp.tag;
+		memp.dec.Rt <= memresp.tgt;	// Needed for a load
+		memp.cause <= memresp.cause;
+		memp.dec.rfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b0;
+		memp.dec.vrfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b1;
+		memp.dec.mem <= TRUE;
+		memp.dec.need_steps <= memresp.need_steps;
+		memp.count <= memresp.count;
+		memp.step <= memresp.step;
+		memp.mask <= {64{1'b1}}; // ToDo fix this
+	
 		// Clear the imiss status. The thread might still miss again if the I$
 		// has not updated before the thread is selected again, but at least
 		// it can be prevented from being selected for a few cycles while the
@@ -1593,35 +1732,28 @@ begin
 //			for (n = 0; n < NTHREADS; n = n + 1)
 //				thread[n].imiss <= 1'b0;
 		else begin
-			oub[memresp.thread].out <= 1'b0;
-			if (oub[memresp.thread].out) begin
-				oub[memresp.thread].executed <= 1'b1;
+			begin
 				// If a gather load
-				if (oub[memresp.thread].dec.loadn && oub[memresp.thread].dec.memsz==vect) begin
-					if (oub[memresp.thread].step < NLANES-1) begin
-						oub[memresp.thread].out <= 1'b1;
-						oub[memresp.thread].executed <= 1'b0;
+				if (memresp.load && memresp.need_steps && memresp.sz==vect) begin
+					if (memresp.step < NLANES-1) begin
+						;
 					end
-					oub[memresp.thread].res[memresp.step] <= memresp.res;
+					memp.res[memresp.step] <= memresp.res;
 				end
 				// Other load
-				else if (oub[memresp.thread].dec.load) begin
-					oub[memresp.thread].res <= memresp.res;
+				else if (memresp.load) begin
+					memp.res <= memresp.res;
 				end
 				// Scatter store
-				else if (oub[memresp.thread].dec.storen && oub[memresp.thread].dec.memsz==vect) begin
-					if (oub[memresp.thread].step!=NLANES-1) begin
-						oub[memresp.thread].out <= 1'b1;
-						oub[memresp.thread].executed <= 1'b0;
-					end
-				end
-				else if (oub[memresp.thread].dec.storer && oub[memresp.thread].dec.memsz==vect) begin
-					if (oub[memresp.thread].step!=NLANES-4) begin
-						oub[memresp.thread].out <= 1'b1;
-						oub[memresp.thread].executed <= 1'b0;
+				else if (memresp.store && memresp.need_steps && memresp.sz==vect) begin
+					memp.res <= memresp.res;
+					if (memp.step!=NLANES-1) begin
+						;
 					end
 				end
 				// Other store / Other Op
+				else
+					memp.res <= memresp.res;
 			end
 		end
 	end
@@ -1692,8 +1824,8 @@ end
 endtask
 
 task tWbException;
-input CodeAddress ip;
-input CauseCode cc;
+input code_address_t ip;
+input cause_code_t cc;
 input keepIrq;
 integer n;
 begin
@@ -1734,104 +1866,138 @@ begin
 end
 endtask
 
+reg select_exbr;
+reg select_memf;
+reg select_mcbf;
+always_comb
+begin
+	select_exbr = !exbrf_empty && (exbrf.ifb.tag <= memf.ifb.tag || !memf.v) && (exbrf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v;
+	select_memf = (!memf_empty && (memf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v) && !select_exbr;
+	select_mcbf = !mcbf_empty && !select_memf && !select_exbr;
+end
+
 task tWriteback;
 begin
+	exbrf_rd <= FALSE;
+	memf_rd <= FALSE;
+	mcbf_rd <= FALSE;
 	if (wbndx_v) begin
-		wbb[wbndx] <= oub[wbndx];
+		wbndx2 <= wbndx;
+		wbb2 <= wbb;
+
+		// Decide which pipeline to update from. Order tags are used to determine the 
+		// order of instructions. The instruction with the oldest tag must be updated
+		// first.
+		if (select_exbr) begin
+			wbb[wbndx] <= exbrf;
+			exbrf_rd <= TRUE;
+		end
+		else if (select_memf) begin
+			wbb[wbndx] <= memf;
+			memf_rd <= TRUE;
+		end
+		else if (select_mcbf) begin
+			wbb[wbndx] <= mcbf;
+			mcbf_rd <= TRUE;
+		end
+		else	// nothing to update
+			wbb[wbndx] <= 'd0;
+
 `ifdef IS_SIM
 		$display("Writeback %d:", wbndx);
 `endif		
 		// Normally we do not want to update the machine state on an exception.
 		// However for single-step mode we do.
-		if (|oub[wbndx].cause && oub[wbndx].cause != FLT_SSM)
-			tWbException(oub[wbndx].ifb.ip,oub[wbndx].cause,0);
+		if (|wbb2[wbndx2].cause && wbb2[wbndx2].cause != FLT_SSM)
+			tWbException(wbb2[wbndx2].ifb.ip,wbb2[wbndx2].cause,0);
 		else begin
-			if (oub[wbndx].cause==FLT_SSM)
-				tWbException(oub[wbndx].ifb.ip,oub[wbndx].cause,1);
+			if (wbb2[wbndx2].cause==FLT_SSM)
+				tWbException(wbb2[wbndx2].ifb.ip,wbb2[wbndx2].cause,1);
 `ifdef IS_SIM				
-			$display("  ip=%h ir=%h", oub[wbndx].ifb.ip, oub[wbndx].ifb.insn);
+			$display("  ip=%h ir=%h", wbb2[wbndx2].ifb.ip, wbb2[wbndx2].ifb.insn);
 			if (oub[oundx].dec.rfwr)
-				$display("  %s=%h", fnRegName(oub[wbndx].dec.Rt), oub[wbndx].res);
+				$display("  %s=%h", fnRegName(wbb2[wbndx2].dec.Rt), wbb2[wbndx2].res);
 `endif				
 			commit_thread <= wbndx;
-			commit_mask[1:0] <= {2{oub[wbndx].mask[0]}};
-			commit_mask[3:2] <= {2{oub[wbndx].mask[1]}};
-			commit_mask[5:4] <= {2{oub[wbndx].mask[2]}};
-			commit_mask[7:6] <= {2{oub[wbndx].mask[3]}};
-			commit_mask[9:8] <= {2{oub[wbndx].mask[4]}};
-			commit_mask[11:10] <= {2{oub[wbndx].mask[5]}};
-			commit_mask[13:12] <= {2{oub[wbndx].mask[6]}};
-			commit_mask[15:14] <= {2{oub[wbndx].mask[7]}};
-			commit_mask[17:16] <= {2{oub[wbndx].mask[8]}};
-			commit_mask[19:18] <= {2{oub[wbndx].mask[9]}};
-			commit_mask[21:20] <= {2{oub[wbndx].mask[10]}};
-			commit_mask[23:22] <= {2{oub[wbndx].mask[11]}};
-			commit_mask[25:24] <= {2{oub[wbndx].mask[12]}};
-			commit_mask[27:26] <= {2{oub[wbndx].mask[13]}};
-			commit_mask[29:28] <= {2{oub[wbndx].mask[14]}};
-			commit_mask[31:30] <= {2{oub[wbndx].mask[15]}};
-			commit_mask[33:32] <= {2{oub[wbndx].mask[16]}};
-			commit_mask[35:34] <= {2{oub[wbndx].mask[17]}};
-			commit_mask[37:36] <= {2{oub[wbndx].mask[18]}};
-			commit_mask[39:38] <= {2{oub[wbndx].mask[19]}};
-			commit_mask[41:40] <= {2{oub[wbndx].mask[20]}};
-			commit_mask[43:42] <= {2{oub[wbndx].mask[21]}};
-			commit_mask[45:44] <= {2{oub[wbndx].mask[22]}};
-			commit_mask[47:46] <= {2{oub[wbndx].mask[23]}};
-			commit_mask[49:48] <= {2{oub[wbndx].mask[24]}};
-			commit_mask[51:50] <= {2{oub[wbndx].mask[25]}};
-			commit_mask[53:52] <= {2{oub[wbndx].mask[26]}};
-			commit_mask[55:54] <= {2{oub[wbndx].mask[27]}};
-			commit_mask[57:46] <= {2{oub[wbndx].mask[28]}};
-			commit_mask[59:48] <= {2{oub[wbndx].mask[29]}};
-			commit_mask[61:60] <= {2{oub[wbndx].mask[30]}};
-			commit_mask[63:62] <= {2{oub[wbndx].mask[31]}};
-			commit_wr <= {4{oub[wbndx].dec.rfwr}};
-			commit_wrv <= oub[wbndx].dec.vrfwr;
-			commit_tgt <= oub[wbndx].dec.Rt;
-			commit_bus <= oub[wbndx].res;
+			commit_mask[1:0] <= {2{wbb2[wbndx2].mask[0]}};
+			commit_mask[3:2] <= {2{wbb2[wbndx2].mask[1]}};
+			commit_mask[5:4] <= {2{wbb2[wbndx2].mask[2]}};
+			commit_mask[7:6] <= {2{wbb2[wbndx2].mask[3]}};
+			commit_mask[9:8] <= {2{wbb2[wbndx2].mask[4]}};
+			commit_mask[11:10] <= {2{wbb2[wbndx2].mask[5]}};
+			commit_mask[13:12] <= {2{wbb2[wbndx2].mask[6]}};
+			commit_mask[15:14] <= {2{wbb2[wbndx2].mask[7]}};
+			commit_mask[17:16] <= {2{wbb2[wbndx2].mask[8]}};
+			commit_mask[19:18] <= {2{wbb2[wbndx2].mask[9]}};
+			commit_mask[21:20] <= {2{wbb2[wbndx2].mask[10]}};
+			commit_mask[23:22] <= {2{wbb2[wbndx2].mask[11]}};
+			commit_mask[25:24] <= {2{wbb2[wbndx2].mask[12]}};
+			commit_mask[27:26] <= {2{wbb2[wbndx2].mask[13]}};
+			commit_mask[29:28] <= {2{wbb2[wbndx2].mask[14]}};
+			commit_mask[31:30] <= {2{wbb2[wbndx2].mask[15]}};
+			commit_mask[33:32] <= {2{wbb2[wbndx2].mask[16]}};
+			commit_mask[35:34] <= {2{wbb2[wbndx2].mask[17]}};
+			commit_mask[37:36] <= {2{wbb2[wbndx2].mask[18]}};
+			commit_mask[39:38] <= {2{wbb2[wbndx2].mask[19]}};
+			commit_mask[41:40] <= {2{wbb2[wbndx2].mask[20]}};
+			commit_mask[43:42] <= {2{wbb2[wbndx2].mask[21]}};
+			commit_mask[45:44] <= {2{wbb2[wbndx2].mask[22]}};
+			commit_mask[47:46] <= {2{wbb2[wbndx2].mask[23]}};
+			commit_mask[49:48] <= {2{wbb2[wbndx2].mask[24]}};
+			commit_mask[51:50] <= {2{wbb2[wbndx2].mask[25]}};
+			commit_mask[53:52] <= {2{wbb2[wbndx2].mask[26]}};
+			commit_mask[55:54] <= {2{wbb2[wbndx2].mask[27]}};
+			commit_mask[57:46] <= {2{wbb2[wbndx2].mask[28]}};
+			commit_mask[59:48] <= {2{wbb2[wbndx2].mask[29]}};
+			commit_mask[61:60] <= {2{wbb2[wbndx2].mask[30]}};
+			commit_mask[63:62] <= {2{wbb2[wbndx2].mask[31]}};
+			commit_wr <= {4{wbb2[wbndx2].dec.rfwr}};
+			commit_wrv <= wbb2[wbndx2].dec.vrfwr;
+			commit_tgt <= wbb2[wbndx2].dec.Rt;
+			commit_bus <= wbb2[wbndx2].res;
 			case(1'b1)
-			oub[wbndx].dec.popq:
-				case(oub[wbndx].dec.imm[3:0])
+			wbb2[wbndx2].dec.popq:
+				case(wbb2[wbndx2].dec.imm[3:0])
 				4'd15:	rd_trace <= 1'b1;
 				default:	;
 				endcase
-			oub[wbndx].dec.brk:	tWbException(oub[wbndx].ifb.ip + 4'd5,FLT_BRK,1);	// BRK instruction
+			wbb2[wbndx2].dec.brk:	tWbException(wbb2[wbndx2].ifb.ip + 4'd5,FLT_BRK,1);	// BRK instruction
 			//exb[wbndx].dec.irq: tWbException(exb[wbndx].ifb.ip,exb[wbndx].cause);	// hardware irq
 			//exb[wbndx].dec.flt: tWbException(exb[wbndx].ifb.ip,exb[wbndx].cause);	// processing fault (divide by zero, tlb miss, ...)
-			oub[wbndx].dec.rti:	tWbRti();
-			oub[wbndx].dec.rex:	tWbRex();
-			oub[wbndx].dec.csrrw:	tWriteCSR(oub[wbndx].a,wbndx,oub[wbndx].dec.imm[13:0]);
-			oub[wbndx].dec.csrrc:	tClrbitCSR(oub[wbndx].a,wbndx,oub[wbndx].dec.imm[13:0]);
-			oub[wbndx].dec.csrrs:	tSetbitCSR(oub[wbndx].a,wbndx,exb[wbndx].dec.imm[13:0]);
+			wbb2[wbndx2].dec.rti:	tWbRti();
+			wbb2[wbndx2].dec.rex:	tWbRex();
+			wbb2[wbndx2].dec.csrrw:	tWriteCSR(wbb2[wbndx2].a,wbndx,wbb2[wbndx2].dec.imm[13:0]);
+			wbb2[wbndx2].dec.csrrc:	tClrbitCSR(wbb2[wbndx2].a,wbndx,wbb2[wbndx2].dec.imm[13:0]);
+			wbb2[wbndx2].dec.csrrs:	tSetbitCSR(wbb2[wbndx2].a,wbndx,exb[wbndx].dec.imm[13:0]);
+			default:	;
 			endcase
 			// Check for a vector memory instruction that needs to repeat.
 			// Instructions will keep flowing into the pipeline while the vector
 			// operation is taking place. Treat this like a branch and rollback the
 			// incoming instructions.
-			if (oub[wbndx].dec.mem & oub[wbndx].dec.need_steps) begin
-				if (oub[wbndx].count < vl && oub[wbndx].mask != 'd0) begin
-					wbb[wbndx].count <= oub[wbndx].count + 2'd1;
-					if (oub[wbndx].mask[oub[wbndx].count] || !oub[wbndx].dec.compress)
-						wbb[wbndx].step <= oub[wbndx].step + 2'd1;
+			if (wbb2[wbndx2].dec.mem & wbb2[wbndx2].dec.need_steps) begin
+				if (wbb2[wbndx2].count < vl && wbb2[wbndx2].mask != 'd0) begin
+					wbb2[wbndx].count <= wbb2[wbndx2].count + 2'd1;
+					if (wbb2[wbndx2].mask[wbb2[wbndx2].count] || !wbb2[wbndx2].dec.compress)
+						wbb2[wbndx].step <= wbb2[wbndx2].step + 2'd1;
 					ou_rollback[wbndx] <= 1'b1;
-					oub[wbndx].mask[oub[wbndx].count] <= 1'b0;
+					wbb2[wbndx2].mask[wbb2[wbndx2].count] <= 1'b0;
 				end
 				else
-					wbb[wbndx] <= 'd0;
+					wbb2[wbndx] <= 'd0;
 			end
 			// Writing to machine stack pointer globally enables interrupts.
-			if (oub[wbndx].dec.Rt==7'd47 && oub[wbndx].dec.rfwr)
+			if (wbb2[wbndx2].dec.Rt==7'd47 && wbb2[wbndx2].dec.rfwr)
 				gie[wbndx] <= 1'b1;
-			if (ic_ifb.v && ic_ifb.insn.any.opcode==PFX)
+			if (ic_ifb.v && ic_ifb.insn.any.opcode==OP_PFX)
 				retired <= retired + 2'd2;
-			else
+			else if (wbb2[wbndx2].v)
 				retired <= retired + 2'd1;
 		end
 //		if (!dcndx_v || dcndx!=wbndx)
-//			oub[wbndx] <= 'd0;
+//			wbb2[wbndx2] <= 'd0;
 	end
-	if ((oub[wbndx].dec.rfwr & ~commit_tgt.vec) | (oub[wbndx].dec.vrfwr & commit_tgt.vec))
+	if ((wbb2[wbndx2].dec.rfwr & ~commit_tgt.vec) | (wbb2[wbndx2].dec.vrfwr & commit_tgt.vec))
 		ou_rollback_bitmaps[commit_thread][commit_tgt] <= 1'b0;
 end
 endtask
@@ -1906,7 +2072,7 @@ begin
 //		CSR_FSTAT:	fpscr <= val;
 		CSR_ASID: 	asid[thread] <= val;
 		CSR_MBADADDR:	badaddr[thread][regno[13:12]] <= val;
-		CSR_CAUSE:	cause[thread][regno[13:12]] <= CauseCode'(val[11:0]);
+		CSR_CAUSE:	cause[thread][regno[13:12]] <= cause_code_t'(val[11:0]);
 		CSR_MTVEC:	tvec[regno[1:0]] <= val;
 		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= 1'b1; end
 		CSR_USTATUS:	status[thread][0][0] <= val[0];
@@ -2115,7 +2281,7 @@ begin
 				rfndx1_v?"v":"-",rfb1[rfndx1].ifb.ip, rfb1[rfndx1].dec.Ra, rfb1[rfndx1].dec.Rb,rfb1[rfndx1].dec.imm[13:0],csro);
 			$display("  2:%c ip=%h Ra%d=%h Rb%d=%h",
 				rfndx2_v?"v":"-",rfb2[rfndx2].ifb.ip, rfb2[rfndx2].dec.Ra, rfo0, rfb2[rfndx2].dec.Rb, rfo1);
-			$display("ExecuteBuffer:");
+			$display("pipeline_reg_t:");
 			$display("  %d: %c%c%c%c ip=%h ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
 				exb[n].v ? "v":"-",
 				exb[n].regfetched ? "r": "-",
@@ -2132,12 +2298,17 @@ begin
 				exb[n].dec.imm
 			);
 			$display("Address Generation");
-			$display("  %c ip=%h oc=%0s tmpadr=%h",
+			$display("  %c ip=%h oc=%0s tmpadr=%h res=%h",
 				agb[n].v ? "v" : "-",
 				agb[n].ifb.ip,
 				agb[n].ifb.insn.any.opcode.name(),
-				tmpadr
+				tmpadr,
+				vres
 			);
+			$display("Out");
+			$display("  res=%h",oub[n].res);
+			$display("Writeback");
+			$display("  res=%h",wbb[n].res);
 		end
 	end
 `endif

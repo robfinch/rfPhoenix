@@ -53,7 +53,7 @@ output Value o;
 // multiple register sets where there are fewer threads.
 
 //`ifdef IS_SIM
-
+/*
 integer k;
 
 (* ram_style = "block" *)
@@ -77,13 +77,16 @@ always_comb
 		o = rar[5:0]=='d0 ? 'd0 : mem[rar];
 	else
 		o = mem[rar];
-/*
-`else
 
-Value o1;
-reg [5+TidMSB+1:0] rar;
-always_ff @(posedge clk)
-	rar <= ra;
+`else
+*/
+reg rstb;
+always_comb
+	if (ZERO_BYPASS)
+		rstb = ra[5:0]=='d0;
+	else
+		rstb = 1'b0;
+
 generate begin : gRegfile
 case(NTHREADS)
 1,2,3,4:
@@ -97,7 +100,8 @@ blk_mem256x32 bmem0 (
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
   .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o1)  // output wire [31 : 0] doutb
+  .doutb(o),  // output wire [31 : 0] doutb
+  .rstb(rstb)
 );
 5,6,7,8:
 blk_mem512x32 bmem1 (
@@ -109,7 +113,8 @@ blk_mem512x32 bmem1 (
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
   .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o1)  // output wire [31 : 0] doutb
+  .doutb(o),  // output wire [31 : 0] doutb
+  .rstb(rstb)
 );
 9,10,11,12,13,14,15,16:
 blk_mem1024x32 bmem2 (
@@ -121,17 +126,13 @@ blk_mem1024x32 bmem2 (
   .clkb(clk),    // input wire clkb
   .enb(1'b1),      // input wire enb
   .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o1)  // output wire [31 : 0] doutb
+  .doutb(o),  // output wire [31 : 0] doutb
+  .rstb(rstb)
 );
 endcase
 end
 endgenerate
-always_comb
-	if (ZERO_BYPASS)
-		o = rar[5:0]=='d0 ? 'd0 : o1;
-	else
-		o = o1;
 
 //`endif
-*/
+
 endmodule

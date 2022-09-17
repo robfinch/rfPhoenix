@@ -40,7 +40,7 @@ import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_biu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
-	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tag, fifoToCtrl_wack,
+	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tage, ic_tago, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
 	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
@@ -55,15 +55,16 @@ input MUserMode;
 input [1:0] omode;
 input bounds_chk;
 input pe;									// protected mode enable
-input CodeAddress ip;
-output CodeAddress ip_o;
+input code_address_t ip;
+output code_address_t ip_o;
 output reg ihit;
 output reg ihite;
 output reg ihito;
 input ifStall;
-output ICacheLine ic_line;
+output reg [$bits(ICacheLine)*2-1:0] ic_line;
 output reg ic_valid;
-output reg [AWID-7:0] ic_tag;
+output reg [$bits(Address)-1:7] ic_tage;
+output reg [$bits(Address)-1:7] ic_tago;
 // Fifo controls
 output fifoToCtrl_wack;
 input MemoryArg_t fifoToCtrl_i;
@@ -155,7 +156,7 @@ reg keyViolation = 1'b0;
 reg xlaten;
 wire memq_v;
 reg [31:0] memreq_sel;
-CodeAddress last_cadr;
+code_address_t last_cadr;
 PDCE ptc;
 PhysicalAddress padrd1,padrd2,padrd3;
 
@@ -305,7 +306,7 @@ rfPhoenix_mem_req_queue umreqq
 );
 
 wire memresp_full;
-wire [5:0] fifoFromCtrl_cnt;
+wire [3:0] fifoFromCtrl_cnt;
 assign fifoFromCtrl_empty = fifoFromCtrl_cnt=='d0;
 
 // This fifo is at the output of the external bus to the mainline execution.
@@ -333,7 +334,8 @@ rfPhoenix_mem_resp_fifo uofifo1
 // the external bus sequencer. 
 
 reg rd_memq;
-wire [5:0] memq_cnt;
+wire memq_empty;
+wire [3:0] memq_cnt;
 MemoryArg_t memq_o, memr;
 
 rfPhoenix_mem_resp_fifo uofifo2
@@ -346,6 +348,7 @@ rfPhoenix_mem_resp_fifo uofifo2
 	.dout(memq_o),
 	.cnt(memq_cnt),
 	.full(),
+	.empty(memq_empty),
 	.v(memq_v),
 	.rollback(rollback),
 	.rollback_bitmaps(rb_bitmaps4)
@@ -361,9 +364,9 @@ reg icache_wre, icache_wro;
 always_comb icache_wre = state==IFETCH3 && !adr_o[6];
 always_comb icache_wro = state==IFETCH3 &&  adr_o[6];
 reg ic_invline,ic_invall;
-CodeAddress ipo,ip2,ip3,ip4,ip5;
-wire [$bits(CodeAddress)-1:7] ictage [0:3];
-wire [$bits(CodeAddress)-1:7] ictago [0:3];
+code_address_t ipo,ip2,ip3,ip4,ip5;
+wire [$bits(code_address_t)-1:7] ictage [0:3];
+wire [$bits(code_address_t)-1:7] ictago [0:3];
 wire [512/4-1:0] icvalide [0:3];
 wire [512/4-1:0] icvalido [0:3];
 
@@ -371,15 +374,15 @@ ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
 reg [2:0] vcn;
 ICacheLine [4:0] ivcache;
-reg [$bits(CodeAddress)-1:7] ivtag [0:4];
+reg [$bits(code_address_t)-1:7] ivtag [0:4];
 reg [4:0] ivvalid;
 wire ihit2;
 reg ihit3;
 wire ic_valid2e, ic_valid2o;
 reg ic_valide, ic_valido;
 reg ic_valid3e, ic_valid3o;
-wire [$bits(CodeAddress)-7:0] ic_tag2;
-reg [$bits(CodeAddress)-7:0] ic_tag3;
+wire [$bits(code_address_t)-7:0] ic_tag2e, ic_tag2o;
+reg [$bits(code_address_t)-7:0] ic_tag3e, ic_tag3o;
 
 always_ff @(posedge clk)
 	ip2 <= ip;
@@ -426,9 +429,13 @@ always_ff @(posedge clk)
 	ic_valido <= ic_valid2o;
 assign ip_o = ip3;
 always_ff @(posedge clk)
-	ic_tag3 <= ic_tag2;
+	ic_tag3o <= ic_tag2o;
 always_ff @(posedge clk)
-	ic_tag <= ic_tag3;
+	ic_tago <= ic_tag3o;
+always_ff @(posedge clk)
+	ic_tag3e <= ic_tag2e;
+always_ff @(posedge clk)
+	ic_tage <= ic_tag3e;
 
 always_ff @(posedge clk)
 	// If cannot cross cache line can match on either odd or even.
@@ -468,8 +475,7 @@ always_comb
 rfPhoenix_ictag 
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uictage
 (
@@ -486,8 +492,7 @@ uictage
 rfPhoenix_ictag 
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uictago
 (
@@ -504,8 +509,7 @@ uictago
 rfPhoenix_ichit
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uichite
 (
@@ -523,8 +527,7 @@ uichite
 rfPhoenix_ichit
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uichito
 (
@@ -542,8 +545,7 @@ uichito
 rfPhoenix_icvalid 
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uicvale
 (
@@ -562,8 +564,7 @@ uicvale
 rfPhoenix_icvalid 
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 uicvalo
 (
@@ -637,7 +638,7 @@ reg [pL1DCacheWays-1:0] dcache_ewr, dcache_owr;
 wire dc_ewr, dc_owr;
 reg dc_invline,dc_invall;
 
-sram_512x512_1r1w udcme
+sram_513x512_1r1w udcme
 (
 	.rst(rst),
 	.clk(clk),
@@ -648,7 +649,7 @@ sram_512x512_1r1w udcme
 	.o(dc_eline)
 );
 
-sram_512x512_1r1w udcmo
+sram_513x512_1r1w udcmo
 (
 	.rst(rst),
 	.clk(clk),
@@ -674,7 +675,7 @@ wire [3:0] dhit1o;
 wire [$bits(Address)-1:7] dc_otag [3:0];
 wire [127:0] dc_ovalid [0:3];
 wire dhito,dhite;
-Address vadr2e;
+reg [6:0] vadr2e;
 always_comb
 	vadr2e <= padr[13:7]+padr[6];
 	
@@ -716,8 +717,7 @@ always_ff @(posedge clk)
 rfPhoenix_dctag
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 udcotag
 (
@@ -733,8 +733,7 @@ udcotag
 rfPhoenix_dctag
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 udcetag
 (
@@ -750,8 +749,7 @@ udcetag
 rfPhoenix_dcvalid
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 udcovalid
 (
@@ -770,8 +768,7 @@ udcovalid
 rfPhoenix_dcvalid
 #(
 	.LINES(128),
-	.WAYS(4),
-	.AWID(AWID)
+	.WAYS(4)
 )
 udcevalid
 (
@@ -1341,7 +1338,7 @@ else begin
 	MEMORY1:
 		begin
 			rd_memq <= FALSE;
-			if (memq_v)
+			if (!memq_empty)
 				rd_memq <= TRUE;
 			if (rd_memq) begin
 				if (memq_o.tid != last_tid) begin
@@ -2922,7 +2919,7 @@ endtask
 // cannot be found.
 
 task tPageFault;
-input CauseCode typ;
+input cause_code_t typ;
 input Address ba;
 begin
 	memresp.step <= memreq.step;
