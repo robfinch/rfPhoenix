@@ -57,10 +57,14 @@ genvar g;
 reg [NLANES-1:0] don;
 
 vector_quad_value_t ab, bb, cb, ob1;
+vector_half_value_t aw, bw, cw, ow1;	// wydes
 
 assign ab = a;
 assign bb = b;
 assign cb = c;
+assign aw = a;
+assign bw = b;
+assign cw = c;
 
 generate begin
 	for (g = 0; g < NLANES; g = g + 1)
@@ -80,6 +84,27 @@ generate begin
 end
 endgenerate
 
+`ifdef SUPPORT_16BIT_OPS
+generate begin
+	for (g = 0; g < NLANES*2; g = g + 1)
+		rfPhoenixMcAlu16 ualu1(
+			.rst(rst),
+			.clk(clk),
+			.ir(ir),
+			.a(aw[g]),
+			.b(bw[g]),
+			.c(cw[g]),
+			.imm(imm[15:0]),
+			.o(ow1[g]),
+			.done(),
+			.ridi('d0),
+			.rido()
+		);
+end
+endgenerate
+`endif
+
+`ifdef SUPPORT_128BIT_OPS
 generate begin
 	for (g = 0; g < NLANES/4; g = g + 1)
 		rfPhoenixMcAlu128 ualu1(
@@ -96,7 +121,7 @@ generate begin
 		);
 end
 endgenerate
-
+`endif
 
 //ft_delay #(.WID(4), .DEP(7)) uftd1 (.clk(clk), .ce(1'b1), .i(ridi), .o(rido));
 vtdl #(.WID($bits(pipeline_reg_t)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd8), .d(i), .q(wbo));
@@ -104,10 +129,11 @@ vtdl #(.WID($bits(pipeline_reg_t)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4
 always_ff @(posedge clk)
 begin
 	o <= wbo;
-	if (wbo.dec.prc==PRC128)
-		o.res <= ob1;
-	else
-		o.res <= o1;
+	case(wbo.dec.prc)
+	PRC16:	o.res <= ow1;
+	PRC128:	o.res <= ob1;
+	default:	o.res <= o1;
+	endcase
 end
 
 always_comb

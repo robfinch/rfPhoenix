@@ -16,7 +16,9 @@ parameter FALSE = `FALSE;
 parameter VAL = `VAL;
 parameter INV = `INV;
 
-`define NLANES	10
+`define SUPPORT_16BIT_OPS		1
+`define SUPPORT_128BIT_OPS	1
+`define NLANES	8
 `define NTHREADS	4
 `define NREGS		64
 
@@ -79,6 +81,10 @@ typedef enum logic [5:0] {
 	OP_FBcc			= 6'h1D,
 	OP_FCMP_EQI	= 6'h1E,
 	OP_FCMP_NEI	= 6'h1F,
+	OP_FMA16		= 6'h20,
+	OP_FMS16		= 6'h21,
+	OP_FNMA16		= 6'h22,
+	OP_FNMS16		= 6'h23,
 	OP_FCMP_LTI	= 6'h24,
 	OP_FCMP_GEI	= 6'h25,
 	OP_FCMP_LEI	= 6'h26,
@@ -215,7 +221,7 @@ typedef enum logic [1:0] {
 	PRC16 = 2'd0,
 	PRC32 = 2'd1,
 	PRC128 = 2'd2
-} float_prec_t;
+} prec_t;
 
 parameter NOP_INSN	= {34'd0,OP_NOP};
 
@@ -330,8 +336,11 @@ typedef logic [31:0] VirtualAddress;
 typedef logic [31:0] PhysicalAddress;
 typedef logic [31:0] code_address_t;
 typedef logic [31:0] Value;
+typedef logic [31:0] value_t;
 typedef logic [63:0] DoubleValue;
+typedef logic [15:0] half_value_t;
 typedef logic [127:0] quad_value_t;
+typedef half_value_t [NLANES*2-1:0] vector_half_value_t;
 typedef quad_value_t [NLANES/4-1:0] vector_quad_value_t;
 typedef Value [NLANES-1:0] VecValue;
 typedef logic [5:0] Func;
@@ -513,8 +522,8 @@ typedef struct packed
 	logic hasRm;
 	logic hasRt;
 	logic Rtsrc;	// Rt is a source register
-	logic [79:0] imm;
-	float_prec_t prc;
+	logic [31:0] imm;
+	prec_t prc;
 	logic rfwr;
 	logic vrfwr;
 	logic csr;

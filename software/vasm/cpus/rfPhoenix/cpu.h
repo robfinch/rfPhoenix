@@ -171,6 +171,7 @@ typedef struct {
 #define RC(x)		(((x) & 0x7fLL) << 30LL)
 #define TC(x)		(((x) & 1LL) << 36LL)
 #define RM(x)		(((x) & 3LL) << 37LL)
+#define SZ(x)		(((x) & 3LL) << 37LL)
 #define M(x)		(((x) & 1LL) << 39LL)
 
 /* special data operand types: */

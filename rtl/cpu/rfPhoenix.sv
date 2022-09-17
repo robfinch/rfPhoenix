@@ -189,6 +189,7 @@ pipeline_reg_t memp;
 wire exbrf_full, memf_full, mcbf_full;
 wire exbrf_empty, memf_empty, mcbf_empty;
 wire exbrf_v, memf_v, mcbf_v;
+prec_t xprc, mprc;
 
 // CSRs
 reg [31:0] cr0;
@@ -528,6 +529,7 @@ rfPhoenix_vec_regfile ugprs2
 
 rfPhoenixVecAlu uvalu1 (
 	.ir(xir),
+	.prc(xprc),
 	.a(xa),
 	.b(xb),
 	.c(xc),
@@ -1385,6 +1387,7 @@ begin
 			mcbi <= rfb2[exndx];
 			mcbi.v <= 1'b1;
 			mir <= rfb2[exndx].ifb.insn;
+			mprc <= rfb2[exndx].dec.prc;
 			mca <= rfb2[exndx].a;
 			mcb <= rfb2[exndx].b;
 			mcc <= rfb2[exndx].c;
@@ -1394,6 +1397,7 @@ begin
 		end
 		else begin
 			xir <= rfb2[exndx].ifb.insn;
+			xprc <= rfb2[exndx].dec.prc;
 			xa <= rfb2[exndx].a;
 			xb <= rfb2[exndx].b;
 			xc <= rfb2[exndx].c;

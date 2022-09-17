@@ -41,10 +41,13 @@ input InstructionFetchbuf ifb;
 input [2:0] sp_sel;
 output DecodeBus deco;
 
-reg op128;
+reg pfx;
+reg op16,op32,op128;
 
 always_comb
 begin
+
+	pfx = ifb.pfx.opcode==OP_PFX;
 
 	deco.v = ifb.v;
 
@@ -134,8 +137,8 @@ begin
 	OP_R2:	
 		case(ifb.insn.r2.func)
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-		OP_CMPI,OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-		OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
+		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
+		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
 			begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		OP_SLL,OP_SRL,OP_SRA,OP_SLLI,OP_SRLI,OP_SRAI:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		default:	begin deco.Rt.num = 'd0; deco.Rt.vec = 1'b0; end
@@ -205,11 +208,98 @@ begin
 	default:	deco.imm = 'd0;
 	endcase
 	// Handle postfixes	
-	if (ifb.pfx.opcode==OP_PFX) begin
-		deco.imm[49:16] = ifb.pfx.imm;
-		if (ifb.pfx2.opcode==OP_PFX)
-			deco.imm[79:50] = ifb.pfx.imm;
+	if (pfx) begin
+		deco.imm[31:16] = ifb.pfx.imm;
+		//if (ifb.pfx2.opcode==OP_PFX)
+		//	deco.imm[79:50] = ifb.pfx.imm;
 	end
+
+
+	// Figure 16-bit ops
+	op16 = FALSE;
+	case(ifb.insn.any.opcode)		
+	OP_R2:
+		case(ifb.insn.r2.func)
+		OP_R1:
+			case(ifb.insn.r1.func1)
+			OP_CNTLZ:		op16 = ifb.insn[38:37]==2'd0;
+			OP_FCLASS:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FFINITE:	op16 = ifb.insn[38:37]==2'd0;
+			OP_I2F:	op16 = ifb.insn[38:37]==2'd0;
+			OP_F2I:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FTRUNC:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FABS:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FNABS:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FNEG:	op16 = ifb.insn[38:37]==2'd0;
+			OP_FSIGN:	op16 = ifb.insn[38:37]==2'd0;
+			default:	;
+			endcase
+		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
+			op16 = ifb.insn[38:37]==2'd0;
+		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
+		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
+			op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_EQ:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_NE:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_LT:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_GE:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_LE:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FCMP_GT:	op16 = ifb.insn[38:37]==2'd0;
+		OP_FADD:		op16 = ifb.insn[36]==1'd0;
+		OP_FSUB:		op16 = ifb.insn[36]==1'd0;
+		default:	;
+		endcase
+	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
+		op16 = ifb.insn[39]==1'd0;
+	OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
+	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
+		op16 = ifb.insn[39]==1'b0;
+	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI:
+		op16 = ifb.insn[39]==1'd0;
+	OP_FMA16,OP_FMS16,OP_FNMA16,OP_FNMS16:
+		op16 = TRUE;
+	default:	;
+	endcase
+
+	// Figure 32-bit ops
+	/* This decoder redundant. The default is to assume 32-bit ops if not 16 or
+	   128-bit.
+
+	op32 = FALSE;
+	case(ifb.insn.any.opcode)		
+	OP_R2:
+		case(ifb.insn.r2.func)
+		OP_R1:
+			case(ifb.insn.r1.func1)
+			OP_FCLASS:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FFINITE:	op32 = ifb.insn[38:37]==2'd1;
+			OP_I2F:	op32 = ifb.insn[38:37]==2'd1;
+			OP_F2I:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FTRUNC:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FABS:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FNABS:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FNEG:	op32 = ifb.insn[38:37]==2'd1;
+			OP_FSIGN:	op32 = ifb.insn[38:37]==2'd1;
+			default:	op32 = TRUE;
+			default:	;
+			endcase
+		OP_FCMP_EQ:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FCMP_NE:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FCMP_LT:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FCMP_GE:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FCMP_LE:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FCMP_GT:	op32 = ifb.insn[38:37]==2'd1;
+		OP_FADD:		op32 = ifb.insn[36]==1'd1;
+		OP_FSUB:		op32 = ifb.insn[36]==1'd1;
+		default:	op32 = TRUE;
+		default:	;
+		endcase
+	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:
+		op32 = TRUE;
+	default:	op32 = TRUE;
+	default:	;
+	endcase
+	*/
 
 	// Figure 128-bit ops
 	op128 = FALSE;
@@ -229,14 +319,19 @@ begin
 			OP_FSIGN:	op128 = ifb.insn[38:37]==2'd2;
 			default:	;
 			endcase
+		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
+			op128 = ifb.insn[38:37]==2'd2;
+		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
+		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
+			op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_EQ:	op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_NE:	op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_LT:	op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_GE:	op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_LE:	op128 = ifb.insn[38:37]==2'd2;
 		OP_FCMP_GT:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FADD128:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FSUB128:	op128 = ifb.insn[38:37]==2'd2;
+		OP_FADD128:	op128 = TRUE;
+		OP_FSUB128:	op128 = TRUE;
 		default:	;
 		endcase
 	OP_FMA128,OP_FMS128,OP_FNMA128,OP_FNMS128:
@@ -244,8 +339,10 @@ begin
 	default:	;
 	endcase
 
-	// Set float precision for immediate ops
-	if (op128)
+	// Set precision for ops
+	if (op16)
+		deco.prc = PRC16;
+	else if (op128)
 		deco.prc = PRC128;
 	else
 		deco.prc = PRC32;

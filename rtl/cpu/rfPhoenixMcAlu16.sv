@@ -36,38 +36,38 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixMcAlu(rst, clk, ir, a, b, c, imm, o, done, ridi, rido);
+module rfPhoenixMcAlu16(rst, clk, ir, a, b, c, imm, o, done, ridi, rido);
 parameter NPIPE = 8;
 input rst;
 input clk;
 input instruction_t ir;
-input Value a;
-input Value b;
-input Value c;
-input Value imm;
-output Value o;
+input half_value_t a;
+input half_value_t b;
+input half_value_t c;
+input half_value_t imm;
+output half_value_t o;
 output reg done;
 input Tid ridi;
 output Tid rido;
 
 integer n;
 
-wire fms = ir.any.opcode==OP_FMS || ir.any.opcode==OP_FNMS;
-wire fnm = ir.any.opcode==OP_FNMA || ir.any.opcode==OP_FNMS;
+wire fms = ir.any.opcode==OP_FMS16 || ir.any.opcode==OP_FNMS16;
+wire fnm = ir.any.opcode==OP_FNMA16 || ir.any.opcode==OP_FNMS16;
 wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD;
 wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB;
 
-Value fma_o, fma_o1;
-Value fcmp_o;
-Value i2f_o,i2f1_o;
-Value f2i_o,f2i1_o;
-Value ftrunc_o,ftrunc1_o;
-Value frsqrte_o,frsqrte1_o;
-Value fres_o,fres1_o;
-Value fsig_o,fsig1_o;
-DoubleValue muli_o,muli1_o,muli2_o;
+half_value_t fma_o, fma_o1;
+half_value_t fcmp_o;
+half_value_t i2f_o,i2f1_o;
+half_value_t f2i_o,f2i1_o;
+half_value_t ftrunc_o,ftrunc1_o;
+half_value_t frsqrte_o,frsqrte1_o;
+half_value_t fres_o,fres1_o;
+half_value_t fsig_o,fsig1_o;
+value_t muli_o,muli1_o,muli2_o;
 
-mult32x32 uimul1(
+mult16x16 uimul1(
 	.clk(clk),
 	.ce(1'b1),
 	.a(a),
@@ -75,13 +75,10 @@ mult32x32 uimul1(
 	.o(muli2_o)
 );
 
-// Multiply takes only six cycles, add two cycles.
-always_ff @(posedge clk)
-	muli1_o <= muli2_o;
-always_ff @(posedge clk)
-	muli_o <= muli1_o;
+// Multiply takes only one cycles, add seven cycles.
+vtdl #(.WID($bits(value_t)), .DEP(16)) udly1 (.clk(clk), .ce(1'b1), .a(4'd7), .d(muli2_o), .q(muli_o));
 
-i2f32 ui2f1
+i2f16 ui2f1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -91,7 +88,7 @@ i2f32 ui2f1
 	.o(i2f1_o)
 );
 
-f2i32 uf2i1
+f2i16 uf2i1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -101,7 +98,7 @@ f2i32 uf2i1
 	.overflow()
 );
 
-fpTrunc32 utrnc1
+fpTrunc16 utrnc1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -110,7 +107,8 @@ fpTrunc32 utrnc1
 	.overflow()
 );
 
-fpRsqrte32 ufrsqrte1
+/*
+fpRsqrte16 ufrsqrte1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -119,7 +117,7 @@ fpRsqrte32 ufrsqrte1
 	.o(frsqrte1_o)
 );
 
-fpRes32 ufres1
+fpRes16 ufres1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -128,7 +126,7 @@ fpRes32 ufres1
 );
 
 `ifdef SIGMOID
-fpSigmoid32 ufsig1
+fpSigmoid16 ufsig1
 (
 	.clk(clk),
 	.ce(1'b1),
@@ -136,33 +134,33 @@ fpSigmoid32 ufsig1
 	.o(sig1_o)
 );
 
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl5 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fsig1_o), .q(fsig_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl5 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fsig1_o), .q(fsig_o));
 `endif
-
+*/
 /*
 	uftd1 used 13,624 LUTs!
-ft_delay #(.WID($bits(Value)), .DEP(6)) uftd0 (.clk(clk), .ce(1'b1), .i(i2f1_o), .o(i2f_o));
-ft_delay #(.WID($bits(Value)), .DEP(6)) uftd1 (.clk(clk), .ce(1'b1), .i(f2i1_o), .o(f2i_o));
-ft_delay #(.WID($bits(Value)), .DEP(6)) uftd2 (.clk(clk), .ce(1'b1), .i(ftrunc1_o), .o(ftrunc_o));
-ft_delay #(.WID($bits(Value)), .DEP(4)) uftd3 (.clk(clk), .ce(1'b1), .i(frsqrte1_o), .o(frsqrte_o));
-ft_delay #(.WID($bits(Value)), .DEP(4)) uftd4 (.clk(clk), .ce(1'b1), .i(fres1_o), .o(fres_o));
-ft_delay #(.WID($bits(Value)), .DEP(4)) uftd5 (.clk(clk), .ce(1'b1), .i(fsig1_o), .o(fsig_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(6)) uftd0 (.clk(clk), .ce(1'b1), .i(i2f1_o), .o(i2f_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(6)) uftd1 (.clk(clk), .ce(1'b1), .i(f2i1_o), .o(f2i_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(6)) uftd2 (.clk(clk), .ce(1'b1), .i(ftrunc1_o), .o(ftrunc_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(4)) uftd3 (.clk(clk), .ce(1'b1), .i(frsqrte1_o), .o(frsqrte_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(4)) uftd4 (.clk(clk), .ce(1'b1), .i(fres1_o), .o(fres_o));
+ft_delay #(.WID($bits(half_value_t)), .DEP(4)) uftd5 (.clk(clk), .ce(1'b1), .i(fsig1_o), .o(fsig_o));
 */
 
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl0 (.clk(clk), .ce(1'b1), .a(4'd7), .d(i2f1_o), .q(i2f_o));
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd7), .d(f2i1_o), .q(f2i_o));
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl2 (.clk(clk), .ce(1'b1), .a(4'd7), .d(ftrunc1_o), .q(ftrunc_o));
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl3 (.clk(clk), .ce(1'b1), .a(4'd5), .d(frsqrte1_o), .q(frsqrte_o));
-vtdl #(.WID($bits(Value)), .DEP(16)) uvtdl4 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fres1_o), .q(fres_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl0 (.clk(clk), .ce(1'b1), .a(4'd7), .d(i2f1_o), .q(i2f_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl1 (.clk(clk), .ce(1'b1), .a(4'd7), .d(f2i1_o), .q(f2i_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl2 (.clk(clk), .ce(1'b1), .a(4'd7), .d(ftrunc1_o), .q(ftrunc_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl3 (.clk(clk), .ce(1'b1), .a(4'd5), .d(frsqrte1_o), .q(frsqrte_o));
+vtdl #(.WID($bits(half_value_t)), .DEP(16)) uvtdl4 (.clk(clk), .ce(1'b1), .a(4'd5), .d(fres1_o), .q(fres_o));
 
 
-fpFMA32nrL8 ufma1 (
+fpFMA16nrL8 ufma1 (
 	.clk(clk),
 	.ce(1'b1),
 	.op(fms|fsub),
 	.rm(ir.f3.rm),
-	.a(a ^ {fnm,{$bits(Value)-1{1'b0}}}),
-	.b(fadd|fsub ? 32'h3F800000 : b),	// multiply by one for FADD/FSUB
+	.a(a ^ {fnm,{$bits(half_value_t)-1{1'b0}}}),
+	.b(fadd|fsub ? 16'h3E00 : b),	// multiply by one for FADD/FSUB
 	.c(fadd|fsub ? b : c),
 	.o(fma_o),
 	.inf(),
@@ -206,7 +204,7 @@ OP_R2:
 	default:	o = 'd0;
 	endcase
 OP_MULI:	o = muli_o[31:0];
-OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	o = fma_o;
+OP_FMA16,OP_FMS16,OP_FNMA16,OP_FNMS16:	o = fma_o;
 default:	o = 'd0;
 endcase
 

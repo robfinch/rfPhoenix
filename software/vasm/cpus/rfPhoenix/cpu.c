@@ -1,7 +1,7 @@
 #include "vasm.h"
 
-#define TRACE(x)		/*printf(x)*/
-#define TRACE2(x,y)	/*printf((x),(y))*/
+#define TRACE(x)		printf(x)
+#define TRACE2(x,y)	printf((x),(y))
 
 char *cpu_copyright="vasm rfPhoenix cpu backend (c) in 2022 Robert Finch";
 
@@ -9,6 +9,9 @@ char *cpuname="rfPhoenix";
 int bitsperbyte=8;
 int bytespertaddr=4;
 int abits=32;
+/* The following indicates if instructions including postfixes can span cache
+   lines. */
+int span_cache_lines = 1;
 static taddr sdreg = 29;
 static taddr sd2reg = 28;
 static taddr sd3reg = 27;
@@ -31,8 +34,8 @@ static char *regnames[64] = {
 	"s5", "s6", "s7", "s8", "s9", "a2", "a3", "a4",
 	"a5", "a6", "a7", "gp2", "gp1", "gp0", "fp", "sp",
 	"vm0", "vm1", "vm2", "vm3", "vm4", "vm5", "vm6", "vm7",
-	"lc", "lr1", "lr2", "r43", "ssp", "hsp", "msp", "isp",
-	"t8", "t9", "t10", "t11", "s10", "s11", "s12", "s13",
+	"vm8", "vm9", "vm10", "vm11", "vm12", "vm13", "vm14", "vm15",
+	"lc", "lr1", "lr2", "r51", "ssp", "hsp", "msp", "isp",
 	"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7"
 };
 
@@ -42,51 +45,51 @@ static int regop[64] = {
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, 
+	OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, 
 	OP_REG, OP_LK, OP_LK, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
-	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG
 };
 
 mnemonic mnemonics[]={
 	"abs",	{OP_REG,OP_REG,0,0,0}, {R3RR,CPU_ALL,0,0x0C000001LL,4},
 
-	"add", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(4)|TB(1)|OP(2),5},	
-	"add", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(4)|TA(1)|OP(2),5},	
-	"add", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(4)|TB(1)|TA(1)|OP(2),5},	
-	"add", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(4)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(4)|TB(1)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(4)|TA(1)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(4)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"add", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(4)|OP(2),5},	
+	"add", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|OP(2),5},	
+	"add", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TA(1)|OP(2),5},	
+	"add", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TA(1)|OP(2),5},	
+	"add", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TT(1)|OP(2),5},	
+	"add", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TT(1)|OP(2),5},	
+	"add", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TA(1)|TT(1)|OP(2),5},	
+	"add", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"add", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(4)|OP(2),5},	
 	
-	"add", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(4),5},	
-	"add", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(4),5},	
-	"add", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(4),5},	
-	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(4),5},	
+	"add", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(4),5},	
+	"add", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(4),5},	
+	"add", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(4),5},	
+	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(4),5},	
 
-	"and", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(8)|TB(1)|OP(2),5},	
-	"and", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(8)|TA(1)|OP(2),5},	
-	"and", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(8)|TB(1)|TA(1)|OP(2),5},	
-	"and", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(8)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(8)|TB(1)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(8)|TA(1)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(8)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"and", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(8)|OP(2),5},	
+	"and", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|OP(2),5},	
+	"and", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TA(1)|OP(2),5},	
+	"and", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TA(1)|OP(2),5},	
+	"and", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TT(1)|OP(2),5},	
+	"and", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TT(1)|OP(2),5},	
+	"and", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TA(1)|TT(1)|OP(2),5},	
+	"and", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"and", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(8)|OP(2),5},	
 	
-	"and", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(8),5},	
-	"and", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(8),5},	
-	"and", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(8),5},	
-	"and", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(8),5},	
+	"and", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(8),5},	
+	"and", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(8),5},	
+	"and", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(8),5},	
+	"and", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(8),5},	
 
 //	"bbs",	{OP_LK,OP_REG,OP_IMM,OP_IMM,0}, {BL,CPU_ALL,0,0x00001F000822LL,6},
-	"bbs",	{OP_REG,OP_REG|OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,CND(4)|OP(28),5},
+	"bbs",	{OP_REG,OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(5)|OP(28),5},
 
-	"beq",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(6)|OP(28),5},
-	"bge",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(1)|OP(28),5},
-	"bgeu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(3)|OP(28),5},
-	"blt",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(0)|OP(28),5},
-	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(2)|OP(28),5},
-	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,CND(7)|OP(28),5},
+	"beq",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(6)|OP(28),5},
+	"bge",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(1)|OP(28),5},
+	"bgeu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(3)|OP(28),5},
+	"blt",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(0)|OP(28),5},
+	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(2)|OP(28),5},
+	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(7)|OP(28),5},
 	
 	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25),5},
 
@@ -94,193 +97,193 @@ mnemonic mnemonics[]={
 	"bsr",	{OP_LK,OP_IMM,0,0,0}, {BL2,CPU_ALL,0,OP(25),5},
 	"bsr",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,RT(1)|OP(25),5},
 
-	"cmp", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(13)|TB(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(13)|TA(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(13)|TB(1)|TA(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(13)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(13)|TB(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(13)|TA(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(13)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(13)|OP(2),5},	
+	"cmp", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|OP(2),5},	
+	"cmp", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TA(1)|OP(2),5},	
+	"cmp", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TA(1)|OP(2),5},	
+	"cmp", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TT(1)|OP(2),5},	
+	"cmp", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TT(1)|OP(2),5},	
+	"cmp", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TA(1)|TT(1)|OP(2),5},	
+	"cmp", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(13)|OP(2),5},	
 	
-	"cmp", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(13),5},	
-	"cmp", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(13),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(13),5},	
-	"cmp", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(13),5},	
+	"cmp", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(13),5},	
+	"cmp", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(13),5},	
+	"cmp", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(13),5},	
+	"cmp", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(13),5},	
 
-	"cmp_eq", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(14)|TB(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(14)|TA(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(14)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(14)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(14)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(14)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(14)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(14)|OP(2),5},	
+	"cmp_eq", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|OP(2),5},	
+	"cmp_eq", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TA(1)|OP(2),5},	
+	"cmp_eq", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_eq", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TT(1)|OP(2),5},	
+	"cmp_eq", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_eq", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_eq", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_eq", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(14)|OP(2),5},	
 	
-	"cmp_eq", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(14),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(14),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(14),5},	
-	"cmp_eq", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(14),5},	
+	"cmp_eq", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(14),5},	
+	"cmp_eq", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(14),5},	
+	"cmp_eq", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(14),5},	
+	"cmp_eq", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(14),5},	
 
-	"cmp_ge", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(17)|TB(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(17)|TA(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(17)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(17)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(17)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(17)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(17)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(17)|OP(2),5},	
+	"cmp_ge", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|OP(2),5},	
+	"cmp_ge", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TA(1)|OP(2),5},	
+	"cmp_ge", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_ge", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TT(1)|OP(2),5},	
+	"cmp_ge", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_ge", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ge", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ge", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(17)|OP(2),5},	
 	
-	"cmp_ge", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(17),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(17),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(17),5},	
-	"cmp_ge", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(17),5},	
+	"cmp_ge", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(17),5},	
+	"cmp_ge", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(17),5},	
+	"cmp_ge", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(17),5},	
+	"cmp_ge", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(17),5},	
 
-	"cmp_geu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(21)|TB(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(21)|TA(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(21)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(21)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(21)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(21)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(21)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(21)|OP(2),5},	
+	"cmp_geu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|OP(2),5},	
+	"cmp_geu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TA(1)|OP(2),5},	
+	"cmp_geu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_geu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TT(1)|OP(2),5},	
+	"cmp_geu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_geu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_geu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_geu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(21)|OP(2),5},	
 	
-	"cmp_geu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(21),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(21),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(21),5},	
-	"cmp_geu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(21),5},	
+	"cmp_geu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(21),5},	
+	"cmp_geu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(21),5},	
+	"cmp_geu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(21),5},	
+	"cmp_geu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(21),5},	
 
-	"cmp_gt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(19)|TB(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(19)|TA(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(19)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(19)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(19)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(19)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(19)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(19)|OP(2),5},	
+	"cmp_gt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|OP(2),5},	
+	"cmp_gt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TA(1)|OP(2),5},	
+	"cmp_gt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_gt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TT(1)|OP(2),5},	
+	"cmp_gt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_gt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_gt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_gt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(19)|OP(2),5},	
 	
-	"cmp_gt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(19),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(19),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(19),5},	
-	"cmp_gt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(19),5},	
+	"cmp_gt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(19),5},	
+	"cmp_gt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(19),5},	
+	"cmp_gt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(19),5},	
+	"cmp_gt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(19),5},	
 
-	"cmp_gtu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(23)|TB(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(23)|TA(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(23)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(23)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(23)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(23)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(23)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(23)|OP(2),5},	
+	"cmp_gtu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|OP(2),5},	
+	"cmp_gtu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TA(1)|OP(2),5},	
+	"cmp_gtu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_gtu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TT(1)|OP(2),5},	
+	"cmp_gtu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_gtu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_gtu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_gtu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(23)|OP(2),5},	
 	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(23),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(23),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(23),5},	
-	"cmp_gtu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(23),5},	
+	"cmp_gtu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(23),5},	
+	"cmp_gtu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(23),5},	
+	"cmp_gtu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(23),5},	
+	"cmp_gtu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(23),5},	
 
-	"cmp_le", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(18)|TB(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(18)|TA(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(18)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(18)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(18)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(18)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(18)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(18)|OP(2),5},	
+	"cmp_le", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|OP(2),5},	
+	"cmp_le", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TA(1)|OP(2),5},	
+	"cmp_le", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_le", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TT(1)|OP(2),5},	
+	"cmp_le", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_le", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_le", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_le", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(18)|OP(2),5},	
 	
-	"cmp_le", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(18),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(18),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(18),5},	
-	"cmp_le", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(18),5},	
+	"cmp_le", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(18),5},	
+	"cmp_le", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(18),5},	
+	"cmp_le", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(18),5},	
+	"cmp_le", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(18),5},	
 
-	"cmp_leu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(22)|TB(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(22)|TA(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(22)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(22)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(22)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(22)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(22)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(22)|OP(2),5},	
+	"cmp_leu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|OP(2),5},	
+	"cmp_leu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TA(1)|OP(2),5},	
+	"cmp_leu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_leu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TT(1)|OP(2),5},	
+	"cmp_leu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_leu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_leu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_leu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(22)|OP(2),5},	
 	
-	"cmp_leu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(22),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(22),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(22),5},	
-	"cmp_leu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(22),5},	
+	"cmp_leu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(22),5},	
+	"cmp_leu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(22),5},	
+	"cmp_leu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(22),5},	
+	"cmp_leu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(22),5},	
 
-	"cmp_lt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(16)|TB(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(16)|TA(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(16)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(16)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(16)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(16)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(16)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(16)|OP(2),5},	
+	"cmp_lt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|OP(2),5},	
+	"cmp_lt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TA(1)|OP(2),5},	
+	"cmp_lt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_lt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TT(1)|OP(2),5},	
+	"cmp_lt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_lt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_lt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_lt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(16)|OP(2),5},	
 	
-	"cmp_lt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(16),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(16),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(16),5},	
-	"cmp_lt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(16),5},	
+	"cmp_lt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(16),5},	
+	"cmp_lt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(16),5},	
+	"cmp_lt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(16),5},	
+	"cmp_lt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(16),5},	
 
-	"cmp_ltu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(20)|TB(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(20)|TA(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(20)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(20)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(20)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(20)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(20)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(20)|OP(2),5},	
+	"cmp_ltu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|OP(2),5},	
+	"cmp_ltu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TA(1)|OP(2),5},	
+	"cmp_ltu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_ltu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TT(1)|OP(2),5},	
+	"cmp_ltu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_ltu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ltu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ltu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(20)|OP(2),5},	
 	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(20),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(20),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(20),5},	
-	"cmp_ltu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(20),5},	
+	"cmp_ltu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(20),5},	
+	"cmp_ltu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(20),5},	
+	"cmp_ltu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(20),5},	
+	"cmp_ltu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(20),5},	
 
-	"cmp_ne", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(15)|TB(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(15)|TA(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(15)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(15)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(15)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(15)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(15)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(15)|OP(2),5},	
+	"cmp_ne", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|OP(2),5},	
+	"cmp_ne", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TA(1)|OP(2),5},	
+	"cmp_ne", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TA(1)|OP(2),5},	
+	"cmp_ne", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TT(1)|OP(2),5},	
+	"cmp_ne", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TT(1)|OP(2),5},	
+	"cmp_ne", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ne", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"cmp_ne", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(15)|OP(2),5},	
 	
-	"cmp_ne", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(15),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(15),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(15),5},	
-	"cmp_ne", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(15),5},	
+	"cmp_ne", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(15),5},	
+	"cmp_ne", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(15),5},	
+	"cmp_ne", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(15),5},	
+	"cmp_ne", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(15),5},	
 
-	"cntlz", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(0)|TA(1)|TT(1)|OP(2),5},
-	"cntlz", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(0)|TA(1)|TT(0)|OP(2),5},
-	"cntlz", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(0)|TA(0)|TT(1)|OP(2),5},
-	"cntlz", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(0)|TA(0)|TT(0)|OP(2),5},
+	"cntlz", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(1)|TT(1)|OP(2),5},
+	"cntlz", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(1)|TT(0)|OP(2),5},
+	"cntlz", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(0)|TT(1)|OP(2),5},
+	"cntlz", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(0)|TT(0)|OP(2),5},
 
-	"cntpop", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(2)|TA(1)|TT(1)|OP(2),5},
-	"cntpop", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(2)|TA(1)|TT(0)|OP(2),5},
-	"cntpop", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(2)|TA(0)|TT(1)|OP(2),5},
-	"cntpop", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,FN(1)|RB(2)|TA(0)|TT(0)|OP(2),5},
+	"cntpop", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(1)|TT(1)|OP(2),5},
+	"cntpop", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(1)|TT(0)|OP(2),5},
+	"cntpop", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(0)|TT(1)|OP(2),5},
+	"cntpop", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(0)|TT(0)|OP(2),5},
 
-	"com", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,IMM(0xffffLL)|TA(1)|OP(9),5},
-	"com", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,IMM(0xffffLL)|TT(1)|OP(9),5},
-	"com", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,IMM(0xffffLL)|TA(1)|TT(1)|OP(9),5},
-	"com", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,IMM(0xffffLL)|OP(9),5},
+	"com", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TA(1)|OP(9),5},
+	"com", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TT(1)|OP(9),5},
+	"com", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TA(1)|TT(1)|OP(9),5},
+	"com", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|OP(9),5},
 
-	"csrrc", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,IMM(0x8000LL)|OP(7),5},
-	"csrrd", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(7),5},
-	"csrrs", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,IMM(0xC000LL)|OP(7),5},
-	"csrrw", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,IMM(0x4000LL)|OP(7),5},
+	"csrrc", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0x8000LL)|OP(7),5},
+	"csrrd", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(7),5},
+	"csrrs", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0xC000LL)|OP(7),5},
+	"csrrw", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0x4000LL)|OP(7),5},
 
-	"eor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|OP(2),5},	
-	"eor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TA(1)|OP(2),5},	
-	"eor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TA(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TA(1)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"eor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(10)|OP(2),5},	
+	"eor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|OP(2),5},	
+	"eor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|OP(2),5},	
+	"eor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|OP(2),5},	
+	"eor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TT(1)|OP(2),5},	
+	"eor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TT(1)|OP(2),5},	
+	"eor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|TT(1)|OP(2),5},	
+	"eor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"eor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(10)|OP(2),5},	
 	
-	"eor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(10),5},	
-	"eor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(10),5},	
-	"eor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(10),5},	
-	"eor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(10),5},	
+	"eor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(10),5},	
+	"eor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(10),5},	
+	"eor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(10),5},	
+	"eor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(10),5},	
 
 	"jmp",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),5},
 	"jsr",	{OP_LK,OP_IMM,0,0,0}, {JL2,CPU_ALL,0,OP(24),5},
@@ -299,7 +302,8 @@ mnemonic mnemonics[]={
 
 //	"ldo",	{OP_REG,OP_SEL|OP_REGIND8,0,0,0}, {REGIND,CPU_ALL,0,0x87LL,4},	
 	
-	"ldi",  {OP_REG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(9),5},
+	"ldi",  {OP_VMREG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},
+	"ldi",  {OP_REG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},
 
 	"ldo",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,OP(55),5},
 	"ldo",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x86LL,5},	
@@ -368,26 +372,26 @@ mnemonic mnemonics[]={
 	"neg", {OP_REG,OP_NEXTREG,OP_REG,0,0}, {R2,CPU_ALL,0,0x0000000DLL,4},	
 //	"neg",	{OP_REG,OP_REG,0,0,0}, {R3,CPU_ALL,0,0x0A000001LL,4},
 
-	"nop",	{0,0,0,0,0}, {BITS16,CPU_ALL,0,0x0B,1},
+	"nop",	{0,0,0,0,0}, {BITS16,CPU_ALL,0,0x0B,5},
 
 	"nor", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x020000000102LL,6},	
 	"nor", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x020000000102LL,6},	
 	"nor", {OP_REG,OP_REG,OP_REG,OP_REG,0}, {R3,CPU_ALL,0,0x020000000002LL,6},	
 	"not", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,0x08000001LL,4},
 
-	"or", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(9)|TB(1)|OP(2),5},	
-	"or", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(9)|TA(1)|OP(2),5},	
-	"or", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(9)|TB(1)|TA(1)|OP(2),5},	
-	"or", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(9)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(9)|TB(1)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(9)|TA(1)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(9)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"or", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(9)|OP(2),5},	
+	"or", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|OP(2),5},	
+	"or", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TA(1)|OP(2),5},	
+	"or", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TA(1)|OP(2),5},	
+	"or", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TT(1)|OP(2),5},	
+	"or", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TT(1)|OP(2),5},	
+	"or", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TA(1)|TT(1)|OP(2),5},	
+	"or", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"or", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(9)|OP(2),5},	
 	
-	"or", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(9),5},	
-	"or", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(9),5},	
-	"or", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(9),5},	
-	"or", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(9),5},	
+	"or", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(9),5},	
+	"or", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(9),5},	
+	"or", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(9),5},	
+	"or", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},	
 
 	"orc", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x060000000102LL,6},	
 	"orc", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x060000000102LL,6},	
@@ -433,7 +437,8 @@ mnemonic mnemonics[]={
 
 	"ret",	{OP_LK,OP_IMM,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
 	"ret",	{OP_LK,0,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
-	"ret",	{0,0,0,0,0}, {RTS,CPU_ALL,0,0x02F2LL, 2},
+	"ret",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26),5},
+	"ret",	{0,0,0,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26), 5},
 
 	"rex",	{OP_IMM,OP_REG,0,0,0},{REX,CPU_ALL,0,0x200000000007LL,6},	
 
@@ -456,20 +461,16 @@ mnemonic mnemonics[]={
 	"rti",	{0,0,0,0,0}, {RTS,CPU_ALL,0,0x00F0LL, 2},
 
 	"rts",	{OP_LK,OP_IMM,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
-	"rts",	{OP_LK,0,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
-	"rts",	{0,0,0,0,0}, {RTS,CPU_ALL,0,0x02F2LL, 2},
+	"rts",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26),5},
+	"rts",	{0,0,0,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26), 5},
+//	"rts",	{OP_LK,0,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
 
 	"sei",	{OP_REG,OP_NEXTREG,OP_REG,0,0},{R3RR,CPU_ALL,0,0x2E0000000007LL,6},	
 
-	"sll",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x800000000002LL,6},	
-	"sll",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x800000000002LL,6},	
-	"sll",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_VMREG,0}, {R2,CPU_ALL,0,0x58,4},
-//	"sll",	{OP_REG,OP_REG,OP_IMM,0,0}, {SHIFTI,CPU_ALL,0,0x800000000002LL,6},
-	"sll",	{OP_REG,OP_REG,OP_IMM,0,0}, {RI6,CPU_ALL,0,0x6C,4},
-	"sll",	{OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,0x58,4},
-
-	"sllp",	{OP_REG,OP_REG,OP_REG,OP_REG,0}, {R3,CPU_ALL,0,0x800000000002LL,6},	
-	"sllp",	{OP_REG,OP_REG,OP_REG,OP_IMM,0}, {R3,CPU_ALL,0,0x800000000002LL,6},	
+	"sll",	{OP_REG,OP_REG,OP_IMM,OP_IMM,0}, {RI6,CPU_ALL,0,SZ(1)|0x0600000002,5},
+	"sll",	{OP_REG,OP_REG,OP_IMM,0,0}, {RI6,CPU_ALL,0,SZ(1)|0x0600000002,5},
+	"sll",	{OP_REG,OP_REG,OP_REG,OP_IMM,0}, {R2,CPU_ALL,0,SZ(1)|0x0780000002,5},
+	"sll",	{OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|0x0780000002,5},
 
 	"sra",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x840000000002LL,6},	
 	"sra",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x840000000002LL,6},	
@@ -514,14 +515,14 @@ mnemonic mnemonics[]={
 	"stw",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,OP(57),5},	
 	"stw",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(57)|OP(2),5},	
 
-	"sub", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(5)|TB(1)|OP(2),5},	
-	"sub", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(5)|TA(1)|OP(2),5},	
-	"sub", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(5)|TB(1)|TA(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(5)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(5)|TB(1)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(5)|TA(1)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(5)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"sub", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(5)|OP(2),5},	
+	"sub", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|OP(2),5},	
+	"sub", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TA(1)|OP(2),5},	
+	"sub", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TA(1)|OP(2),5},	
+	"sub", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TT(1)|OP(2),5},	
+	"sub", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TT(1)|OP(2),5},	
+	"sub", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TA(1)|TT(1)|OP(2),5},	
+	"sub", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"sub", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(5)|OP(2),5},	
 
 	"subf", {OP_VREG,OP_VREG,OP_IMM,OP_VMREG,0}, {RIL,CPU_ALL,0,0x1D5LL,6},
 	"subf", {OP_REG,OP_REG,OP_IMM,0,0}, {RIL,CPU_ALL,0,0xD5LL,6},
@@ -537,19 +538,19 @@ mnemonic mnemonics[]={
 	"sys",	{OP_IMM,0,0,0,0}, {BITS32,CPU_ALL,0,0xA5,4},
 
 	/* Alternate mnemonic for eor */
-	"xor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|OP(2),5},	
-	"xor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TA(1)|OP(2),5},	
-	"xor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TA(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,FN(10)|TA(1)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"xor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,FN(10)|OP(2),5},	
+	"xor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|OP(2),5},	
+	"xor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|OP(2),5},	
+	"xor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|OP(2),5},	
+	"xor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TT(1)|OP(2),5},	
+	"xor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TT(1)|OP(2),5},	
+	"xor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|TT(1)|OP(2),5},	
+	"xor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
+	"xor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(10)|OP(2),5},	
 	
-	"xor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|OP(10),5},	
-	"xor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,TT(1)|OP(10),5},	
-	"xor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,TA(1)|TT(1)|OP(10),5},	
-	"xor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,OP(10),5}	
+	"xor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(10),5},	
+	"xor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(10),5},	
+	"xor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(10),5},	
+	"xor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(10),5}	
 
 };
 
@@ -632,7 +633,7 @@ static int is_reg(char *p, char **ep, int* typ)
 			if (regnames[nn][2]=='\0')
 				return (-1);
 			if (regnames[nn][2]==p[2]) {
-				if (!ISIDCHAR((unsigned char)p[3])) {
+				if (!is_identchar((unsigned char)p[3])) {
 					if (regnames[nn][3]=='\0') {
 						*typ = regop[nn];
 						if (ep)
@@ -641,10 +642,8 @@ static int is_reg(char *p, char **ep, int* typ)
 					}
 					return (-1);
 				}
-				if (regnames[nn][3]=='\0')
-					return (-1);
 				if (regnames[nn][3]==p[3]) {
-					if (!ISIDCHAR((unsigned char)p[4])) {
+					if (!is_identchar((unsigned char)p[4])) {
 						if (regnames[nn][4]=='\0') {
 							if (ep)
 								*ep = &p[4];
@@ -1259,6 +1258,7 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
                            23,16,0,0xffffLL);
           break;
       	/* Unconditional jump */
+      	case B2:
         case J2:
         case JL2:
 		      add_extnreloc_masked(reloclist,base,val,reloctype,
@@ -1465,8 +1465,17 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 		}
 		else if (mnemo->ext.format==R2) {
 			isize = 5;
-			if (insn) {
-				*insn = *insn | RB(val);
+			switch(i) {
+			case 2:
+				if (insn) {
+					*insn = *insn | RB(val);
+				}
+				break;
+			case 3:
+				if (insn) {
+					*insn = *insn | ((val & 1LL) << 36LL);
+				}
+				break;
 			}
 		}
 		else if (mnemo->ext.format==R3) {
@@ -1486,8 +1495,16 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 		}
 		else if (mnemo->ext.format==RI6) {
 			isize = 5;
-			if (insn)
-				*insn = *insn | RB(val & 0x3fLL);
+			switch(i) {
+			case 2:
+				if (insn)
+					*insn = *insn | RB(val & 0x3fLL);
+				break;
+			case 3:
+				if (insn)
+					*insn = *insn | ((val & 0x1LL) << 36);
+				break;
+			}
 		}
 
 		else {
@@ -1898,7 +1915,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
     }
 
 		TRACE("Etho2:");
-		if (op.type==OP_REG) {
+		if (op.type==OP_REG || op.type==OP_VMREG) {
 			encode_reg(insn, &op, mnemo, i);
 		}
 		else if (mnemo->operand_type[i]==OP_LK) {
@@ -1984,9 +2001,14 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
    to the data created by eval_instruction. */
 size_t instruction_size(instruction *ip,section *sec,taddr pc)
 {
+	uint64_t bc;
+
 	TRACE("+instruction_size\n");
 	size_t sz = encode_rfPhoenix_operands(ip,sec,pc,NULL,NULL,NULL,NULL);
 	sz = (sz & 0xff) + ((sz >> 8) & 0xff) + (sz >> 16);
+	bc = (pc & 0x3fLL) + sz;
+	if (bc > 63LL && !span_cache_lines)
+		sz = sz + (64LL-(pc & 0x3fLL));
 	insn_sizes1[sz1ndx++] = sz;
 	TRACE2("isize=%d ", sz);
   return (sz);
@@ -1995,30 +2017,61 @@ size_t instruction_size(instruction *ip,section *sec,taddr pc)
 
 /* Convert an instruction into a DATA atom including relocations,
    when necessary. */
+/* ToDo:
+		There are lots of instructions that would fit into four bytes at the end of
+		a cache line. Anything with a constant value where the high byte is zero will
+		fit into the four byte space. But for now if the instruction and postfixes
+		would span cache lines we simply output a four byte NOP.
+*/
 dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 {
   dblock *db = new_dblock();
+  unsigned char *d;
   uint64_t postfix, postfix2;
   uint64_t insn;
+  uint64_t bc;
   size_t sz;
+  int toobig = 0;
 
 	TRACE("+eval_instruction\n");
 	postfix = 0;
 	postfix2 = 0;
 	sz = encode_rfPhoenix_operands(ip,sec,pc,&postfix,&postfix2,&insn,db);
 	db->size = (sz & 0xff) + ((sz >> 8) & 0xff) + (sz >> 16);
-	insn_sizes2[sz2ndx++] = db->size;
-  if (db->size) {
-    unsigned char *d = db->data = mymalloc(db->size);
-    int i;
-
-		if ((sz >> 8) & 0xff) {
-	    d = setval(0,d,(sz >> 8) & 0xff,insn);
-	    d = setval(0,d,sz & 0xff,postfix);
-	    insn_count++;
+	// Is anything being added to the instruction stream?
+	if (db->size) {
+		// Include padding space if instruction plus postfixes will not fit on
+		// cache line.
+		bc = (pc & 0x3fLL) + db->size;
+		if (bc > 63LL) {
+			toobig = !span_cache_lines;
+			if (toobig)
+				db->size = db->size + (64LL-(pc & 0x3fLL));
+		}
+		d = db->data = mymalloc(db->size);
+		// Will it fit on the cache line?
+		if (toobig) {
+			bc = pc & 0x3fLL;
+			while (bc < 64LL) {
+		   	d = setval(0,d,(size_t)min(5LL,64LL - bc),(uint64_t)12);	// NOP instruction
+				bc += 5LL;
+				insn_count++;
+			}
+		}
+		insn_sizes2[sz2ndx++] = db->size;
+		if ((sz >> 16LL) & 0xffLL) {
+	    d = setval(0,d,(sz >> 16LL) & 0xffLL,insn);
+	    d = setval(0,d,(sz >>8LL) & 0xffLL,postfix);
+	    d = setval(0,d,sz & 0xffLL,postfix2);
+	    insn_count+=3;
+		}
+		else if ((sz >> 8LL) & 0xffLL) {
+	    d = setval(0,d,(sz >> 8LL) & 0xffLL,insn);
+	    d = setval(0,d,sz & 0xffLL,postfix);
+	    insn_count+=2;
 	  }
 	  else {
-    	d = setval(0,d,sz & 0xff,insn);
+    	d = setval(0,d,sz & 0xffLL,insn);
     	insn_count++;
     }
     byte_count += db->size;
