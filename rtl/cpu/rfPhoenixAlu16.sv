@@ -115,10 +115,12 @@ OP_R2:
 		OP_FCLASS:		o = fclass_o;
 		OP_FSIGN:		o = vz ? 16'h0 : a[15] ? 16'hBE00 : 16'h3E00;
 		OP_FFINITE:	o = {15'd0,~xinf};
+		OP_SEXTB:		o = {{8{a[7]}},a[7:0]};
 		default:	o = 'd0;
 		endcase
 	OP_ADD:		o = a + b;
 	OP_SUB:		o = a - b;
+//	OP_MUL:		o = a * b;
 	OP_AND:		o = a & b;
 	OP_OR:			o = a | b;
 	OP_XOR:		o = a ^ b;
@@ -172,6 +174,7 @@ OP_R2:
 	endcase
 OP_ADDI:		o = a + imm;
 OP_SUBFI:		o = imm - a;
+//OP_MULI:		o = a * imm;
 OP_ANDI:		o = a & imm;
 OP_ORI:			o = a | imm;
 OP_XORI:		o = a ^ imm;

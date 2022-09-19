@@ -56,6 +56,7 @@ wire fms = ir.any.opcode==OP_FMS || ir.any.opcode==OP_FNMS;
 wire fnm = ir.any.opcode==OP_FNMA || ir.any.opcode==OP_FNMS;
 wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD;
 wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB;
+wire mul = ir.any.opcode==OP_R2 && ir.r2.func==OP_MUL;
 
 Value fma_o, fma_o1;
 Value fcmp_o;
@@ -65,21 +66,22 @@ Value ftrunc_o,ftrunc1_o;
 Value frsqrte_o,frsqrte1_o;
 Value fres_o,fres1_o;
 Value fsig_o,fsig1_o;
-DoubleValue muli_o,muli1_o,muli2_o;
+DoubleValue muli_o,muli1_o;
+DoubleValue [7:0] mul_pipe;
 
-mult32x32 uimul1(
-	.clk(clk),
-	.ce(1'b1),
+mult32x32combo uimul1(
 	.a(a),
 	.b(mul ? b : imm),
-	.o(muli2_o)
+	.o(muli1_o)
 );
 
 // Multiply takes only six cycles, add two cycles.
 always_ff @(posedge clk)
-	muli1_o <= muli2_o;
-always_ff @(posedge clk)
-	muli_o <= muli1_o;
+begin
+	mul_pipe[7] <= muli1_o;
+	for (n = 0; n < 7; n = n + 1)
+		mul_pipe[n] <= mul_pipe[n+1];
+end
 
 i2f32 ui2f1
 (
@@ -201,11 +203,11 @@ OP_R2:
 		OP_FSIGMOID:	o = fsig_o;
 		default:	o = 'd0;
 		endcase
-	OP_MUL:	o = muli_o[31:0];
+	OP_MUL:	o = mul_pipe[0][31:0];
 	OP_FADD,OP_FSUB:	o = fma_o;
 	default:	o = 'd0;
 	endcase
-OP_MULI:	o = muli_o[31:0];
+OP_MULI:	o = mul_pipe[0][31:0];
 OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	o = fma_o;
 default:	o = 'd0;
 endcase

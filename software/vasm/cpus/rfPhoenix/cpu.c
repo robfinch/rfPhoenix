@@ -33,10 +33,10 @@ static char *regnames[64] = {
 	"t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4",
 	"s5", "s6", "s7", "s8", "s9", "a2", "a3", "a4",
 	"a5", "a6", "a7", "gp2", "gp1", "gp0", "fp", "sp",
+	"t8", "t9", "t10", "t11", "s10", "s11", "s12", "s13",
+	"r40", "r41", "r42", "r43", "r44", "r45", "r46", "r47",
 	"vm0", "vm1", "vm2", "vm3", "vm4", "vm5", "vm6", "vm7",
-	"vm8", "vm9", "vm10", "vm11", "vm12", "vm13", "vm14", "vm15",
-	"lc", "lr1", "lr2", "r51", "ssp", "hsp", "msp", "isp",
-	"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7"
+	"lc", "lr1", "lr2", "r59", "ssp", "hsp", "msp", "isp"
 };
 
 static int regop[64] = {
@@ -44,10 +44,10 @@ static int regop[64] = {
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
+	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
+	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
 	OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, 
-	OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, OP_VMREG, 
-	OP_REG, OP_LK, OP_LK, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, 
-	OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG
+	OP_REG, OP_LK, OP_LK, OP_REG, OP_REG, OP_REG, OP_REG, OP_REG
 };
 
 mnemonic mnemonics[]={
@@ -589,7 +589,7 @@ char *parse_instruction(char *s,int *inst_len,char **ext,int *ext_len,
 /* fill in pointers to default qualifiers, return number of qualifiers */
 int set_default_qualifiers(char **q,int *q_len)
 {
-  q[0] = "o";
+  q[0] = "t";
   q_len[0] = 1;
   return (1);
 }
@@ -1838,9 +1838,14 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	int constexpr;
 	int reg = 0;
 	char vector_insn = 0;
+	char opsz;				// operand size
 	int64_t op1val;
 
 	TRACE("Eto:");
+	opsz = 't';
+	if (ip->qualifiers[0])
+		opsz = ip->qualifiers[0][0];
+
 	isize = mnemo->ext.len;
   if (insn != NULL) {
     *insn = mnemo->ext.opcode;
@@ -1992,6 +1997,74 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
   		}
     }
 	}
+	
+	// Set instruction size bits
+	
+	if (insn) {
+		switch (mnemo->ext.format) {
+		case R1:
+		case R2:
+			switch(opsz) {
+			case 'w':
+			case 'W':
+				*insn &= 0x9FFFFFFFFFLL;
+				break;
+			case 't':
+			case 'T':
+				*insn &= 0x9FFFFFFFFFLL;
+				*insn |= 0x2000000000LL;
+				break;
+			case 'h':
+			case 'H':
+				*insn &= 0x9FFFFFFFFFLL;
+				*insn |= 0x4000000000LL;
+				break;
+			}
+			break;
+		case RI:
+			switch(opsz) {
+			case 'w':
+			case 'W':
+				*insn &= 0x7FFFFFFFFFLL;
+				break;
+			case 't':
+			case 'T':
+				*insn |= 0x8000000000LL;
+				if (isize > 5) {	// Is there a postfix?
+					if (postfix) {
+						*postfix &= 0xFFFFFFFF3FLL;
+						*postfix |= 0x0000000010LL;
+					}
+				}
+				break;
+			case 'h':
+			case 'H':
+				*insn &= 0x7FFFFFFFFFLL;
+				*insn |= 0x8000000000LL;
+				if (isize > 5) {	// Is there a postfix?
+					if (postfix) {
+						*postfix &= 0xFFFFFFFF3FLL;
+						*postfix |= 0x0000000020LL;
+					}
+				}
+				break;
+			}
+			break;
+		case B:
+			switch(opsz) {
+			case 'w':
+			case 'W':
+				*insn &= 0x7FFFFFFFFFLL;
+				break;
+			case 't':
+			case 'T':
+				*insn |= 0x8000000000LL;
+				break;
+			}
+			break;
+		}
+	}
+	
 	
 	TRACE("G");
 	return (isize);

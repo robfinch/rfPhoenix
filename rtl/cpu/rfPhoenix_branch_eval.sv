@@ -38,11 +38,11 @@ import rfPhoenixPkg::*;
 
 module rfPhoenix_branch_eval(ir, a, b, o);
 input instruction_t ir;
-input Value a;
-input Value b;
+input value_t a;
+input value_t b;
 output reg o;
 
-Value fcmp_o;
+value_t fcmp_o, fcmp16_o;
 
 fpCompare32 ucmp1
 (
@@ -53,29 +53,61 @@ fpCompare32 ucmp1
 	.snan()
 );
 
+fpCompare16 ucmp2
+(
+	.a(a[15:0]),
+	.b(b[15:0]),
+	.o(fcmp16_o),
+	.nan(),
+	.snan()
+);
+
 always_comb
 case(ir.any.opcode)
 OP_Bcc:
-	case(ir.br.cnd)
-	BLT:		o = $signed(a) <  $signed(b);
-	BGE:		o = $signed(a) >= $signed(b);
-	BLTU:		o = a < b;
-	BGEU:		o = a >= b;
-	BBS:		o = a[ir.br.Rb];
-	BEQ:		o = a==b;
-	BNE:		o = a!=b;
-	default:		o = 1'b0;
-	endcase
+	if (ir[39])
+		case(ir.br.cnd)
+		BLT:		o = $signed(a) <  $signed(b);
+		BGE:		o = $signed(a) >= $signed(b);
+		BLTU:		o = a < b;
+		BGEU:		o = a >= b;
+		BBS:		o = a[ir.br.Rb];
+		BEQ:		o = a==b;
+		BNE:		o = a!=b;
+		default:		o = 1'b0;
+		endcase
+	else
+		case(ir.br.cnd)
+		BLT:		o = $signed(a[15:0]) <  $signed(b[15:0]);
+		BGE:		o = $signed(a[15:0]) >= $signed(b[15:0]);
+		BLTU:		o = a[15:0] < b[15:0];
+		BGEU:		o = a[15:0] >= b[15:0];
+		BBS:		o = a[ir.br.Rb];
+		BEQ:		o = a[15:0]==b[15:0];
+		BNE:		o = a[15:0]!=b[15:0];
+		default:		o = 1'b0;
+		endcase
 OP_FBcc:
-	case(ir.br.cnd)
-	3'd0:		o = fcmp_o[1];	// LT
-	3'd1:		o = fcmp_o[9];	// GE
-	3'd2:		o = fcmp_o[2];	// LE
-	3'd3:		o = fcmp_o[10];	// GT
-	3'd6:		o = fcmp_o[0];	// EQ
-	3'd7:		o = fcmp_o[8]|fcmp_o[4];	// matches NE if Nan
-	default:		o = 1'b0;
-	endcase
+	if (ir[39])
+		case(ir.br.cnd)
+		3'd0:		o = fcmp_o[1];	// LT
+		3'd1:		o = fcmp_o[9];	// GE
+		3'd2:		o = fcmp_o[2];	// LE
+		3'd3:		o = fcmp_o[10];	// GT
+		3'd6:		o = fcmp_o[0];	// EQ
+		3'd7:		o = fcmp_o[8]|fcmp_o[4];	// matches NE if Nan
+		default:		o = 1'b0;
+		endcase
+	else
+		case(ir.br.cnd)
+		3'd0:		o = fcmp16_o[1];	// LT
+		3'd1:		o = fcmp16_o[9];	// GE
+		3'd2:		o = fcmp16_o[2];	// LE
+		3'd3:		o = fcmp16_o[10];	// GT
+		3'd6:		o = fcmp16_o[0];	// EQ
+		3'd7:		o = fcmp16_o[8]|fcmp16_o[4];	// matches NE if Nan
+		default:		o = 1'b0;
+		endcase
 default:	o = 1'b0;
 endcase
 

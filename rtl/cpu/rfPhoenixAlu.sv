@@ -152,6 +152,8 @@ OP_R2:
 		OP_FCLASS:		o = fclass_o;
 		OP_FSIGN:		o = vz ? 32'h0 : a[31] ? 32'hBF800000 : 32'h3F800000;
 		OP_FFINITE:	o = {31'd0,~xinf};
+		OP_SEXTB:		o = {{24{a[7]}},a[7:0]};
+		OP_SEXTW:		o = {{16{a[15]}},a[15:0]};
 		OP_PEEKQ:		
 			case(imm[3:0])
 			4'd15:	o = trace_dout;

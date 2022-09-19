@@ -41,23 +41,23 @@ module rfPhoenixVecAlu(ir, prc, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask,
 	o);
 input instruction_t ir;
 input prec_t prc;
-input VecValue a;
-input VecValue b;
-input VecValue c;
-input VecValue t;
+input vector_value_t a;
+input vector_value_t b;
+input vector_value_t c;
+input vector_value_t t;
 input Ta;
 input Tb;
 input Tt;
-input Value imm;
+input value_t imm;
 input ASID asid;
-input Value hmask;
+input value_t hmask;
 input Address trace_dout;
 input trace_empty;
 input trace_valid;
 input [10:0] trace_count;
-output VecValue o;
+output vector_value_t o;
 
-VecValue o1,o2;
+vector_value_t o1,o2;
 
 vector_quad_value_t ab, bb, cb, ob1, ob2;
 vector_half_value_t ac, bc, cc, ob3, ob4;

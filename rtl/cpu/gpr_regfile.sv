@@ -53,7 +53,7 @@ output Value o;
 // multiple register sets where there are fewer threads.
 
 //`ifdef IS_SIM
-/*
+
 integer k;
 
 (* ram_style = "block" *)
@@ -73,19 +73,13 @@ begin
 	if (wr[3]) mem[wa][31:24] <= i[31:24];
 end
 always_comb
-	if (ZERO_BYPASS)
-		o = rar[5:0]=='d0 ? 'd0 : mem[rar];
-	else
-		o = mem[rar];
-
+	o = mem[rar];
+/*
 `else
-*/
+
 reg rstb;
-always_comb
-	if (ZERO_BYPASS)
-		rstb = ra[5:0]=='d0;
-	else
-		rstb = 1'b0;
+alwaus_comb
+	rstb <= 1'b0;
 
 generate begin : gRegfile
 case(NTHREADS)
@@ -134,5 +128,5 @@ end
 endgenerate
 
 //`endif
-
+*/
 endmodule

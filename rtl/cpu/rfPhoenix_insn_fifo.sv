@@ -43,10 +43,10 @@ parameter DEP=16;
 input rst;
 input clk;
 input wr;
-input DecodeBus decin;
-output DecodeBus decout;
-input InstructionFetchbuf ifbin;
-output InstructionFetchbuf ifbout;
+input decode_bus_t decin;
+output decode_bus_t decout;
+input instruction_fetchbuf_t ifbin;
+output instruction_fetchbuf_t ifbout;
 input rd;
 output [$clog2(DEP)-1:0] cnt;
 output almost_full;
@@ -85,12 +85,12 @@ output v;
       .PROG_EMPTY_THRESH(3),    // DECIMAL
       .PROG_FULL_THRESH(9),     // DECIMAL
       .RD_DATA_COUNT_WIDTH(4),   // DECIMAL
-      .READ_DATA_WIDTH($bits(DecodeBus)+$bits(InstructionFetchbuf)),      // DECIMAL
+      .READ_DATA_WIDTH($bits(decode_bus_t)+$bits(instruction_fetchbuf_t)),      // DECIMAL
       .READ_MODE("std"),         // String
       .SIM_ASSERT_CHK(0),        // DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       .USE_ADV_FEATURES("070F"), // String
       .WAKEUP_TIME(0),           // DECIMAL
-      .WRITE_DATA_WIDTH($bits(DecodeBus)+$bits(InstructionFetchbuf)),     // DECIMAL
+      .WRITE_DATA_WIDTH($bits(decode_bus_t)+$bits(instruction_fetchbuf_t)),     // DECIMAL
       .WR_DATA_COUNT_WIDTH(4)    // DECIMAL
    )
    xpm_fifo_sync_inst (

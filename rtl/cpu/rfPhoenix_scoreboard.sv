@@ -39,7 +39,7 @@ import rfPhoenixPkg::*;
 module rfPhoenix_scoreboard(rst, clk, db, wb_v, wb_Rt, will_issue, can_issue, rollback, rollback_bitmap);
 input rst;
 input clk;
-input DecodeBus db;
+input decode_bus_t db;
 input wb_v;
 input regspec_t wb_Rt;
 input will_issue;
@@ -50,7 +50,7 @@ localparam ROLLBACK_STAGES = 5;
 
 integer n1;
 
-regs_bitmap_t valid, nxt_valid;
+regs_bitmap_t busy, nxt_busy;
 regs_bitmap_t srcs;
 regs_bitmap_t tgts;	// targets
 regs_bitmap_t wbs;
@@ -85,17 +85,17 @@ begin
 end
 
 always_comb
-	set_bm = wbs | (rollback ? rollback_bitmap : 'd0);
+	clr_bm = wbs | (rollback ? rollback_bitmap : 'd0);
 always_comb
-	clr_bm = tgts & {{127{will_issue}},1'b0};	// r0 is always valid
+	set_bm = tgts & {{127{will_issue}},1'b0};	// r0 is always valid
 always_comb
-	nxt_valid = (valid & ~clr_bm) | set_bm;
+	nxt_busy = (busy & ~clr_bm) | set_bm;
 
 always_ff @(posedge clk, posedge rst)
 if (rst)
-	valid <= {128{1'b1}};
+	busy <= {128{1'b0}};
 else begin
-	valid <= nxt_valid;
+	busy <= nxt_busy;
 end
 
 always_ff @(posedge clk, posedge rst)
@@ -115,7 +115,7 @@ begin
 		wb_Rts[n1] <= wb_Rts[n1-1];	
 end
 
-always_ff @(posedge clk)
-	can_issue <= (nxt_valid[127:1] & srcs[127:1]) == srcs[127:1];
+always_comb//ff @(posedge clk)
+	can_issue <= (busy[127:1] & srcs[127:1]) == 'd0;
 
 endmodule

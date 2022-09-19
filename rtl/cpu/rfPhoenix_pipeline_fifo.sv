@@ -86,7 +86,7 @@ output v;
       .READ_DATA_WIDTH($bits(pipeline_reg_t)),      // DECIMAL
       .READ_MODE("std"),         // String
       .SIM_ASSERT_CHK(0),        // DECIMAL; 0=disable simulation messages, 1=enable simulation messages
-      .USE_ADV_FEATURES("070F"), // String
+      .USE_ADV_FEATURES("100F"), // String
       .WAKEUP_TIME(0),           // DECIMAL
       .WRITE_DATA_WIDTH($bits(pipeline_reg_t)),     // DECIMAL
       .WR_DATA_COUNT_WIDTH(4)    // DECIMAL

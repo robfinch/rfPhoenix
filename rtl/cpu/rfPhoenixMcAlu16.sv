@@ -47,8 +47,8 @@ input half_value_t c;
 input half_value_t imm;
 output half_value_t o;
 output reg done;
-input Tid ridi;
-output Tid rido;
+input tid_t ridi;
+output tid_t rido;
 
 integer n;
 
@@ -56,6 +56,7 @@ wire fms = ir.any.opcode==OP_FMS16 || ir.any.opcode==OP_FNMS16;
 wire fnm = ir.any.opcode==OP_FNMA16 || ir.any.opcode==OP_FNMS16;
 wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD;
 wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB;
+wire mul = ir.any.opcode==OP_R2 && ir.r2.func==OP_MUL;
 
 half_value_t fma_o, fma_o1;
 half_value_t fcmp_o;
@@ -67,16 +68,14 @@ half_value_t fres_o,fres1_o;
 half_value_t fsig_o,fsig1_o;
 value_t muli_o,muli1_o,muli2_o;
 
-mult16x16 uimul1(
-	.clk(clk),
-	.ce(1'b1),
+mult16x16combo uimul1(
 	.a(a),
 	.b(mul ? b : imm),
 	.o(muli2_o)
 );
 
-// Multiply takes only one cycles, add seven cycles.
-vtdl #(.WID($bits(value_t)), .DEP(16)) udly1 (.clk(clk), .ce(1'b1), .a(4'd7), .d(muli2_o), .q(muli_o));
+// Multiply takes only zero cycles, add eight cycles.
+vtdl #(.WID($bits(value_t)), .DEP(16)) udly1 (.clk(clk), .ce(1'b1), .a(4'd8), .d(muli2_o), .q(muli_o));
 
 i2f16 ui2f1
 (
@@ -183,7 +182,7 @@ else begin
 	fma_pipe[0] <= fma_o1;
 end
 */
-vtdl #(.WID($bits(Tid)), .DEP(16)) uvtdl7 (.clk(clk), .ce(1'b1), .a(4'd8), .d(ridi), .q(rido));
+vtdl #(.WID($bits(tid_t)), .DEP(16)) uvtdl7 (.clk(clk), .ce(1'b1), .a(4'd8), .d(ridi), .q(rido));
 
 always_comb
 case(ir.any.opcode)

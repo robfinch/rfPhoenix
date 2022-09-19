@@ -37,9 +37,9 @@
 import rfPhoenixPkg::*;
 
 module rfPhoenix_decoder(ifb, sp_sel, deco);
-input InstructionFetchbuf ifb;
+input instruction_fetchbuf_t ifb;
 input [2:0] sp_sel;
-output DecodeBus deco;
+output decode_bus_t deco;
 
 reg pfx;
 reg op16,op32,op128;
@@ -160,7 +160,7 @@ begin
 	OP_CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
-	// Disable writing r0.
+	// Disable writing r0. r0 is set to zero when the FPGA is loaded.
 	if (deco.Rt=='d0)
 		deco.rfwr = 1'b0;
 
@@ -209,11 +209,20 @@ begin
 	endcase
 	// Handle postfixes	
 	if (pfx) begin
-		deco.imm[31:16] = ifb.pfx.imm;
-		//if (ifb.pfx2.opcode==OP_PFX)
-		//	deco.imm[79:50] = ifb.pfx.imm;
+		deco.imm[127:16] = {{80{ifb.pfx.imm[31]}},ifb.pfx.imm};
+`ifdef SUPPORT_128BIT_OPS		
+		if (ifb.pfx2.opcode==OP_PFX) begin
+			deco.imm[127:48] = {{48{ifb.pfx2.imm[31]}},ifb.pfx.imm};
+			/*
+			if (ifb.pfx3.opcode==OP_PFX) begin
+				deco.imm[127:80] = {{16{ifb.pfx3.imm[31]}},ifb.pfx.imm};
+				if (ifb.pfx4.opcode==OP_PFX) begin
+					deco.imm[127:112] = ifb.pfx4.imm[15:0];
+			end
+			*/
+		end
+`endif		
 	end
-
 
 	// Figure 16-bit ops
 	op16 = FALSE;
@@ -232,6 +241,7 @@ begin
 			OP_FNABS:	op16 = ifb.insn[38:37]==2'd0;
 			OP_FNEG:	op16 = ifb.insn[38:37]==2'd0;
 			OP_FSIGN:	op16 = ifb.insn[38:37]==2'd0;
+			OP_SEXTB:	op16 = ifb.insn[38:37]==2'd0;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
@@ -346,6 +356,8 @@ begin
 		deco.prc = PRC128;
 	else
 		deco.prc = PRC32;
+	if (pfx)
+		deco.prc = ifb.pfx.prc;
 
 	deco.storer = 'd0;
 	deco.storen = 'd0;
@@ -417,7 +429,8 @@ begin
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS
 								;
-	deco.hasRc = 	ifb.insn.any.opcode==OP_FMA ||
+	deco.hasRc = 	deco.br || deco.store ||
+								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS

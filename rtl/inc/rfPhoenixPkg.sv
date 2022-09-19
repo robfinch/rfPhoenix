@@ -1,7 +1,7 @@
 package rfPhoenixPkg;
 
 `undef IS_SIM
-//`define IS_SIM	1
+`define IS_SIM	1
 
 `define TRUE	1
 `define FALSE	0
@@ -131,7 +131,7 @@ typedef enum logic [2:0] {
 
 // R2 ops
 typedef enum logic [5:0] {
-	OP_R1			= 6'h01,
+	OP_R1				= 6'h01,
 	OP_VSHUF		= 6'h02,
 	OP_VEX			= 6'h03,
 	OP_ADD			= 6'h04,
@@ -139,30 +139,30 @@ typedef enum logic [5:0] {
 	OP_MUL			= 6'h06,
 	OP_TLBRW		= 6'h07,
 	OP_AND			= 6'h08,
-	OP_OR			= 6'h09,
+	OP_OR				= 6'h09,
 	OP_XOR			= 6'h0A,
 	OP_VEINS		= 6'h0C,
 	OP_CMP			= 6'h0D,
-	OP_CMP_EQ	= 6'h0E,
-	OP_CMP_NE	= 6'h0F,
-	OP_CMP_LT	= 6'h10,
-	OP_CMP_GE	= 6'h11,
-	OP_CMP_LE	= 6'h12,
-	OP_CMP_GT	= 6'h13,
+	OP_CMP_EQ		= 6'h0E,
+	OP_CMP_NE		= 6'h0F,
+	OP_CMP_LT		= 6'h10,
+	OP_CMP_GE		= 6'h11,
+	OP_CMP_LE		= 6'h12,
+	OP_CMP_GT		= 6'h13,
 	OP_CMP_LTU	= 6'h14,
 	OP_CMP_GEU	= 6'h15,
 	OP_CMP_LEU	= 6'h16,
 	OP_CMP_GTU	= 6'h17,
-	OP_SLLI		= 6'h18,
-	OP_SRLI		= 6'h19,
-	OP_SRAI		= 6'h1A,
+	OP_SLLI			= 6'h18,
+	OP_SRLI			= 6'h19,
+	OP_SRAI			= 6'h1A,
 	OP_SLL			= 6'h1B,
 	OP_SRL			= 6'h1C,
 	OP_SRA			= 6'h1D,
 	OP_FCMP_EQ	= 6'h1E,
 	OP_FCMP_NE	= 6'h1F,
-	OP_VSLLVI	= 6'h20,
-	OP_VSRLVI	= 6'h21,
+	OP_VSLLVI		= 6'h20,
+	OP_VSRLVI		= 6'h21,
 	OP_VSLLV		= 6'h22,
 	OP_VSRLV		= 6'h23,
 	OP_FCMP_LT	= 6'h24,
@@ -172,22 +172,21 @@ typedef enum logic [5:0] {
 	OP_FADD128	= 6'h28,
 	OP_FSUB128	= 6'h29,
 	OP_SHPTENDX	= 6'h2A,
-	OP_FADD		= 6'h2C,
-	OP_FSUB		= 6'h2D,
+	OP_FADD			= 6'h2C,
+	OP_FSUB			= 6'h2D,
 	OP_REMASK		= 6'h2E,
-//	OP_FMUL		= 6'h2E,
 	OP_PUSHQ		= 6'h2F,
-	OP_LDBX		= 6'h30,
+	OP_LDBX			= 6'h30,
 	OP_LDBUX		= 6'h31,
-	OP_LDWX		= 6'h32,
+	OP_LDWX			= 6'h32,
 	OP_LDWUX		= 6'h33,
-	OP_LDTX		= 6'h34,
-	OP_LDCX		= 6'h35,
+	OP_LDTX			= 6'h34,
+	OP_LDCX			= 6'h35,
 	OP_LDSRX		= 6'h36,
-	OP_STBX		= 6'h38,
-	OP_STWX		= 6'h39,
-	OP_STTX		= 6'h3A,
-	OP_STCX		= 6'h3B,
+	OP_STBX			= 6'h38,
+	OP_STWX			= 6'h39,
+	OP_STTX			= 6'h3A,
+	OP_STCX			= 6'h3B,
 	OP_STCRX		= 6'h3D
 } r2func_t;
 
@@ -214,7 +213,9 @@ typedef enum logic [5:0] {
 	OP_FCLASS		= 6'h2C,
 	OP_FMAN			= 6'h2D,
 	OP_FSIGN		= 6'h2E,
-	OP_FTRUNC		= 6'h2F
+	OP_FTRUNC		= 6'h2F,
+	OP_SEXTB		= 6'h38,
+	OP_SEXTW		= 6'h39
 } r1func_t;
 
 typedef enum logic [1:0] {
@@ -314,10 +315,18 @@ typedef enum logic [11:0] {
 	FLT_BRK		= 12'h03F,
 	FLT_PFX		= 12'h0C8,
 	FLT_TMR		= 12'h0E2,
+	FLT_CSR		= 12'h0EC,
 	FLT_RTI		= 12'h0ED,
 	FLT_IRQ		= 12'h8EE,
 	FLT_NMI		= 12'h8FE
 } cause_code_t;
+
+typedef enum logic [1:0] {
+	OM_USER = 2'd0,
+	OM_SUPERVISOR = 2'd1,
+	OM_HYPERVISOR = 2'd2,
+	OM_MACHINE = 2'd3
+} operating_mode_t;
 
 typedef enum logic [2:0] {
 	nul = 3'd0,
@@ -329,6 +338,7 @@ typedef enum logic [2:0] {
 } memsz_t;
 
 typedef logic [TidMSB:0] Tid;
+typedef logic [TidMSB:0] tid_t;
 typedef logic [11:0] order_tag_t;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
@@ -340,9 +350,11 @@ typedef logic [31:0] value_t;
 typedef logic [63:0] DoubleValue;
 typedef logic [15:0] half_value_t;
 typedef logic [127:0] quad_value_t;
+typedef logic [255:0] double_quad_value_t;
 typedef half_value_t [NLANES*2-1:0] vector_half_value_t;
 typedef quad_value_t [NLANES/4-1:0] vector_quad_value_t;
 typedef Value [NLANES-1:0] VecValue;
+typedef value_t [NLANES-1:0] vector_value_t;
 typedef logic [5:0] Func;
 typedef logic [127:0] regs_bitmap_t;
 
@@ -358,7 +370,7 @@ typedef struct packed
 	logic [5:0] resv3;
 	logic mprv;					// memory access priv indicator	
 	logic [4:0] resv2;
-	logic [1:0] om;			// operating mode
+	operating_mode_t om;	// operating mode
 	logic trace_en;			// instruction trace enable
 	logic ssm;					// single step mode
 	logic [2:0] ipl;		// interrupt privilege level
@@ -373,11 +385,10 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [15:0] pad2;
-	logic [15:0] imm;
-	logic [1:0] pad;
+	logic [31:0] imm;
+	prec_t prc;
 	opcode_t opcode;
-} Postfix;
+} postfix_t;
 
 typedef struct packed
 {
@@ -494,16 +505,18 @@ typedef union packed
 
 typedef struct packed
 {
-	Tid thread;
+	tid_t thread;
 	logic v;
 	order_tag_t tag;
 	code_address_t ip;
 	instruction_t insn;
-	Postfix pfx;
-	Postfix pfx2;
+	postfix_t pfx;
+	postfix_t pfx2;
+//	postfix_t pfx3;
+//	postfix_t pfx4;
 	cause_code_t cause;
 	logic [2:0] sp_sel;
-} InstructionFetchbuf;
+} instruction_fetchbuf_t;
 
 typedef struct packed
 {
@@ -522,7 +535,7 @@ typedef struct packed
 	logic hasRm;
 	logic hasRt;
 	logic Rtsrc;	// Rt is a source register
-	logic [31:0] imm;
+	logic [127:0] imm;
 	prec_t prc;
 	logic rfwr;
 	logic vrfwr;
@@ -555,7 +568,7 @@ typedef struct packed
 	logic rex;
 	logic pfx;
 	logic popq;
-} DecodeBus;
+} decode_bus_t;
 
 typedef struct packed
 {
@@ -566,9 +579,9 @@ typedef struct packed
 	logic executed;
 	logic memory;
 	logic imiss;
-	Tid thread;
-	InstructionFetchbuf ifb;
-	DecodeBus	dec;
+	tid_t thread;
+	instruction_fetchbuf_t ifb;
+	decode_bus_t	dec;
 	logic [3:0] count;
 	logic [3:0] step;
 	logic [2:0] retry;		// retry count
@@ -626,7 +639,7 @@ typedef struct packed
 {
 	logic [7:0] tid;		// tran id
 	order_tag_t tag;
-	Tid thread;
+	tid_t thread;
 	logic [1:0] omode;	// operating mode
 	code_address_t ip;			// Debugging aid
 	logic [5:0] step;		// vector step number
