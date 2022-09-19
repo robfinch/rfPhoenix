@@ -1285,14 +1285,20 @@ begin
 			rfndx1_v <= 1'b1;
 		end
 	end
-	else if (dcndx_v)
-		dcb[dcndx].v <= FALSE;
+	else begin
+		if (dcndx_v)
+			dcb[dcndx] <= dcb[dcndx];
+		else
+			dcb[dcndx].v <= FALSE;
+	end
 end
 endtask
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // RF Stage
 // Forces instructions to be ignored until the rollback target address is seen.
+// There are two stages to register fetch since two clocks are required to read
+// the register file.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 value_t csro;
@@ -1334,14 +1340,20 @@ begin
 	exndx <= rfndx2;
 	exndx_v <= rfndx2_v;
 	rfndx2_v <= rfndx1_v;
-	if (!ou_stall[rfndx1])
-		// RF stage #1, not much to do but propagate.
+
+	// RF stage #1, not much to do but propagate.
+	if (!ou_stall[rfndx1] && rfndx1_v)
 		rfb1[rfndx1] <= dcb[rfndx1];
-	else
-		rfb1[rfndx1].v <= FALSE;
-	if (!ou_stall[rfndx2]) begin
+	else begin
+		if (rfndx1_v)
+			rfb1[rfndx1] <= rfb1[rfndx1];
+		else
+			rfb1[rfndx1].v <= FALSE;
+	end
+	
+	// RF stage #2
+	if (!ou_stall[rfndx2] && rfndx2_v) begin
 		rfb2[rfndx2] <= rfb1[rfndx2];
-		// RF stage #2
 		if (rollback_ipv[rfndx2] && rfb1[rfndx2].ifb.ip != rollback_ip[rfndx2]) begin
 			rfb2[rfndx2].v <= 1'b0;
 			rfb2[rfndx2].dec.rfwr <= 1'b0;
@@ -1356,8 +1368,12 @@ begin
 			tRegf(rfndx2);
 		end
 	end
-	else
-		rfb2[rfndx2].v <= FALSE;
+	else begin
+		if (rfndx2_v)
+			rfb2[rfndx2] <= rfb2[rfndx2];
+		else
+			rfb2[rfndx2].v <= FALSE;
+	end
 end
 endtask
 
@@ -1481,15 +1497,27 @@ begin
 		tExCall();
 		tExBranch();
 	end
-	else if (exndx_v)
-		exb[exndx].v <= FALSE;
+	// Here, the pipeline may have stalled. Check and create a bubble by marking
+	// the instruction invalid.
+	else begin
+		if (exndx_v)
+			exb[exndx] <= exb[exndx];
+		else
+			exb[exndx].v <= FALSE;
+	end
 
 	if (!ou_stall[agndx] && agndx_v) begin
 		exbr <= exb[agndx];
 		exbr.res <= vres;
 		exbr.v <= exb[agndx].v;
 		exbrf_wr <= !exb[agndx].dec.mem && !exb[agndx].dec.multicycle && exb[agndx].v;
-	end		
+	end
+	else begin
+		if (agndx_v)
+			exbr <= exbr;
+		else
+			exbr.v <= FALSE;
+	end
 	
 	mcbf_wr <= FALSE;
 	if (mcbo.v) begin
@@ -1538,6 +1566,8 @@ begin
 		if (exb[agndx].dec.mem)
 			thread[agndx].sleep <= TRUE;
 	end
+	else if (!agndx_v)
+		agb[agndx].v <= FALSE;
 end
 endtask
 
@@ -1720,7 +1750,7 @@ endtask
 
 task tOut;
 begin
-	if (!ou_stall[oundx]) begin
+	if (!ou_stall[oundx] && oundx_v) begin
 		oub[oundx] <= agb[oundx];
 		oub[oundx].agen <= 1'b1;
 		if (oundx_v) begin
@@ -1764,6 +1794,8 @@ begin
 			end
 		end
 	end
+	else if (!oundx_v)
+		oub[oundx].v <= FALSE;
 end
 endtask
 
