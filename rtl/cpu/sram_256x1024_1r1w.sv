@@ -5,7 +5,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	gpr_regfile.sv
+//	sram_256x1024_1r1w.sv
 //
 //
 // BSD 3-Clause License
@@ -36,45 +36,47 @@
 //                                                                          
 // ============================================================================
 
-//import const_pkg::*;
 import rfPhoenixPkg::*;
+import rfPhoenixMmupkg::*;
 
-module gpr_regfile(clk, wr, wa, i, ra, o);
-parameter ZERO_BYPASS = 1'b0;
+module sram_256x1024_1r1w(rst, clk, wr, wadr, radr, i, o);
+input rst;
 input clk;
-input [3:0] wr;
-input [5+TidMSB+1:0] wa;
-input value_t i;
-input [5+TidMSB+1:0] ra;
-output value_t o;
+input wr;
+input [9:0] wadr;
+input [9:0] radr;
+input ICacheLine i;
+output ICacheLine o;
 
-// Tools do not infer RAMs quite as well as explicitly declaring them. All
-// the RAMs use the same number of block RAMs so it is tempting to have
-// multiple register sets where there are fewer threads.
+// xpm_memory_sdpram : In order to incorporate this function into the design,
+//      Verilog      : the following instance declaration needs to be placed
+//     instance      : in the body of the design code.  The instance name
+//    declaration    : (xpm_memory_sdpram_inst) and/or the port declarations within the
+//       code        : parenthesis may be changed to properly reference and
+//                   : connect this function to the design.  All inputs
+//                   : and outputs must be connected.
 
-//`ifdef IS_SIM
+//  Please reference the appropriate libraries guide for additional information on the XPM modules.
 
-integer k;
-/*
    // xpm_memory_sdpram: Simple Dual Port RAM
    // Xilinx Parameterized Macro, version 2020.2
 
    xpm_memory_sdpram #(
-      .ADDR_WIDTH_A(5+TidMSB+2),
-      .ADDR_WIDTH_B(5+TidMSB+2),
-      .AUTO_SLEEP_TIME(0),
-      .BYTE_WRITE_WIDTH_A(8),
-      .CASCADE_HEIGHT(0),
+      .ADDR_WIDTH_A(10),               // DECIMAL
+      .ADDR_WIDTH_B(10),               // DECIMAL
+      .AUTO_SLEEP_TIME(0),            // DECIMAL
+      .BYTE_WRITE_WIDTH_A(256),       // DECIMAL
+      .CASCADE_HEIGHT(0),             // DECIMAL
       .CLOCKING_MODE("common_clock"), // String
       .ECC_MODE("no_ecc"),            // String
       .MEMORY_INIT_FILE("none"),      // String
       .MEMORY_INIT_PARAM("0"),        // String
       .MEMORY_OPTIMIZATION("true"),   // String
       .MEMORY_PRIMITIVE("block"),      // String
-      .MEMORY_SIZE(8192),             // DECIMAL
+      .MEMORY_SIZE(262144),             // DECIMAL
       .MESSAGE_CONTROL(0),            // DECIMAL
-      .READ_DATA_WIDTH_B($bits(value_t)),
-      .READ_LATENCY_B(1),
+      .READ_DATA_WIDTH_B(256),         // DECIMAL
+      .READ_LATENCY_B(1),             // DECIMAL
       .READ_RESET_VALUE_B("0"),       // String
       .RST_MODE_A("SYNC"),            // String
       .RST_MODE_B("SYNC"),            // String
@@ -82,7 +84,7 @@ integer k;
       .USE_EMBEDDED_CONSTRAINT(0),    // DECIMAL
       .USE_MEM_INIT(1),               // DECIMAL
       .WAKEUP_TIME("disable_sleep"),  // String
-      .WRITE_DATA_WIDTH_A($bits(value_t)),
+      .WRITE_DATA_WIDTH_A(256),        // DECIMAL
       .WRITE_MODE_B("no_change")      // String
    )
    xpm_memory_sdpram_inst (
@@ -93,8 +95,8 @@ integer k;
       .sbiterrb(),             // 1-bit output: Status signal to indicate single bit error occurrence
                                // on the data output of port B.
 
-      .addra(wa),            // ADDR_WIDTH_A-bit input: Address for port A write operations.
-      .addrb(ra),            // ADDR_WIDTH_B-bit input: Address for port B read operations.
+      .addra(wadr),            // ADDR_WIDTH_A-bit input: Address for port A write operations.
+      .addrb(radr),            // ADDR_WIDTH_B-bit input: Address for port B read operations.
       .clka(clk),              // 1-bit input: Clock signal for port A. Also clocks port B when
                                // parameter CLOCKING_MODE is "common_clock".
 
@@ -120,7 +122,7 @@ integer k;
       .regceb(1'b1),	        // 1-bit input: Clock Enable for the last register stage on the output
                       	      // data path.
 
-      .rstb(1'b0),             // 1-bit input: Reset signal for the final port B output register stage.
+      .rstb(rst),             // 1-bit input: Reset signal for the final port B output register stage.
                               // Synchronously resets output port doutb to the value specified by
                               // parameter READ_RESET_VALUE_B.
 
@@ -134,80 +136,7 @@ integer k;
 
    );
 
-*/
-
-(* ram_style = "block" *)
-value_t [NTHREADS*NREGS-1:0] mem;
-initial begin
-	for (k = 0; k < NTHREADS*NREGS; k = k + 1)
-		mem[k] <= 32'd0;
-end
-reg [5+TidMSB+1:0] rar;
-always_ff @(posedge clk)
-	rar <= ra;
-always_ff @(posedge clk)
-begin
-	if (wr[0]) mem[wa][ 7: 0] <= i[ 7: 0];
-	if (wr[1]) mem[wa][15: 8] <= i[15: 8];
-	if (wr[2]) mem[wa][23:16] <= i[23:16];
-	if (wr[3]) mem[wa][31:24] <= i[31:24];
-end
-always_comb
-	o = mem[rar];
-
-/*
-`else
-
-reg rstb;
-always_comb
-	rstb <= 1'b0;
-
-generate begin : gRegfile
-case(NTHREADS)
-1,2,3,4:
-//----------- Begin Cut here for INSTANTIATION Template ---// INST_TAG
-blk_mem256x32 bmem0 (
-  .clka(clk),    // input wire clka
-  .ena(wr),      // input wire ena
-  .wea(wr),      // input wire [0 : 0] wea
-  .addra(wa),  // input wire [7 : 0] addra
-  .dina(i),    // input wire [31 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o),  // output wire [31 : 0] doutb
-  .rstb(rstb)
-);
-5,6,7,8:
-blk_mem512x32 bmem1 (
-  .clka(clk),    // input wire clka
-  .ena(wr),      // input wire ena
-  .wea(wr),      // input wire [0 : 0] wea
-  .addra(wa),  // input wire [7 : 0] addra
-  .dina(i),    // input wire [31 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o),  // output wire [31 : 0] doutb
-  .rstb(rstb)
-);
-9,10,11,12,13,14,15,16:
-blk_mem1024x32 bmem2 (
-  .clka(clk),    // input wire clka
-  .ena(wr),      // input wire ena
-  .wea(wr),      // input wire [0 : 0] wea
-  .addra(wa),  // input wire [7 : 0] addra
-  .dina(i),    // input wire [31 : 0] dina
-  .clkb(clk),    // input wire clkb
-  .enb(1'b1),      // input wire enb
-  .addrb(ra),  // input wire [7 : 0] addrb
-  .doutb(o),  // output wire [31 : 0] doutb
-  .rstb(rstb)
-);
-endcase
-end
-endgenerate
-
-//`endif
-*/
 endmodule
+
+				
+				

@@ -39,17 +39,18 @@ import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_ichit(clk, ip, ndx, tag, valid, ihit, rway, vtag, icv);
-parameter LINES=128;
+parameter LINES=256;
 parameter WAYS=4;
 parameter AWID=32;
+parameter TAGBIT=14;
 input clk;
 input code_address_t ip;
-input [6:0] ndx;
-input [$bits(code_address_t)-1:7] tag [0:3];
+input [$clog2(LINES)-1:0] ndx;
+input [$bits(code_address_t)-1:TAGBIT] tag [0:3];
 input [LINES-1:0] valid [0:WAYS-1];
 output reg ihit;
 output [1:0] rway;
-output reg [$bits(code_address_t)-7:0] vtag;	// victim tag
+output reg [$bits(code_address_t)-TAGBIT:0] vtag;	// victim tag
 output reg icv;
 
 reg [AWID-7:0] prev_vtag = 'd0;
@@ -63,7 +64,7 @@ integer k;
 always_ff @(posedge clk)
 begin
 	for (k = 0; k < WAYS; k = k + 1)
-	  ihit1[k] = tag[k[1:0]]==ip[$bits(code_address_t)-1:7] && valid[k][ndx]==1'b1;
+	  ihit1[k] = tag[k[1:0]]==ip[$bits(code_address_t)-1:TAGBIT] && valid[k][ndx]==1'b1;
 end
 
 integer k1;

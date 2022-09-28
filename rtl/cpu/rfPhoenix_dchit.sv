@@ -39,12 +39,14 @@ import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_dchit(rst, clk, tags, ndx, adr, valid, hits, hit, rway);
+parameter LINES=256;
+parameter TAGBIT=14;
 input rst;
 input clk;
-input [$bits(Address)-1:7] tags [3:0];
-input [6:0] ndx;
+input [$bits(Address)-1:TAGBIT] tags [3:0];
+input [$clog2(LINES)-1:0] ndx;
 input PhysicalAddress adr;
-input [127:0] valid [0:3];
+input [LINES-1:0] valid [0:3];
 output reg [3:0] hits;
 output reg hit;
 output reg [1:0] rway;
@@ -52,13 +54,13 @@ output reg [1:0] rway;
 reg [1:0] prev_rway;
 
 always_comb	//(posedge clk_g)
-  hits[0] <= tags[2'd0]==adr[$bits(Address)-1:7] && valid[0][ndx];
+  hits[0] <= tags[2'd0]==adr[$bits(Address)-1:TAGBIT] && valid[0][ndx];
 always_comb	//(posedge clk_g)
-  hits[1] <= tags[2'd1]==adr[$bits(Address)-1:7] && valid[1][ndx];
+  hits[1] <= tags[2'd1]==adr[$bits(Address)-1:TAGBIT] && valid[1][ndx];
 always_comb	//(posedge clk_g)
-  hits[2] <= tags[2'd2]==adr[$bits(Address)-1:7] && valid[2][ndx];
+  hits[2] <= tags[2'd2]==adr[$bits(Address)-1:TAGBIT] && valid[2][ndx];
 always_comb	//(posedge clk_g)
-  hits[3] <= tags[2'd3]==adr[$bits(Address)-1:7] && valid[3][ndx];
+  hits[3] <= tags[2'd3]==adr[$bits(Address)-1:TAGBIT] && valid[3][ndx];
 always_ff @(posedge clk)
 	hit <= |hits;
 

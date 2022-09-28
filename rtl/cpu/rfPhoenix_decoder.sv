@@ -34,6 +34,7 @@
 //                                                                          
 // ============================================================================
 
+import const_pkg::*;
 import rfPhoenixPkg::*;
 
 module rfPhoenix_decoder(ifb, sp_sel, deco);

@@ -39,21 +39,26 @@ import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_ictag(rst, clk, wr, ipo, way, rclk, ndx, tag);
-parameter LINES=128;
+parameter LINES=256;
 parameter WAYS=4;
+parameter TAGBIT=14;
+parameter LOBIT=6;
+localparam HIBIT=$clog2(LINES)-1+LOBIT;
 input rst;
 input clk;
 input wr;
 input code_address_t ipo;
 input [1:0] way;
 input rclk;
-input [6:0] ndx;
+input [$clog2(LINES)-1:0] ndx;
 (* ram_style="block" *)
-output [$bits(code_address_t)-1:7] tag [0:3];
+output [$bits(code_address_t)-1:TAGBIT] tag [0:3];
+
+typedef logic [$bits(code_address_t)-1:TAGBIT] tag_t;
 
 (* ram_style="block" *)
-reg [$bits(code_address_t)-1:7] tags [0:WAYS*LINES-1];
-reg [6:0] rndx;
+tag_t [LINES-1:0] tags [0:WAYS-1];
+reg [7:0] rndx;
 
 integer g,g1;
 integer n,n1;
@@ -61,7 +66,7 @@ integer n,n1;
 initial begin
 for (g = 0; g < WAYS; g = g + 1) begin
   for (n = 0; n < LINES; n = n + 1)
-    tags[g * LINES + n] = 32'd1;
+    tags[g][n] = tag_t'(32'd1);
 end
 end
 
@@ -72,21 +77,21 @@ always_ff @(posedge clk)
 if (rst) begin
 	for (g1 = 0; g1 < WAYS; g1 = g1 + 1) begin
 	  for (n1 = 0; n1 < LINES; n1 = n1 + 1)
-	    tags[g1 * LINES + n1] = 32'd1;
+	    tags[g1][n1] = tag_t'(32'd1);
 	end
 end
 else
 `endif
 begin
 	if (wr)
-		tags[way * LINES + ipo[13:7]] <= ipo[$bits(code_address_t)-1:7];	// We know bit[6]
+		tags[way][ipo[HIBIT:LOBIT]] <= tag_t'(ipo[$bits(code_address_t)-1:TAGBIT]);	// We know bit[5]
 end
 
 always_ff @(posedge rclk)
 	rndx <= ndx;
-assign tag[0] = tags[{2'b00,rndx}];
-assign tag[1] = tags[{2'b01,rndx}];
-assign tag[2] = tags[{2'b10,rndx}];
-assign tag[3] = tags[{2'b11,rndx}];
+assign tag[0] = tags[0][rndx];
+assign tag[1] = tags[1][rndx];
+assign tag[2] = tags[2][rndx];
+assign tag[3] = tags[3][rndx];
 
 endmodule

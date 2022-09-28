@@ -36,16 +36,14 @@
 //                                                                          
 // ============================================================================
 
-import wishbone_pkg::*;
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_biu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
 	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tage, ic_tago, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
-	bte_o, bndx_o, cti_o, seg_o, cyc_o, stb_o, we_o, sel_o, adr_o, dat_o, csr_o,
-	stall_i, adack_i, rty_i, ack_i, err_i, bndx_i, dat_i, rb_i,
-	dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
+	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
+	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
 	itlbmiss, clr_itlbmiss, rollback, rollback_bitmaps);
 parameter AWID=32;
 input rst;
@@ -76,26 +74,21 @@ input fifoFromCtrl_rd;
 output fifoFromCtrl_empty;
 output fifoFromCtrl_v;
 // Bus controls
-//output wb_write_request128_t wbm_req;
-//input wb_read_response128_t wbm_resp;
-output wb_burst_type_t bte_o;
-output reg [7:0] bndx_o;
-output wb_cycle_type_t cti_o;
-output wb_segment_t seg_o;
+input bok_i;
+output reg [1:0] bte_o;
+output reg [2:0] cti_o;
+output reg vpa_o;
+output reg vda_o;
 output reg cyc_o;
 output reg stb_o;
-input stall_i;
-input adack_i;
 input ack_i;
-input rty_i;
-input err_i;
-input [7:0] bndx_i;
 output reg we_o;
 output reg [15:0] sel_o;
 output Address adr_o;
 input [127:0] dat_i;
 output reg [127:0] dat_o;
-output reg csr_o;
+output reg sr_o;
+output reg cr_o;
 input rb_i;
 
 output reg dce;							// data cache enable
@@ -126,19 +119,6 @@ integer m,n,k;
 integer n4,n5,n7;
 genvar g;
 
-/*
-always_comb
-begin
-	wbm_req.bte = bte_o;
-	wbm_req.cti = cti_o;
-	wbm_req.bndx = bndx_o;
-	wbm_req.seg = seg_o;
-	wbm_req.cyc = cyc_o;
-	wbm_req.stb = stb_o;
-	
-end
-*/
-
 reg [5:0] shr_ma;
 
 reg [6:0] state;
@@ -152,11 +132,11 @@ Address next_adr_o;
 reg [6:0] stk_state [0:15];
 reg [3:0] stk_dep;
 
-wb_segment_t last_seg;
 reg xlaten_stk;
-wb_segment_t seg_stk;
-wb_burst_type_t bte_stk;
-wb_cycle_type_t cti_stk;
+reg vpa_stk;
+reg vda_stk;
+reg [1:0] bte_stk;
+reg [2:0] cti_stk;
 reg cyc_stk;
 reg stb_stk;
 reg we_stk;
@@ -379,17 +359,16 @@ rfPhoenix_mem_resp_fifo uofifo2
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 ICacheLine ic_eline, ic_oline;
-reg wr_ic1, wr_ic2;
 reg [1:0] ic_rwaye,ic_rwayo,ic_wway;
 reg icache_wre, icache_wro;
-always_comb icache_wre = wr_ic2 && !ipo[5];
-always_comb icache_wro = wr_ic2 &&  ipo[5];
+always_comb icache_wre = state==IFETCH3 && !adr_o[6];
+always_comb icache_wro = state==IFETCH3 &&  adr_o[6];
 reg ic_invline,ic_invall;
 code_address_t ipo,ip2,ip3,ip4,ip5;
 wire [$bits(code_address_t)-1:14] ictage [0:3];
 wire [$bits(code_address_t)-1:14] ictago [0:3];
-wire [1024/4-1:0] icvalide [0:3];
-wire [1024/4-1:0] icvalido [0:3];
+wire [512/4-1:0] icvalide [0:3];
+wire [512/4-1:0] icvalido [0:3];
 
 ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
@@ -418,24 +397,24 @@ always_ff @(posedge clk)
 	ihit3 <= ihit2;
 always_comb
 	// If cannot cross cache line can match on either odd or even.
-	if (ip2[4:0] < 5'd22)
-		ihit <= ip2[5] ? ihit2o : ihit2e;
+	if (ip2[5:0] < 6'd54)
+		ihit <= ip2[6] ? ihit2o : ihit2e;
 	// Might span lines, need hit on both even and odd lines
 	else
 		ihit <= ihit2e&ihit2o;
 always_comb
 	// If cannot cross cache line can match on either odd or even.
 	// If we do not need the even cache line, mark as a hit.
-	if (ip2[4:0] < 6'd22)
-		ihite <= ip2[5] ? 1'b1 : ihit2e;
+	if (ip2[5:0] < 6'd54)
+		ihite <= ip2[6] ? 1'b1 : ihit2e;
 	// Might span lines, need hit on both even and odd lines
 	else
 		ihite <= ihit2e;
 always_comb
 	// If cannot cross cache line can match on either odd or even.
 	// If we do not need the odd cache line, mark as a hit.
-	if (ip2[4:0] < 5'd22)
-		ihito <= ip2[5] ? ihit2o : 1'b1;
+	if (ip2[5:0] < 6'd54)
+		ihito <= ip2[6] ? ihit2o : 1'b1;
 	// Might span lines, need hit on both even and odd lines
 	else
 		ihito <= ihit2o;
@@ -460,85 +439,83 @@ always_ff @(posedge clk)
 
 always_ff @(posedge clk)
 	// If cannot cross cache line can match on either odd or even.
-	if (ip2[4:0] < 5'd22)
-		ic_valid <= ip2[5] ? ic_valid2o : ic_valid2e;
+	if (ip2[5:0] < 6'd54)
+		ic_valid <= ip2[6] ? ic_valid2o : ic_valid2e;
 	else
 		ic_valid <= ic_valid2o & ic_valid2e;
 
-// 256 wide x 1024 deep, 1 cycle read latency.
-sram_256x1024_1r1w uicme
+// 512 wide x 512 deep, 1 cycle read latency.
+sram_512x512_1r1w uicme
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.wadr({ic_wway,ipo[13:6]+ipo[5]}),
-	.radr({ic_rwaye,ip2[13:6]+ip2[5]}),
+	.wadr({ic_wway,adr_o[13:7]+adr_o[6]}),
+	.radr({ic_rwaye,ip2[13:7]+ip2[6]}),
 	.i(ici),
 	.o(ic_eline)
 );
-sram_256x1024_1r1w uicmo
+sram_512x512_1r1w uicmo
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wro),
-	.wadr({ic_wway,ipo[13:6]}),
-	.radr({ic_rwayo,ip2[13:6]}),
+	.wadr({ic_wway,adr_o[13:7]}),
+	.radr({ic_rwayo,ip2[13:7]}),
 	.i(ici),
 	.o(ic_oline)
 );
 
 always_comb
-	case(ip2[5])
+	case(ip2[6])
 	1'b0:	ic_line = {ic_oline.data,ic_eline.data};
 	1'b1:	ic_line = {ic_eline.data,ic_oline.data};
 	endcase
 
 rfPhoenix_ictag 
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 uictage
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.ipo(ipo),
+	.ipo(adr_o),
 	.way(ic_wway),
 	.rclk(clk),
-	.ndx(ip2[13:6]+ip2[5]),	// virtual index (same bits as physical address)
+	.ndx(ip2[13:7]+ip2[6]),	// virtual index (same bits as physical address)
 	.tag(ictage)
 );
 
 rfPhoenix_ictag 
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 uictago
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wro),
-	.ipo(ipo),
+	.ipo(adr_o),
 	.way(ic_wway),
 	.rclk(clk),
-	.ndx(ip2[13:6]),		// virtual index (same bits as physical address)
+	.ndx(ip2[13:7]),		// virtual index (same bits as physical address)
 	.tag(ictago)
 );
 
 rfPhoenix_ichit
 #(
-	.LINES(256),
+	.LINES(128),
 	.WAYS(4)
 )
 uichite
 (
 	.clk(clk),
 	.ip(ip),
-	.ndx(ip[13:6]+ip[5]),
+	.ndx(ip[13:7]+ip[6]),
 	.tag(ictage),
 	.valid(icvalide),
 	.ihit(ihit2e),
@@ -549,14 +526,14 @@ uichite
 
 rfPhoenix_ichit
 #(
-	.LINES(256),
+	.LINES(128),
 	.WAYS(4)
 )
 uichito
 (
 	.clk(clk),
 	.ip(ip),
-	.ndx(ip[13:6]),
+	.ndx(ip[13:7]),
 	.tag(ictago),
 	.valid(icvalido),
 	.ihit(ihit2o),
@@ -567,17 +544,16 @@ uichito
 
 rfPhoenix_icvalid 
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 uicvale
 (
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4),
-	.ip(ipo),
-	.adr(ipo),
+	.ip(adr_o),
+	.adr(adr_o),
 	.wr(icache_wre),
 	.way(ic_wway),
 	.invline(ic_invline),
@@ -587,17 +563,16 @@ uicvale
 
 rfPhoenix_icvalid 
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 uicvalo
 (
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4),
-	.ip(ipo),
-	.adr(ipo),
+	.ip(adr_o),
+	.adr(adr_o),
 	.wr(icache_wro),
 	.way(ic_wway),
 	.invline(ic_invline),
@@ -663,30 +638,30 @@ reg [pL1DCacheWays-1:0] dcache_ewr, dcache_owr;
 wire dc_ewr, dc_owr;
 reg dc_invline,dc_invall;
 
-sram_257x1024_1r1w udcme
+sram_513x512_1r1w udcme
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(dc_ewr),
-	.wadr({dc_ewway,dadr[13:6]+dadr[5]}),
-	.radr({dc_erway,padrd1[13:6]+padrd1[5]}),
+	.wadr({dc_ewway,dadr[13:7]+dadr[6]}),
+	.radr({dc_erway,padrd1[13:7]+padrd1[6]}),
 	.i(dci[0]),
 	.o(dc_eline)
 );
 
-sram_257x1024_1r1w udcmo
+sram_513x512_1r1w udcmo
 (
 	.rst(rst),
 	.clk(clk),
 	.wr(dc_owr),
-	.wadr({dc_owway,dadr[13:6]}),
-	.radr({dc_orway,padrd1[13:6]}),
+	.wadr({dc_owway,dadr[13:7]}),
+	.radr({dc_orway,padrd1[13:7]}),
 	.i(dci[0]),
 	.o(dc_oline)
 );
 
 always_ff @(posedge clk)
-	case(padrd1[5])
+	case(padrd1[6])
 	1'b0:	dc_line = {dc_oline.data,dc_eline.data};
 	1'b1:	dc_line = {dc_eline.data,dc_oline.data};
 	endcase
@@ -694,17 +669,17 @@ always_ff @(posedge clk)
 	dc_line_mod = {dc_oline.m,dc_eline.m};
 
 wire [$bits(Address)-1:14] dc_etag [3:0];
-wire [255:0] dc_evalid [0:3];
+wire [127:0] dc_evalid [0:3];
 wire [3:0] dhit1e;	// debugging
 wire [3:0] dhit1o;
 wire [$bits(Address)-1:14] dc_otag [3:0];
-wire [255:0] dc_ovalid [0:3];
+wire [127:0] dc_ovalid [0:3];
 wire dhito,dhite;
-reg [7:0] vadr2e;
+reg [6:0] vadr2e;
 always_comb
-	vadr2e <= padr[13:6]+padr[5];
+	vadr2e <= padr[13:7]+padr[6];
 	
-rfPhoenix_dchit #(.LINES(256)) udchite
+rfPhoenix_dchit udchite
 (
 	.rst(rst),
 	.clk(clk),
@@ -717,12 +692,12 @@ rfPhoenix_dchit #(.LINES(256)) udchite
 	.rway(dc_erway)
 );
 
-rfPhoenix_dchit #(.LINES(256)) udchito
+rfPhoenix_dchit udchito
 (
 	.rst(rst),
 	.clk(clk),
 	.tags(dc_otag),
-	.ndx(padr[13:6]),
+	.ndx(padr[13:7]),
 	.adr(padr),
 	.valid(dc_ovalid),
 	.hits(dhit1o),
@@ -732,7 +707,7 @@ rfPhoenix_dchit #(.LINES(256)) udchito
 
 reg dhit;
 always_ff @(posedge clk)
-	dhit = (dhite & dhito) || (adr_o[5] ? (dhito && padrd1[4:0] < 5'd23) : (dhite && padrd1[4:0] < 5'd23));
+	dhit = (dhite & dhito) || (adr_o[6] ? (dhito && padrd1[5:0] < 6'd61) : (dhite && padrd1[5:0] < 6'd61));
 reg dhite_d1, dhito_d1;
 always_ff @(posedge clk)
 	dhite_d1 <= dhite;
@@ -741,52 +716,49 @@ always_ff @(posedge clk)
 
 rfPhoenix_dctag
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 udcotag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && adr_o[5]),
+	.wr(state==DFETCH7 && adr_o[6]),
 	.adr(adr_o),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(padrd1[13:6]),
+	.ndx(padrd1[13:7]),
 	.tag(dc_otag)
 );
 
 rfPhoenix_dctag
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 udcetag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && ~adr_o[5]),
+	.wr(state==DFETCH7 && ~adr_o[6]),
 	.adr(adr_o),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
-	.ndx(padrd1[13:6]+padrd1[5]),
+	.ndx(padrd1[13:7]+padrd1[6]),
 	.tag(dc_etag)
 );
 
 rfPhoenix_dcvalid
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 udcovalid
 (
 	.rst(rst),
 	.clk(clk),
-	.invce(state==MEMORY4 && adr_o[5]),
+	.invce(state==MEMORY4 && adr_o[6]),
 	.dadr(adr_o),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && adr_o[5]),
+	.wr(state==DFETCH7 && adr_o[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -795,18 +767,17 @@ udcovalid
 
 rfPhoenix_dcvalid
 #(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
+	.LINES(128),
+	.WAYS(4)
 )
 udcevalid
 (
 	.rst(rst),
 	.clk(clk),
-	.invce(state==MEMORY4 && ~adr_o[5]),
+	.invce(state==MEMORY4 && ~adr_o[6]),
 	.dadr(adr_o),
 	.adr(adr_o),
-	.wr(state==DFETCH7 && ~adr_o[5]),
+	.wr(state==DFETCH7 && ~adr_o[6]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -824,8 +795,8 @@ rfPhoenix_dcache_wr udcwre
 	.hit2(memr.dchit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
-	.eaeo(~memr.adr[5]),
-	.daeo(~adr_o[5]),
+	.eaeo(~memr.adr[6]),
+	.daeo(~adr_o[6]),
 	.wr(dc_ewr)
 );
 
@@ -840,8 +811,8 @@ rfPhoenix_dcache_wr udcwro
 	.hit2(memr.dchit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
-	.eaeo(memr.adr[5]),
-	.daeo(adr_o[5]),
+	.eaeo(memr.adr[6]),
+	.daeo(adr_o[6]),
 	.wr(dc_owr)
 );
 
@@ -856,8 +827,8 @@ rfPhoenix_dcache_way udcwaye
 	.hit(dhit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(tlbacr),
-	.eaeo(~memr.adr[5]),
-	.daeo(~adr_o[5]),
+	.eaeo(~memr.adr[6]),
+	.daeo(~adr_o[6]),
 	.lfsr(lfsr_o[1:0]),
 	.rway(dc_erway),
 	.wway(dc_ewway)
@@ -874,8 +845,8 @@ rfPhoenix_dcache_way udcwayo
 	.hit(dhit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(tlbacr),
-	.eaeo(memr.adr[5]),
-	.daeo(adr_o[5]),
+	.eaeo(memr.adr[6]),
+	.daeo(adr_o[6]),
 	.lfsr(lfsr_o[1:0]),
 	.rway(dc_orway),
 	.wway(dc_owway)
@@ -922,7 +893,7 @@ rfPhoenix_tlb utlb
   .clock(clock),
   .rdy_o(tlbrdy),
   .asid_i(mem_resp[0].asid),
-  .sys_mode_i(seg_o==wishbone_pkg::CODE ? ~UserMode : ~MUserMode),
+  .sys_mode_i(vpa_o ? ~UserMode : ~MUserMode),
   .xlaten_i(xlaten),
   .we_i(we_o),
   .dadr_i(dadr),
@@ -1245,18 +1216,6 @@ PDE pde;
 reg wr_pte;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Capture data.
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-always_ff @(posedge clk)
-	if (ack_i && last_seg==wishbone_pkg::CODE)
-		case(bndx_i)
-		8'd0:	ici.data[127:  0] <= dat_i;
-		8'd1: ici.data[255:128] <= dat_i;
-		default:	;
-		endcase
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // State Machine
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -1279,9 +1238,9 @@ begin
 	iadr <= RSTIP;
 	dadr <= RSTIP;	// prevents MR_TLB miss at startup
 	tDeactivateBus();
-	adr_o <= 'd0;
 	dat <= 'd0;
-	csr_o <= LOW;
+	sr_o <= LOW;
+	cr_o <= LOW;
 	waycnt <= 2'd0;
 	ic_wway <= 2'b00;
 	dwait <= 3'd0;
@@ -1350,10 +1309,6 @@ else begin
 		ipage_fault <= 1'b0;
 	if (clr_itlbmiss)
 		itlbmiss <= 1'b0;
-	wr_ic1 <= FALSE;
-	wr_ic2 <= wr_ic1;
-	if (ack_i && bndx_i==8'h01 && last_seg==wishbone_pkg::CODE)
-		wr_ic1 <= TRUE;
 
 	mem_resp[DATA_ALN].wr <= FALSE;
 	tlbwr <= FALSE;
@@ -1391,8 +1346,8 @@ else begin
 					last_tid <= memq_o.tid;
 					memr <= memq_o;
 					memreq <= memq_o;
-					dci[0].data <= memq_o.res[255:0];
-					dci[1].data <= memq_o.res[511:256];
+					dci[0].data <= memq_o.res[511:0];
+					dci[1].data <= memq_o.res[1023:512];
 					dci[0].m <= 1'b0;
 					dci[1].m <= 1'b0;
 					gosub (MEMORY_ACTIVATE);
@@ -1524,12 +1479,10 @@ else begin
 	// cache line.
 	IFETCH0:
 		begin
-		  ic_wway <= waycnt;
-			waycnt <= waycnt + 2'd1;
-			ipo <= {memr.adr[$bits(Address)-1:5],5'b0};
+			ipo <= {memr.adr[$bits(Address)-1:6],6'b0};
 			goto (IFETCH1);
 			for (n = 0; n < 5; n = n + 1) begin
-				if (ivtag[n]==memr.adr[$bits(Address)-1:5] && ivvalid[n]) begin
+				if (ivtag[n]==memr.adr[$bits(Address)-1:6] && ivvalid[n]) begin
 					vcn <= n;
 		    	goto (IFETCH4);
 	    	end
@@ -1537,7 +1490,7 @@ else begin
 		end
 	// Hardware subroutine to fetch instruction cache line
 	IFETCH1:
-	  if (!adack_i) begin
+	  if (!ack_i) begin
 	  	// Cache miss, select an entry in the victim cache to
 	  	// update.
 	  	if (memr.sz!=nul) begin	// ic_valid flag
@@ -1545,36 +1498,25 @@ else begin
 				if (ivcnt>=3'd4)
 					ivcnt <= 3'd0;
 				ivcache[ivcnt] <= memr.res;
-				ivtag[ivcnt] <= memr.vcadr[$bits(Address)-1:5];
+				ivtag[ivcnt] <= memr.vcadr[$bits(Address)-1:6];
 				ivvalid[ivcnt] <= TRUE;
 //				if (ic_line=='d0)
 //					$stop;
 			end
 			icnt <= 'd0;
-			seg_o <= wishbone_pkg::CODE;
-			last_seg <= wishbone_pkg::CODE;
-	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_pkg::INCR;
+	  	vpa_o <= HIGH;
+	  	bte_o <= 2'b00;
+	  	cti_o <= 3'b001;	// constant address burst cycle
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
-	    bndx_o <= 8'h00;
 	    case(memr.hit)
 	    2'b00:		// need both even and odd cache lines (start with even)
-	    	begin
-					adr_o <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
-					ipo <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
-				end
+					adr_o <= {memr.adr[$bits(Address)-1:7]+memr.adr[6],1'b0,6'h0};
 	    2'b01:		// If got a hit on the even address, the odd one must be missing
-	    	begin
-					adr_o <= {memr.adr[$bits(Address)-1:6],1'b1,5'h0};
-					ipo <= {memr.adr[$bits(Address)-1:6],1'b1,5'h0};
-				end
+					adr_o <= {memr.adr[$bits(Address)-1:7],1'b1,6'h0};
 			2'b10:		// Otherwise the even one must be missing
-				begin
-					adr_o <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
-					ipo <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
-				end
+					adr_o <= {memr.adr[$bits(Address)-1:7]+memr.adr[6],1'b0,6'h0};
 			2'b11:		// not missing lines, finished
 				begin
 					tDeactivateBus();
@@ -1586,13 +1528,10 @@ else begin
 	IFETCH2:
 	  begin
 	  	stb_o <= HIGH;
-	    if (adack_i) begin
-	    	adr_o <= adr_o + 5'd16;
-	    	bndx_o <= bndx_o + 2'd1;
+	    if (ack_i) begin
+	      ici.data <= {dat_i,ici.data[511:128]};	// shift in the data
 	      icnt <= icnt + 4'd4;					// increment word count
-	      if (icnt[4:2]==3'd0)
-	      	cti_o <= wishbone_pkg::EOB;
-	      if (icnt[4:2]==3'd1) begin		// Are we done?
+	      if (icnt[4:2]==3'd3) begin		// Are we done?
 	      	case(memr.hit)
 	      	2'b00:	memr.hit <= 2'b01;
 	      	2'b01:	memr.hit <= 2'b11;
@@ -1601,6 +1540,10 @@ else begin
 	      	endcase
 	      	tDeactivateBus();
 	      	goto (IFETCH3);
+	    	end
+	    	else if (!bok_i) begin				// burst mode supported?
+	    		cti_o <= 3'b000;						// no, use normal cycles
+	    		goto (IFETCH6);
 	    	end
 	    end
 	    /*
@@ -1617,8 +1560,9 @@ else begin
 		end
 	IFETCH3:
 		begin
+		  ic_wway <= waycnt;
 		  if (memr.hit==2'b11)
-		  	ret();
+	  		ret();
 	  	else
 	  		goto (IFETCH1);
 		end
@@ -1628,7 +1572,7 @@ else begin
 			ici.data <= ivcache[vcn];
 			if (memr.sz!=nul) begin
 				ivcache[vcn] <= memr.res;
-				ivtag[vcn] <= memr.vcadr[$bits(Address)-1:5];
+				ivtag[vcn] <= memr.vcadr[$bits(Address)-1:6];
 				ivvalid[vcn] <= 1'b1;
 				if (ic_line=='d0)
 					$stop;
@@ -1650,21 +1594,20 @@ else begin
 	// Initiate burst access
 	DFETCH2:
 	  if (!ack_i) begin
-	  	seg_o <= wishbone_pkg::DATA;
-			last_seg <= wishbone_pkg::DATA;
-	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_pkg::FIXED;	// constant address burst cycle
+	  	vda_o <= HIGH;
+	  	bte_o <= 2'b00;
+	  	cti_o <= 3'b001;	// constant address burst cycle
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
 	    goto (DFETCH5);
 	    case(memr.hit)
 	    2'b00:		// need both even and odd cache lines (start with even)
-					adr_o <= {memr.adr[AWID-1:6]+memr.adr[5],1'b0,5'h0};
+					adr_o <= {memr.adr[AWID-1:7]+memr.adr[6],1'b0,6'h0};
 	    2'b01:		// If got a hit on the even address, the odd one must be missing
-					adr_o <= {memr.adr[AWID-1:6],1'b1,5'h0};
+					adr_o <= {memr.adr[AWID-1:7],1'b1,6'h0};
 			2'b10:		// Otherwise the even one must be missing
-					adr_o <= {memr.adr[AWID-1:6]+memr.adr[5],1'b0,5'h0};
+					adr_o <= {memr.adr[AWID-1:7]+memr.adr[6],1'b0,6'h0};
 			2'b11:		// not missing lines, finished
 				begin
 					tDeactivateBus();
@@ -1679,9 +1622,9 @@ else begin
 	  	stb_o <= HIGH;
 	    if (ack_i) begin
 	    	dcnt <= dcnt + 4'd4;
-	      dci[0].data <= {dat_i,dci[0].data[255:128]};
+	      dci[0].data <= {dat_i,dci[0].data[511:128]};
 	      dci[0].m <= 1'b0;
-	      if (dcnt[4:2]==3'd1) begin		// Are we done?
+	      if (dcnt[4:2]==3'd3) begin		// Are we done?
 	      	case(memr.hit)
 	      	2'b00:	memr.hit <= 2'b01;
 	      	2'b01:	memr.hit <= 2'b11;
@@ -1690,20 +1633,18 @@ else begin
 	      	endcase
 	      	// Fill in missing memory data.
 	      	case(memr.hit)
-	      	2'b00:	memr.res[ 255:  0] <= {dat_i,dci[0].data[255:128]};
-	      	2'b01:	memr.res[ 511:256] <= {dat_i,dci[0].data[255:128]};
-	      	2'b10:	memr.res[ 255:  0] <= {dat_i,dci[0].data[255:128]};
+	      	2'b00:	memr.res[ 511:  0] <= {dat_i,dci[0].data[511:128]};
+	      	2'b01:	memr.res[1023:512] <= {dat_i,dci[0].data[511:128]};
+	      	2'b10:	memr.res[ 511:  0] <= {dat_i,dci[0].data[511:128]};
 	      	2'b11:	;
 	      	endcase
 	      	tDeactivateBus();
 	      	goto (DFETCH7);
 	    	end
-	    	/*
 	    	if (!bok_i) begin							// burst mode supported?
-	    		cti_o <= wishbone_pkg::CLASSIC;						// no, use normal cycles
+	    		cti_o <= 3'b000;						// no, use normal cycles
 	    		goto (DFETCH6);
 	    	end
-	    	*/
 	    end
 	  end
   
@@ -1734,13 +1675,13 @@ else begin
 			if (dstore1) begin
 	  		dstore1 <= 1'b0;
 				if (memr.adr[6])
-					adr_o <= {memr.adr[AWID-1:6],1'b1,5'h0};
+					adr_o <= {memr.adr[AWID-1:7],1'b1,6'h0};
 				else
-					adr_o <= {memr.adr[AWID-1:6],1'b0,5'h0};
+					adr_o <= {memr.adr[AWID-1:7],1'b0,6'h0};
 			end
-	  	seg_o <= wishbone_pkg::DATA;
-	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_pkg::CLASSIC;
+	  	vda_o <= HIGH;
+	  	bte_o <= 2'b00;
+	  	cti_o <= 3'b000;
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
   		sel_o <= 16'hFFFF;
@@ -1758,7 +1699,7 @@ else begin
 			stb_o <= LOW;
 			if (!ack_i)	begin							// wait till consumer ready
 	    	dcnt <= dcnt + 4'd4;
-				if (dcnt[4:2]==3'd3) begin
+				if (dcnt[4:2]==3'd7) begin
 					memr.mod <= 2'b00;
 					tDeactivateBus();
 					ret();
@@ -1849,9 +1790,9 @@ else begin
 			daccess <= TRUE;
 			iaccess <= FALSE;
 			dcnt <= 'd0;
-	  	seg_o <= wishbone_pkg::CODE;
-	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_pkg::FIXED;	// constant address burst cycle
+	  	vpa_o <= HIGH;
+	  	bte_o <= 2'b00;
+	  	cti_o <= 3'b001;	// constant address burst cycle
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 `ifdef SUPPORT_SHPTE
@@ -1987,7 +1928,7 @@ else begin
 			      	ret();
 			    	end
 			    	else if (!bok_i) begin				// burst mode supported?
-			    		cti_o <= wishbone_pkg::CLASSIC;						// no, use normal cycles
+			    		cti_o <= 3'b000;						// no, use normal cycles
 			    		goto (IPT_RW_PTG5);
 			    	end
 				  end
@@ -2266,9 +2207,9 @@ else begin
 	PT_RW_PTE3:
 		begin
 			if (!ack_i) begin
-				seg_o <= wishbone_pkg::DATA;
-		  	bte_o <= wishbone_pkg::LINEAR;
-		  	cti_o <= wishbone_pkg::FIXED;	// constant address burst cycle
+				vda_o <= HIGH;
+		  	bte_o <= 2'b00;
+		  	cti_o <= 3'b001;	// constant address burst cycle
 		    cyc_o <= HIGH;    
 				stb_o <= HIGH;
 				we_o <= wr_pte;
@@ -2326,9 +2267,9 @@ else begin
 		end
 	PT_RW_PDE3:
 		if (!ack_i) begin
-			seg_o <= wishbone_pkg::DATA;
-	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_plg::FIXED;	// constant address burst cycle
+			vda_o <= HIGH;
+	  	bte_o <= 2'b00;
+	  	cti_o <= 3'b001;	// constant address burst cycle
 	    cyc_o <= HIGH;    
 			stb_o <= HIGH;
 			we_o <= wr_pte;
@@ -2399,6 +2340,7 @@ begin
 					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
 				end
 				else if (fifoToCtrl_v) begin
+					waycnt <= waycnt + 2'd1;
 					xlaten <= TRUE;
 					mem_resp[0] <= imemreq;
 					mem_resp[0].v <= 1'b1;
@@ -2668,9 +2610,10 @@ begin
 				if (ptc[n4].pde.padr[AWID-1:4]==memr.adr[AWID-1:4])
 					ptc[n4].v <= 1'b0;
 `endif						
-			seg_o <= wishbone_pkg::DATA;
-	  	bte_o <= wishbone_pkg::LINEAR;
-			cti_o <= wishbone_pkg::CLASSIC;
+			vpa_o <= LOW;
+			vda_o <= HIGH;
+			bte_o <= 2'b00;
+			cti_o <= 3'b000;
 			cyc_o <= HIGH;
 			stb_o <= HIGH;
 			we_o <= HIGH;
@@ -2681,7 +2624,7 @@ begin
 	  		adr_o <= adr_o + 5'd16;
 	  	dat_o <= memr.res;
 	  	dat <= memr.res;
-			csr_o <= memr.func2==MR_STC;
+			cr_o <= memr.func2==MR_STC;
   		goto (MEMORY_ACK);
 		end
 	MR_ICACHE_LOAD:
@@ -2698,9 +2641,10 @@ begin
 					goto (DFETCH2);
 			end
 			else begin
-				seg_o <= wishbone_pkg::DATA;
-		  	bte_o <= wishbone_pkg::LINEAR;
-  			cti_o <= wishbone_pkg::CLASSIC;
+  			vpa_o <= LOW;
+  			vda_o <= HIGH;
+  			bte_o <= 2'b00;
+  			cti_o <= 3'b000;
   			cyc_o <= HIGH;
   			stb_o <= HIGH;
   			we_o <= LOW;
@@ -2709,7 +2653,7 @@ begin
 		  		adr_o <= {memr.adr[31:4],4'd0};
 		  	else
 		  		adr_o <= adr_o + 5'd16;
-   			csr_o <= memr.func2==MR_LDR;
+   			sr_o <= memr.func2==MR_LDR;
 	  		goto (MEMORY_ACK);
 			end
 		end
@@ -2845,7 +2789,7 @@ begin
 			memreq.func==MR_LOADZ || memreq.func==MR_MOVLD /*|| memreq.func==RTS2*/) && dce && tlbacr[3])
  			tDeactivateBus();
 		else begin
-			seg_o <= wishbone_pkg::DATA;
+    	vda_o <= HIGH;
 			cyc_o <= HIGH;
     	stb_o <= HIGH;
       for (n = 0; n < 16; n = n + 1)
@@ -2902,7 +2846,7 @@ begin
 		memresp2.tid <= memreq.tid;
 		memresp2.wr <= TRUE;
 	end
-	csr_o <= LOW;
+	sr_o <= LOW;
   case(memr.func)
   MR_LOAD,MR_MOVLD:
   	begin
@@ -3089,13 +3033,13 @@ endtask
 
 task tDeactivateBus;
 begin
-	seg_o <= wishbone_pkg::DATA;
-	cti_o <= wishbone_pkg::CLASSIC;	// Normal cycles again
+	vpa_o <= LOW;			//
+	vda_o <= LOW;
+	cti_o <= 3'b000;	// Normal cycles again
 	cyc_o <= LOW;
 	stb_o <= LOW;
 	we_o <= LOW;
 	sel_o <= 16'h0000;
-	csr_o <= LOW;
   xlaten <= FALSE;
 end
 endtask
@@ -3103,7 +3047,8 @@ endtask
 task tPushBus;
 begin
 	xlaten_stk <= xlaten;
-	seg_stk <= seg_o;
+	vpa_stk <= vpa_o;
+	vda_stk <= vda_o;
 	bte_stk <= bte_o;
 	cti_stk <= cti_o;
 	cyc_stk <= cyc_o;
@@ -3119,7 +3064,8 @@ endtask
 task tPopBus;
 begin
 	xlaten <= xlaten_stk;
-	seg_o <= seg_stk;
+	vpa_o <= vpa_stk;
+	vda_o <= vda_stk;
 	bte_o <= bte_stk;
 	cti_o <= cti_stk;
 	cyc_o <= cyc_stk;

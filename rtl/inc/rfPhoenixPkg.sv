@@ -3,30 +3,20 @@ package rfPhoenixPkg;
 `undef IS_SIM
 `define IS_SIM	1
 
-`define TRUE	1
-`define FALSE	0
-`define VAL		1
-`define INV		0
-
 // Comment out to remove the sigmoid approximate function
 //`define SIGMOID	1
 
-parameter TRUE = `TRUE;
-parameter FALSE = `FALSE;
-parameter VAL = `VAL;
-parameter INV = `INV;
-
 `define SUPPORT_16BIT_OPS		1
-`define SUPPORT_128BIT_OPS	1
-`define NLANES	8
+//`define SUPPORT_128BIT_OPS	1
+`define NLANES	6
 `define NTHREADS	4
 `define NREGS		64
 
-`define L1CacheLines	512
-`define L1CacheLineSize		512
+`define L1CacheLines	1024
+`define L1CacheLineSize		256
 
-`define L1ICacheLineSize	584
-`define L1ICacheLines	512
+`define L1ICacheLineSize	256
+`define L1ICacheLines	1024
 `define L1ICacheWays 4
 
 `define L1DCacheWays 4
@@ -342,6 +332,7 @@ typedef logic [TidMSB:0] tid_t;
 typedef logic [11:0] order_tag_t;
 typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
+typedef logic [31:0] address_t;
 typedef logic [31:0] VirtualAddress;
 typedef logic [31:0] PhysicalAddress;
 typedef logic [31:0] code_address_t;
@@ -353,7 +344,7 @@ typedef logic [127:0] quad_value_t;
 typedef logic [255:0] double_quad_value_t;
 typedef half_value_t [NLANES*2-1:0] vector_half_value_t;
 typedef quad_value_t [NLANES/4-1:0] vector_quad_value_t;
-typedef Value [NLANES-1:0] VecValue;
+typedef value_t [NLANES-1:0] VecValue;
 typedef value_t [NLANES-1:0] vector_value_t;
 typedef logic [5:0] Func;
 typedef logic [127:0] regs_bitmap_t;
@@ -586,13 +577,13 @@ typedef struct packed
 	logic [3:0] step;
 	logic [2:0] retry;		// retry count
 	cause_code_t cause;
-	Address badAddr;
-	VecValue a;
-	VecValue b;
-	VecValue c;
-	VecValue t;
-	Value mask;
-	VecValue res;
+	address_t badAddr;
+	vector_value_t a;
+	vector_value_t b;
+	vector_value_t c;
+	vector_value_t t;
+	value_t mask;
+	vector_value_t res;
 } pipeline_reg_t;
 
 typedef struct packed {
@@ -606,7 +597,7 @@ typedef struct packed {
 	logic loaded;						// 1=loaded internally
 	logic stored;						// 1=stored externally
 	code_address_t ip;					// return address
-	Address sp;							// Stack pointer location
+	address_t sp;							// Stack pointer location
 } return_stack_t;
 
 // No unsigned codes!
@@ -655,7 +646,7 @@ typedef struct packed
 	cause_code_t cause;
 	logic [127:0] sel;
 	ASID asid;
-	Address adr;
+	address_t adr;
 	code_address_t vcadr;		// victim cache address
 	logic [1023:0] res;		// stores unaligned data as well
 	logic dchit;
@@ -683,7 +674,7 @@ typedef struct packed
 	order_tag_t tag;
 	cause_code_t cause;		// cause code
 	code_address_t ip;		// address of instruction
-	Address adr;					// bad load/store address
+	address_t adr;					// bad load/store address
 	logic [5:0] step;			// vector step number
 	logic [1023:0] res;		// instruction results
 	logic wr_tgt;					// target register needs updating

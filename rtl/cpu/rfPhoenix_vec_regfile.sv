@@ -44,21 +44,21 @@ module rfPhoenix_vec_regfile(rst, clk, wr, wthread, wmask, wa, i,
 input rst;
 input clk;
 input wr;
-input Tid wthread;
+input tid_t wthread;
 input [63:0] wmask;
 input regspec_t wa;
-input VecValue i;
-input Tid rthread;
+input vector_value_t i;
+input tid_t rthread;
 input regspec_t ra0;
 input regspec_t ra1;
 input regspec_t ra2;
 input regspec_t ra3;
 input regspec_t ra4;
-output VecValue o0;
-output VecValue o1;
-output VecValue o2;
-output VecValue o3;
-output VecValue o4;
+output vector_value_t o0;
+output vector_value_t o1;
+output vector_value_t o2;
+output vector_value_t o3;
+output vector_value_t o4;
 
 genvar g;
 generate begin

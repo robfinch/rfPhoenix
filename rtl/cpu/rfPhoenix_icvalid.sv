@@ -39,8 +39,10 @@ import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
 module rfPhoenix_icvalid(rst, clk, invce, ip, adr, wr, way, invline, invall, valid);
-parameter LINES=128;
+parameter LINES=256;
 parameter WAYS=4;
+parameter LOBIT=6;
+localparam HIBIT=$clog2(LINES)-1+LOBIT;
 input rst;
 input clk;
 input invce;
@@ -69,11 +71,11 @@ if (rst) begin
 end
 else begin
 	if (wr)
-		valid[way][ip[13:7]] <= 1'b1;
+		valid[way][ip[HIBIT:LOBIT]] <= 1'b1;
 	else if (invce) begin
 		for (g = 0; g < WAYS; g = g + 1) begin
 			if (invline)
-				valid[g][adr[13:7]] <= 1'b0;
+				valid[g][adr[HIBIT:LOBIT]] <= 1'b0;
 			else if (invall)
 				valid[g] <= 'd0;
 		end

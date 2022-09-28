@@ -34,44 +34,23 @@
 //                                                                          
 // ============================================================================
 
+import const_pkg::*;
+import wishbone_pkg::*;
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix(hartid_i, rst_i, clk_i, clk2x_i, clk2d_i, wc_clk_i, clock,
-		nmi_i, irq_i, icause_i,
-		vpa_o, vda_o, bte_o, cti_o, bok_i, cyc_o, stb_o, lock_o, ack_i,
-    err_i, we_o, sel_o, adr_o, dat_i, dat_o, cr_o, sr_o, rb_i, state_o, trigger_o,
-    wcause);
+module rfPhoenix(hartid_i, rst_i, clk_i, wc_clk_i, clock,
+		nmi_i, irq_i, icause_i, wb_req, wb_resp, state_o, trigger_o, wcause);
 input [31:0] hartid_i;
 input rst_i;
 input clk_i;
-input clk2x_i;
-input clk2d_i;
 input wc_clk_i;
 input clock;					// MMU clock algorithm
 input nmi_i;
-(* MARK_DEBUG="TRUE" *)
 input [2:0] irq_i;
-(* MARK_DEBUG="TRUE" *)
 input [8:0] icause_i;
-output vpa_o;
-output vda_o;
-output [1:0] bte_o;
-output [2:0] cti_o;
-input bok_i;
-output cyc_o;
-output stb_o;
-output reg lock_o;
-input ack_i;
-input err_i;
-output we_o;
-output [15:0] sel_o;
-output [31:0] adr_o;
-input [127:0] dat_i;
-output [127:0] dat_o;
-output cr_o;
-output sr_o;
-input rb_i;
+output wb_write_request128_t wb_req;
+input wb_read_response128_t wb_resp;
 output [5:0] state_o;
 output reg trigger_o;
 output cause_code_t wcause;
@@ -83,16 +62,69 @@ integer n10;
 wire clk_g = clk_i;
 pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb, wbb2;
 
+wire [1:0] bte_o;
+wire [2:0] cti_o;
+wire [7:0] bndx_o;
+wire [2:0] seg_o;
+wire vpa_o;
+wire vda_o;
+wire cyc_o;
+wire stb_o;
+wire we_o;
+wire [15:0] sel_o;
+address_t adr_o;
+wire [127:0] dat_o;
+reg [7:0] bndx_i;
+reg bok_i;
+reg adack_i;
+reg ack_i;
+reg stall_i;
+reg err_i;
+reg [127:0] dat_i;
+reg rb_i;
+always_comb
+	adack_i <= wb_resp.adack;
+always_comb
+	ack_i <= wb_resp.ack;
+always_comb
+	dat_i <= wb_resp.dat;
+always_comb
+	bndx_i <= wb_resp.bndx;
+always_comb
+	stall_i <= wb_resp.stall;
+always_comb
+	wb_req.cyc <= cyc_o;
+always_comb
+	wb_req.bte <= wb_burst_type_t'(bte_o);
+always_comb
+	wb_req.bndx <= bndx_o;
+always_comb
+	wb_req.cti <= wb_cycle_type_t'(cti_o);
+always_comb
+	wb_req.seg <= wb_segment_t'(seg_o);
+always_comb
+	wb_req.stb <= stb_o;
+always_comb
+	wb_req.we <= we_o;
+always_comb
+	wb_req.sel <= sel_o;
+always_comb
+	wb_req.adr <= adr_o;
+always_comb
+	wb_req.csr <= csr_o;
+always_comb
+	wb_req.dat <= dat_o;
+
 reg [NTHREADS-1:0] gie;
 reg [7:0] vl = 8'd8;
 tid_t xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
-order_tag_t insn_otag;
-reg exndx_v;
+order_tag_t [NTHREADS-1:0] insn_otag;
+reg exndx_v,exndx1_v;
 reg dcndx_v, wbndx_v;
 reg agndx_v,oundx_v;
 reg itndx_v;
 reg rfndx1_v, rfndx2_v;
-tid_t dcndx,itndx,exndx,oundx,wbndx,wbndx2,rfndx1,rfndx2,agndx;
+tid_t dcndx,itndx,exndx,exndx1,oundx,wbndx,wbndx2,rfndx1,rfndx2,agndx;
 reg xrid_v,mcrid_v;
 tid_t mcv_ridi, mcv_rido;
 tid_t ithread, dthread, xthread, commit_thread;
@@ -181,7 +213,7 @@ wire [NTHREADS-1:0] ififo_empty;
 instruction_fetchbuf_t ic_ifb;
 instruction_fetchbuf_t [NTHREADS-1:0] dc_ifb, dc1_ifb;
 reg [5:0] imiss_count;
-reg [NTHREADS-1:0] ou_stall;
+reg [NTHREADS-1:0] ou_stall, ex_stall, mc_stall, stall_pipe;
 // pipeline fifo signals
 reg exbrf_wr, memf_wr, mcbf_wr;
 reg exbrf_rd, memf_rd, mcbf_rd;
@@ -322,6 +354,9 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	stall_dec5 <= stall_dec4;
 
+always_comb
+	stall_pipe = ou_stall | ex_stall;
+
 genvar g;
 
 function [5:0] fnSpSel;
@@ -397,7 +432,7 @@ rfPhoenix_biu ubiu
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.tlbclk(clk2x_i),
+	.tlbclk(clk_i),
 	.clock(clock),
 	.UserMode(Usermode[0]),	// fix these
 	.MUserMode(MUsermode[0]),
@@ -421,21 +456,22 @@ rfPhoenix_biu ubiu
 	.fifoFromCtrl_rd(memresp_fifo_rd),
 	.fifoFromCtrl_empty(memresp_fifo_empty),
 	.fifoFromCtrl_v(memresp_fifo_v),
-	.bok_i(bok_i),
 	.bte_o(bte_o),
+	.bndx_o(bndx_o),
 	.cti_o(cti_o),
-	.vpa_o(vpa_o),
-	.vda_o(vda_o),
+	.seg_o(seg_o),
 	.cyc_o(cyc_o),
 	.stb_o(stb_o),
+	.stall_i(stall_i),
 	.ack_i(ack_i),
+	.adack_i(adack_i),
+	.bndx_i(bndx_i),
 	.we_o(we_o),
 	.sel_o(sel_o),
 	.adr_o(adr_o),
 	.dat_i(dat_i),
 	.dat_o(dat_o),
-	.sr_o(sr_o),
-	.cr_o(cr_o),
+	.csr_o(csr_o),
 	.rb_i(rb_i),
 	.dce(dce),
 	.keys(),//keys),
@@ -484,9 +520,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	(
 		.rst(rst_i),
 		.clk(clk_g),
-		.db(dco[g]),
-//		.wb_v((exb[g].dec.rfwr|exb[g].dec.vrfwr) && wbndx==g && wbndx_v),
-//		.wb_Rt(exb[g].dec.Rt),
+		.db(ififo_empty[g] ? 'd0 : dco[g]),
 		.wb_v(((|commit_wr & ~commit_tgt.vec) | (commit_wrv & commit_tgt.vec)) && commit_thread==g),
 		.wb_Rt(commit_tgt),
 		.will_issue(sb_will_issue[g]),
@@ -675,7 +709,7 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.wr(wr_ififo[g]),
 		.decin(rollback[g] ? 'd0 : deco),
 		.ifbin(rollback[g] ? 'd0 : ic_ifb),
-		.rd(sb_will_issue[g]),
+		.rd(sb_issue[g]),
 		.decout(dco[g]),
 		.ifbout(dc_ifb[g]),
 		.cnt(),
@@ -793,6 +827,8 @@ begin
 		thread[n10].ip <= RSTIP;
 		thread[n10].miss_ip <= RSTIP;
 		thread[n10].sleep <= 1'b0;
+		insn_otag[n10] <= 'd1;
+		tmpadr[n10] <= 'd0;
 	end
 	rfndx1_v <= 1'b0;
 	ra0 <= 'd0;
@@ -816,7 +852,6 @@ begin
 	rollback_ipv <= 'd0;
 	mcrid_v <= 1'b0;
 	rd_trace <= 1'b0;
-	insn_otag <= 'd1;
 	memp <= 'd0;
 end
 endtask
@@ -865,12 +900,14 @@ endtask
 // However if an instruction fifo is almost full it will not be selected.
 // The fifo might become full if the thread is executing long running
 // operations.
+// The thread selected here also flows into instruction decode which is
+// then added to the instruction fifo for the thread.
 
 reg [NTHREADS-1:0] itsel;
 generate begin : gItsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			itsel[g] = !ififo_almost_full[g] & cr0[g];// & ~thread[g].imiss;
+			itsel[g] = !ififo_almost_full[g] & cr0[g];
 end
 endgenerate
 
@@ -890,20 +927,12 @@ assign itndx_v = |itsel;
 // dcndx selects a decoded instruction from the fifo for register fetch.
 // The execution buffer for the thread must be empty and the scoreboard
 // must indicate there are no dependencies on the instruction. There also
-// must be an instruction in the fifo. dcndx will not issue to the same
-// thread in two consecutive clock cycles to allow the thread status to
-// update. It will also not issue if the fifo is being updated.
+// must be an instruction in the fifo. dcndx will not issue if there is
+// a pipeline stall due to a conflict for the memory fifo.
 // dcndx is also used indirectly to select the thread for register fetch
 // as the decoded register select signals are fed to the register file.
 // Two cycles later the register file values are available the thread to
 // update will have been dcndx delayed by two cycles. 
-
-reg [NTHREADS-1:0] dcsel2;
-always_ff @(posedge clk_g)
-if (rst_i)
-	dcsel2 <= 'd0;
-else
-	dcsel2 <= dcsel;
 
 reg [NTHREADS-1:0] dcsel;
 generate begin : gDcsel
@@ -911,10 +940,10 @@ generate begin : gDcsel
 		always_comb
 			dcsel[g] = //!dcsel2[g] &&
 				sb_can_issue[g] &&							// There are no dependencies
-				(!dcb[g].v || (exndx_v && exndx==g)) &&	// The buffer is empty or is going to be empty.
+				(!dcb[g].v || !stall_pipe[g]) &&	// The buffer is empty or is going to be empty.
 				cr0[g] &&	// The thread is enabled
-				!ififo_empty[g] &&	// There is something in the fifo
-				!ou_stall[g];// &&				// No stall at end of pipe
+				!ififo_empty[g];// &&	// There is something in the fifo
+				//!stall_pipe[g];// &&				// No stall at end of pipe
 				//!stall_dec && !stall_dec1 && 
 				//sb_will_issue[g];
 end
@@ -932,7 +961,7 @@ roundRobin rr2
 	.sel_enc(dcndx)
 );
 
-always_comb//ff @(posedge clk_g)
+always_comb
 	dcndx_v <= |dcsel;
 
 generate begin : gIssue
@@ -942,22 +971,46 @@ generate begin : gIssue
 end
 endgenerate
 
+reg [NTHREADS-1:0] mcsel;
+generate begin : gMcsel
+	for (g = 0; g < NTHREADS; g = g + 1)
+		always_comb
+			mcsel[g] = 	exb[g].dec.multicycle &&	// multi-cycle
+									exb[g].v;						// and it is valid
+end
+endgenerate
+
+wire tid_t mcndx;
+roundRobin rr3
+(
+	.rst(rst_i),
+	.clk(clk_g),
+	.ce(1'b1),
+	.req({8'h00,mcsel}),
+	.lock(8'h00),
+	.sel(),
+	.sel_enc(mcndx)
+);
+
+// Generate stall signal for threads that could have sent instructions down
+// the execute pipe but did not get selected.
+always_comb
+	mc_stall <= (mcsel & ~mcsel[mcndx]) | ({NTHREADS{mcbf_full}} & mcsel);
+
 // exndx selects the thread to move to the execution stage. To be selected the
 // register file values must have been fetched.
-/*
+
 reg [NTHREADS-1:0] exsel;
 generate begin : gExsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			exsel[g] = cr0[g] &&	// Thread enabled
-			(
-				rfb2[g].v &&
-				rfb2[g].regfetched	// Register fetched
-			);
+			exsel[g] = 	!rfb2[g].dec.mem &&	// not memory
+									!rfb2[g].dec.multicycle &&	// not multi-cycle
+									 rfb2[g].v;						// and it is valid
 end
 endgenerate
 
-roundRobin rr3
+roundRobin rr4
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -969,7 +1022,16 @@ roundRobin rr3
 );
 
 assign exndx_v = |exsel;
-*/
+always_ff @(posedge clk_g)
+	exndx1_v <= exndx_v;
+always_ff @(posedge clk_g)
+	exndx1 <= exndx;
+
+// Generate stall signal for threads that could have sent instructions down
+// the execute pipe but did not get selected.
+always_comb
+	ex_stall <= (exsel & ~exsel[exndx]) | ({NTHREADS{exbrf_full}} & exsel) | mc_stall;
+
 // Select thread for address generation
 /*
 reg [NTHREADS-1:0] agsel;
@@ -1005,30 +1067,35 @@ generate begin : gAggen
 end
 endgenerate
 
+*/
+reg [NTHREADS-1:0] ousel;
+generate begin : gOusel
+	for (g = 0; g < NTHREADS; g = g + 1)
+		always_comb
+			ousel[g] = agb[g].dec.mem &&
+				!(memreq_full || req_icload)
+				;
+end
+endgenerate
 
 roundRobin rr5
 (
 	.rst(rst_i),
 	.clk(clk_g),
 	.ce(1'b1),
-	.req({8'h00,aggen}),
+	.req({8'h00,ousel}),
 	.lock(8'h00),
 	.sel(),
 	.sel_enc(oundx)
 );
 
-assign oundx_v = |aggen;
-*/
 wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
 
 always_comb
-begin
-	ou_stall = 'd0;
-	if (oundx_v)
-		ou_stall[oundx] =
-							agb[oundx].agen && !(!memreq_full && !req_icload) &&
-						 	agb[oundx].dec.mem; // It is a memory operation
-end
+	ou_stall = ousel & ~ousel[oundx];
+
+// The following is dead code. The instruction for writeback is now chosen from
+// a pipeline fifo.
 
 // Pick a finished instruction. wbndx selects which thread is written back to
 // the register file.
@@ -1142,13 +1209,13 @@ task tInsnFetch;
 integer n;
 begin
 	begin
-		{ic_ifb.pfx2,ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[5:0],3'b0};
+		{ic_ifb.pfx2,ic_ifb.pfx,ic_ifb.insn} <= ic_line >> {ip_icline[4:0],3'b0};
 		ic_ifb.ip <= ip_icline;
 		ic_ifb.v <= ihit2 && ip_thread2_v;
 		ic_ifb.sp_sel <= sp_sel[ip_thread2];
 		ic_ifb.thread <= ip_thread2;
-		ic_ifb.tag <= insn_otag;
-		insn_otag <= insn_otag + 2'd1;
+		ic_ifb.tag <= insn_otag[ip_thread2];
+		insn_otag[ip_thread2] <= insn_otag[ip_thread2] + 2'd1;
 		// External interrupt has highest priority.
 		if (irq_i > status[ip_thread2][0].ipl && gie[ip_thread2] && status[ip_thread2][0].mie)
 			ic_ifb.cause <= cause_code_t'({irq_i,8'h00}|FLT_IRQ);
@@ -1215,7 +1282,7 @@ begin
 		// The old cache line is passed back for the victim buffer.
 		if (!ihit2 && ip_thread3_v) begin
 			if (!memreq_full) begin
-				if (ip_icline[31:6] != last_adr[31:6] || imiss_count > 30) begin
+				if (ip_icline[31:5] != last_adr[31:5] || imiss_count > 30) begin
 					imiss_count <= 'd0;
 					last_adr <= ip_icline;
 					tid <= tid + 2'd1;
@@ -1225,8 +1292,8 @@ begin
 					memreq.func <= MR_ICACHE_LOAD;
 					memreq.omode <= status[ip_thread3][0].om;
 					memreq.asid <= asid[ip_thread3];
-					memreq.adr <= {ip_icline[31:6],6'd0};
-					memreq.vcadr <= {ip_icline[31:6],6'd0};//{ic_tag,6'b0};
+					memreq.adr <= {ip_icline[31:5],5'd0};
+					memreq.vcadr <= {ip_icline[31:5],5'd0};//{ic_tag,6'b0};
 					memreq.res <= ic_line;
 					memreq.sz <= ic_valid ? tetra : nul;
 					// But, which line do we need?
@@ -1244,52 +1311,37 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // DC Stage
 // - most decoding is handled by a decode module above.
+// Only one thread is selected for further processing. That means the other
+// threads are invalid at this stage. If no thread can be selected then a
+// pipeline bubble results.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 task tDecode;
 integer n;
 begin
-	rfndx1 <= dcndx;
-	for (n = 0; n < NTHREADS; n = n + 1)
-		if (n==dcndx)
-			dcb[n].v <= dc_ifb[n].v & dcndx_v;// & sb_will_issue[n];
-		else
-			dcb[n].v <= FALSE;
-	if (!ou_stall[dcndx] && dcndx_v) begin
-		dcb[dcndx].thread <= dcndx;
-		dcb[dcndx].regfetched <= 1'b0;
-		dcb[dcndx].executed <= 1'b0;
-		if (rollback[dcndx]) begin
-			rfndx1_v <= 1'b0;
-			dcb[dcndx].v <= 1'b0;
-			dcb[dcndx].ifb <= 'd0;
-			dcb[dcndx].dec <= 'd0;
-			ra0 <= 'd0;
-			ra1 <= 'd0;
-			ra2 <= 'd0;
-			ra3 <= 'd0;
-			ra4 <= 'd0;
-		end
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		if (stall_pipe[n])
+			dcb[n] <= dcb[n];
 		else begin
-			dcb[dcndx].v <= dc_ifb[dcndx].v;// && !stall_dec1;
-			dcb[dcndx].ifb <= dc_ifb[dcndx];
-			dcb[dcndx].dec <= dco[dcndx];
-			// Needed for virtualization
-			if (dco[dcndx].csr && omode[dcndx]!=OM_MACHINE)
-				dcb[dcndx].cause <= FLT_CSR;
-			ra0 <= fnSpSel(dcndx,dco[dcndx].Ra.num);
-			ra1 <= fnSpSel(dcndx,dco[dcndx].Rb.num);
-			ra2 <= fnSpSel(dcndx,dco[dcndx].Rc.num);
-			ra3 <= dco[dcndx].Rm.num;
-			ra4 <= fnSpSel(dcndx,dco[dcndx].Rt.num);
-			rfndx1_v <= 1'b1;
+			dcb[n].thread <= n;
+			dcb[n].v <= dc_ifb[n].v;
+			dcb[n].ifb <= dc_ifb[n];
+			dcb[n].dec <= dco[n];
+			if (rollback[n]|ififo_empty[n])
+				dcb[n].ifb.insn.any.opcode <= OP_NOP;
+			else if (sb_issue[n]) begin
+				// Needed for virtualization
+				if (dco[n].csr && omode[n]!=OM_MACHINE)
+					dcb[n].cause <= FLT_CSR;
+				ra0 <= fnSpSel(n,dco[n].Ra.num);
+				ra1 <= fnSpSel(n,dco[n].Rb.num);
+				ra2 <= fnSpSel(n,dco[n].Rc.num);
+				ra3 <= dco[n].Rm.num;
+				ra4 <= fnSpSel(n,dco[n].Rt.num);
+			end
+			else
+				dcb[n].ifb.insn.any.opcode <= OP_NOP;
 		end
-	end
-	else begin
-		if (dcndx_v)
-			dcb[dcndx] <= dcb[dcndx];
-		else
-			dcb[dcndx].v <= FALSE;
 	end
 end
 endtask
@@ -1308,71 +1360,49 @@ always_comb
 task tRegf;
 input tid_t n;
 begin
-	//exb[rfndx].cause <= dcause;
 	rfb2[n].a <= rfb1[n].dec.Ra.vec ? vrfo0 : {NLANES{rfo0}};
 	rfb2[n].b <= rfb1[n].dec.Rb.vec ? vrfo1 : {NLANES{rfo1}};
 	if (rfb1[n].dec.csr)
 		rfb2[n].c <= {NLANES{csro}};
-	/* Bypassing logic should not be necessary */
-	/*
-	else if (rfb1[rfndx2].dec.Rc==exb[rfndx2].dec.Rt && (exb[rfndx2].dec.rfwr|exb[rfndx2].dec.vrfwr) && exb[rfndx2].v)
-		rfb2[rfndx2].c <= vres;
-	*/
-	/*
-	else if (rfb1[rfndx2].dec.Rc==agb[rfndx2].dec.Rt && (agb[rfndx2].dec.rfwr|agb[rfndx2].dec.vrfwr) && agb[rfndx2].v)
-		rfb2[rfndx2].c <= agb[rfndx2].res;
-	else if (rfb1[rfndx2].dec.Rc==wbb[rfndx2].dec.Rt && (wbb[rfndx2].dec.rfwr|wbb[rfndx2].dec.vrfwr) && wbb[rfndx2].v)
-		rfb2[rfndx2].c <= wbb[rfndx2].res;
-	*/
 	else
 		rfb2[n].c <= rfb1[n].dec.Rc.vec ? vrfo2 : {NLANES{rfo2}};
 	rfb2[n].mask <= rfo3;
-	//rfb2[rfndx2].t <= rfb1[rfndx1].dec.Rt.vec ? vrfo4 : {NLANES{rfo4}};
-	rfb2[n].regfetched <= 1'b1;//rfb1[rfndx1].v & ~rollback[rfndx1];
 	if ((rfb1[n].dec.rfwr & ~rfb1[n].dec.Rt.vec) | (rfb1[n].dec.vrfwr & rfb1[n].dec.Rt.vec))
 		ou_rollback_bitmaps[n][rfb1[n].dec.Rt] <= 1'b1;
 end
 endtask
 
-task tRegfetch;
-begin
-	rfndx2 <= rfndx1;
-	exndx <= rfndx2;
-	exndx_v <= rfndx2_v;
-	rfndx2_v <= rfndx1_v;
+// There will always be register values available two cycles after the decode
+// stage regardless of a pipeline stall. So, a pipeline stall is not checked for
+// at regfetch.
 
-	// RF stage #1, not much to do but propagate.
-	if (!ou_stall[rfndx1] && rfndx1_v)
-		rfb1[rfndx1] <= dcb[rfndx1];
-	else begin
-		if (rfndx1_v)
-			rfb1[rfndx1] <= rfb1[rfndx1];
-		else
-			rfb1[rfndx1].v <= FALSE;
-	end
-	
-	// RF stage #2
-	if (!ou_stall[rfndx2] && rfndx2_v) begin
-		rfb2[rfndx2] <= rfb1[rfndx2];
-		if (rollback_ipv[rfndx2] && rfb1[rfndx2].ifb.ip != rollback_ip[rfndx2]) begin
-			rfb2[rfndx2].v <= 1'b0;
-			rfb2[rfndx2].dec.rfwr <= 1'b0;
-			rfb2[rfndx2].dec.vrfwr <= 1'b0;
-			rfb2[rfndx2].executed <= 1'b0;
+task tRegfetch;
+integer n;
+begin
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		// RF stage #1, not much to do but propagate.
+		rfndx1 <= dcndx;
+		rfb1[n] <= dcb[n];
+
+		// RF stage #2
+		rfndx2 <= rfndx1;
+		rfb2[n] <= rfb1[n];
+
+		if (rollback_ipv[n] && rfb1[n].ifb.ip != rollback_ip[n]) begin
+			rfb2[n].v <= 1'b0;
+			rfb2[n].dec.rfwr <= 1'b0;
+			rfb2[n].dec.vrfwr <= 1'b0;
+			rfb2[n].executed <= 1'b0;
 		end
-		else if (rollback_ipv[rfndx2] && rfb1[rfndx2].ifb.ip == rollback_ip[rfndx2]) begin
-			rollback_ipv[rfndx2] <= 1'b0;
-			tRegf(rfndx2);
+		else if (rollback_ipv[n] && rfb1[n].ifb.ip == rollback_ip[n]) begin
+			rollback_ipv[n] <= 1'b0;
+			if (n==rfndx2)
+				tRegf(n);
 		end
 		else begin
-			tRegf(rfndx2);
+			if (n==rfndx2)
+				tRegf(n);
 		end
-	end
-	else begin
-		if (rfndx2_v)
-			rfb2[rfndx2] <= rfb2[rfndx2];
-		else
-			rfb2[rfndx2].v <= FALSE;
 	end
 end
 endtask
@@ -1382,7 +1412,7 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 task tExCall;
-integer n;
+input tid_t exndx;
 begin
 	case(rfb2[exndx].ifb.insn.any.opcode)
 	OP_PFX:
@@ -1436,6 +1466,7 @@ end
 endtask
 
 task tExBranch;
+input tid_t exndx;
 begin
 	if (rfb2[exndx].dec.br) begin
 		exb[exndx].out <= 1'b0;
@@ -1451,80 +1482,74 @@ end
 endtask
 
 task tExecute;
+integer n;
 begin
-	exbrf_wr <= FALSE;
 	mcbi.v <= 1'b0;
 	exbr.v <= FALSE;
-	agndx <= exndx;
-	agndx_v <= exndx_v;
-	exb[exndx] <= rfb2[exndx];
-	if (!ou_stall[exndx] && exndx_v) begin
-		exb[exndx].regfetched <= 1'b0;
-		exb[exndx].out <= 1'b1;
-		exb[exndx].retry <= 'd0;
 
-		if (rfb2[exndx].dec.multicycle) begin
-			mcbi <= rfb2[exndx];
-			mcbi.v <= 1'b1;
-			mir <= rfb2[exndx].ifb.insn;
-			mprc <= rfb2[exndx].dec.prc;
-			mca <= rfb2[exndx].a;
-			mcb <= rfb2[exndx].b;
-			mcc <= rfb2[exndx].c;
-			mct <= rfb2[exndx].t;
-			mcimm <= rfb2[exndx].dec.imm;
-			mcm <= rfb2[exndx].mask;
-		end
-		else begin
-			xir <= rfb2[exndx].ifb.insn;
-			xprc <= rfb2[exndx].dec.prc;
-			xa <= rfb2[exndx].a;
-			xb <= rfb2[exndx].b;
-			xc <= rfb2[exndx].c;
-			xt <= rfb2[exndx].t;
-			xta <= rfb2[exndx].dec.Ta;
-			xtb <= rfb2[exndx].dec.Tb;
-			xtt <= rfb2[exndx].dec.Tt;
-			xm <= rfb2[exndx].mask;
-			ximm <= rfb2[exndx].dec.imm;
-			xasid <= asid[exndx];
-			xhmask <= hmask;
-//			$display("Decode %d:", dcndx);
-//			$display("  insn=%h a=%h b=%h c=%h i=%h", dc_ifb[dcndx].ifb.insn, dc_ifb[dcndx].a, dc_ifb[dcndx].b, dc_ifb[dcndx].c, dc_ifb[dcndx].dec.imm);
-//			$display("Execute %d:", exndx);
-//			$display("  insn=%h a=%h b=%h c=%h i=%h", exb[exndx].ifb.insn, exb[exndx].a, exb[exndx].b, exb[exndx].c, exb[exndx].dec.imm);
-		end
-		tExCall();
-		tExBranch();
-	end
-	// Here, the pipeline may have stalled. Check and create a bubble by marking
-	// the instruction invalid.
-	else begin
-		if (exndx_v)
-			exb[exndx] <= exb[exndx];
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+
+		if (stall_pipe[n])
+			exb[n] <= exb[n];
 		else
-			exb[exndx].v <= FALSE;
+			exb[n] <= rfb2[n];
+
+		if (!stall_pipe[n]) begin
+			exb[n].regfetched <= 1'b0;
+			exb[n].out <= 1'b1;
+			exb[n].retry <= 'd0;
+
+			if (rfb2[n].dec.multicycle) begin
+				if (n==mcndx && |mcsel) begin
+					mcbi <= rfb2[n];
+					mcbi.v <= 1'b1;
+					mir <= rfb2[n].ifb.insn;
+					mprc <= rfb2[n].dec.prc;
+					mca <= rfb2[n].a;
+					mcb <= rfb2[n].b;
+					mcc <= rfb2[n].c;
+					mct <= rfb2[n].t;
+					mcimm <= rfb2[n].dec.imm;
+					mcm <= rfb2[n].mask;
+				end
+			end
+			else begin
+				if (n==exndx && |exsel) begin
+					xir <= rfb2[n].ifb.insn;
+					xprc <= rfb2[n].dec.prc;
+					xa <= rfb2[n].a;
+					xb <= rfb2[n].b;
+					xc <= rfb2[n].c;
+					xt <= rfb2[n].t;
+					xta <= rfb2[n].dec.Ta;
+					xtb <= rfb2[n].dec.Tb;
+					xtt <= rfb2[n].dec.Tt;
+					xm <= rfb2[n].mask;
+					ximm <= rfb2[n].dec.imm;
+					xasid <= asid[n];
+					xhmask <= hmask;
+		//			$display("Decode %d:", dcndx);
+		//			$display("  insn=%h a=%h b=%h c=%h i=%h", dc_ifb[dcndx].ifb.insn, dc_ifb[dcndx].a, dc_ifb[dcndx].b, dc_ifb[dcndx].c, dc_ifb[dcndx].dec.imm);
+		//			$display("Execute %d:", n);
+		//			$display("  insn=%h a=%h b=%h c=%h i=%h", exb[n].ifb.insn, exb[n].a, exb[n].b, exb[n].c, exb[n].dec.imm);
+				end
+			end
+			tExCall(n);
+			tExBranch(n);
+		end
 	end
 
-	if (!ou_stall[agndx] && agndx_v) begin
-		exbr <= exb[agndx];
+	exbrf_wr <= FALSE;
+	if (exndx1_v) begin
+		exbr <= exb[exndx1];
 		exbr.res <= vres;
-		exbr.v <= exb[agndx].v;
-		exbrf_wr <= !exb[agndx].dec.mem && !exb[agndx].dec.multicycle && exb[agndx].v;
-	end
-	else begin
-		if (agndx_v)
-			exbr <= exbr;
-		else
-			exbr.v <= FALSE;
+		exbrf_wr <= TRUE;
 	end
 	
 	mcbf_wr <= FALSE;
-	if (mcbo.v) begin
+	if (|mcsel) begin
 		//mcb.tag <= 
-		if (!mcbf_full) begin
-			mcbf_wr <= TRUE;
-		end
+		mcbf_wr <= TRUE;
 	end
 end
 endtask
@@ -1539,35 +1564,35 @@ endtask
 //   generation and count is used to fetch or store the data element.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-Address tmpadr;
+Address [NTHREADS-1:0] tmpadr;
 
 task tAgen;	// placeholder task
 integer n;
 begin
-	oundx <= agndx;
-	oundx_v <= agndx_v;
-	if (!ou_stall[agndx] && agndx_v) begin
-		if (wbb[agndx].dec.need_steps && wbb[agndx].dec.mem && wbb[agndx].count != 'd0)
-			agb[agndx] <= wbb[agndx];
-		else
-			agb[agndx] <= exb[agndx];
-		// Get result
-		if (!exb[agndx].dec.cjb)
-			agb[agndx].res <= vres;
-		agb[agndx].agen <= 1'b1;
-		casez({exb[agndx].dec.storer|exb[agndx].dec.loadr,exb[agndx].dec.Rb.vec,exb[agndx].dec.Ra.vec})
-		3'b000:	tmpadr <= exb[agndx].a[0] + exb[agndx].b[0];
-		3'b001: tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].b[0];
-		3'b010:	tmpadr <= exb[agndx].a[0] + exb[agndx].b[exb[agndx].step];
-		3'b011:	tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].b[exb[agndx].step];
-		3'b1?0:	tmpadr <= exb[agndx].a[0] + exb[agndx].dec.imm;
-		3'b1?1:	tmpadr <= exb[agndx].a[exb[agndx].step] + exb[agndx].dec.imm;
-		endcase
-		if (exb[agndx].dec.mem)
-			thread[agndx].sleep <= TRUE;
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		if (stall_pipe[n])
+			agb[n] <= agb[n];
+		else begin
+			if (wbb[n].dec.need_steps && wbb[n].dec.mem && wbb[n].count != 'd0)
+				agb[n] <= wbb[n];
+			else
+				agb[n] <= exb[n];
+			// Get result
+			if (!exb[n].dec.cjb)
+				agb[n].res <= vres;
+			agb[n].agen <= 1'b1;
+			casez({exb[n].dec.storer|exb[n].dec.loadr,exb[n].dec.Rb.vec,exb[n].dec.Ra.vec})
+			3'b000:	tmpadr[n] <= exb[n].a[0] + exb[n].b[0];
+			3'b001: tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[0];
+			3'b010:	tmpadr[n] <= exb[n].a[0] + exb[n].b[exb[n].step];
+			3'b011:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[exb[n].step];
+			3'b1?0:	tmpadr[n] <= exb[n].a[0] + exb[n].dec.imm;
+			3'b1?1:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].dec.imm;
+			endcase
+			if (exb[n].dec.mem)
+				thread[n].sleep <= TRUE;
+		end
 	end
-	else if (!agndx_v)
-		agb[agndx].v <= FALSE;
 end
 endtask
 
@@ -1576,6 +1601,7 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 task tOuLoad;
+input tid_t oundx;
 begin
 	if (agb[oundx].dec.load) begin
 		if (dbg_cr[0] && dbg_cr[9:8]==2'b11 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
@@ -1615,7 +1641,7 @@ begin
 		memreq.sz <= agb[oundx].dec.memsz;
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
-		memreq.adr <= tmpadr;
+		memreq.adr <= tmpadr[oundx];
 		case(agb[oundx].dec.memsz)
 		byt:	memreq.sel <= 64'h1;
 		wyde:	memreq.sel <= 64'h3;
@@ -1654,6 +1680,7 @@ end
 endtask
 
 task tOuStore;
+input tid_t oundx;
 begin
 	if (agb[oundx].dec.store) begin
 		if (dbg_cr[0] && dbg_cr[8]==1'b1 && dbg_cr[31:28]==ip_thread2 && dbg_adr[0]==tmpadr) begin
@@ -1693,7 +1720,7 @@ begin
 		memreq.sz <= agb[oundx].dec.memsz;
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
-		memreq.adr <= tmpadr;
+		memreq.adr <= tmpadr[oundx];
 		if (agb[oundx].dec.need_steps)
 			memreq.res <= {1024'd0,agb[oundx].c[agb[oundx].count]};
 		else
@@ -1749,53 +1776,55 @@ endtask
 
 
 task tOut;
+integer n;
 begin
-	if (!ou_stall[oundx] && oundx_v) begin
-		oub[oundx] <= agb[oundx];
-		oub[oundx].agen <= 1'b1;
-		if (oundx_v) begin
-			oub[oundx].out <= (agb[oundx].dec.load|agb[agndx].dec.store) ? ~agb[agndx].agen : 1'b0;
-			oub[oundx].executed <= (agb[oundx].dec.load|agb[agndx].dec.store) ? agb[agndx].agen : 1'b1;
-			if ((agb[oundx].dec.Ra.vec | ((agb[oundx].dec.storen|agb[oundx].dec.loadn) & agb[oundx].dec.Rb.vec)) && agb[oundx].dec.memsz==vect) begin
-				if (agb[oundx].step < NLANES-1) begin
-					oub[oundx].out <= 1'b1;
-					oub[oundx].agen <= 1'b0;
-					oub[oundx].executed <= 1'b0;
+	for (n = 0; n < NTHREADS; n = n + 1) begin
+		if (stall_pipe[n])
+			oub[n] <= oub[n];
+		else begin
+			oub[n] <= agb[n];
+			oub[n].agen <= 1'b1;
+			oub[n].out <= (agb[n].dec.load|agb[agndx].dec.store) ? ~agb[agndx].agen : 1'b0;
+			oub[n].executed <= (agb[n].dec.load|agb[agndx].dec.store) ? agb[agndx].agen : 1'b1;
+			if ((agb[n].dec.Ra.vec | ((agb[n].dec.storen|agb[n].dec.loadn) & agb[n].dec.Rb.vec)) && agb[n].dec.memsz==vect) begin
+				if (agb[n].step < NLANES-1) begin
+					oub[n].out <= 1'b1;
+					oub[n].agen <= 1'b0;
+					oub[n].executed <= 1'b0;
 				end
 			end
-			if (agb[oundx].agen) begin
+			if (agb[n].agen) begin
 				if (!memreq_full && !req_icload) begin
-					tOuLoad();
-					tOuStore();
-					oub[oundx].agen <= 1'b0;
+					if (|ousel) begin
+						tOuLoad(oundx);
+						tOuStore(oundx);
+					end
 				end
 				// If the load/store could not be queued backout the decoded and out
 				// indicators so the instruction will be reselected for execution.
 				else begin
-					if (agb[oundx].dec.load|agb[oundx].dec.store) begin
-						oub[oundx].regfetched <= 1'b1;
-						oub[oundx].executed <= 1'b0;
-						oub[oundx].out <= 1'b0;
-						oub[oundx].agen <= 1'b0;
+					if (agb[n].dec.load|agb[n].dec.store) begin
+						oub[n].regfetched <= 1'b1;
+						oub[n].executed <= 1'b0;
+						oub[n].out <= 1'b0;
+						oub[n].agen <= 1'b0;
 					end
 				end
 			end
-		end
-		if (mcrid_v) begin
-			if (exb[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
-				mcrid_v <= 1'b0;
-				mca_busy[0] <= 1'b0;
-				oub[mc_rid].out <= 1'b0;
-				oub[mc_rid].executed <= 1'b1;
-	//			if (exb[mc_rid].dec.Tt)
-					oub[mc_rid].res <= mc_vres;
-	//			else
-	//				exb[mc_rid].res <= mc_res;
+			if (mcrid_v) begin
+				if (exb[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
+					mcrid_v <= 1'b0;
+					mca_busy[0] <= 1'b0;
+					oub[mc_rid].out <= 1'b0;
+					oub[mc_rid].executed <= 1'b1;
+		//			if (exb[mc_rid].dec.Tt)
+						oub[mc_rid].res <= mc_vres;
+		//			else
+		//				exb[mc_rid].res <= mc_res;
+				end
 			end
 		end
 	end
-	else if (!oundx_v)
-		oub[oundx].v <= FALSE;
 end
 endtask
 
@@ -1823,6 +1852,7 @@ begin
 		memf_wr <= TRUE;	// update the pipeline fifo
 		memp <= 'd0;
 		memp.ifb.ip <= memresp.ip;
+		memp.ifb.thread <= memresp.thread;
 		memp.badAddr <= memresp.adr;
 		memp.ifb.tag <= memresp.tag;
 		memp.dec.Rt <= memresp.tgt;	// Needed for a load
@@ -1983,8 +2013,10 @@ reg select_memf;
 reg select_mcbf;
 always_comb
 begin
-	select_exbr = !exbrf_empty && ((exbrf.ifb.tag <= memf.ifb.tag) || !memf.v) && ((exbrf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v);
-	select_memf = (!memf_empty && ((memf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v)) && !select_exbr;
+	select_exbr = !exbrf_empty && ((exbrf.ifb.tag <= memf.ifb.tag) || !memf.v || (exbrf.ifb.thread != memf.ifb.thread)) &&
+		((exbrf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v || (exbrf.ifb.thread != mcbf.ifb.thread));
+	select_memf = (!memf_empty && ((memf.ifb.tag <= mcbf.ifb.tag) || !mcbf.v || (memf.ifb.thread != mcbf.ifb.thread))) &&
+		!select_exbr;
 	select_mcbf = !mcbf_empty && !select_memf && !select_exbr;
 end
 
@@ -1997,7 +2029,7 @@ begin
 	commit_wr <= FALSE;
 	commit_wrv <= FALSE;
 	commit_tgt <= 'd0;
-//	if (wbndx_v & !ou_stall[wbndx])
+//	if (wbndx_v & !stall_pipe[wbndx])
 	begin
 		wbndx2 <= wbndx;
 		wbb2 <= wbb;
@@ -2305,38 +2337,38 @@ begin
 	6'd29:	fnRegName = "gp";
 	6'd30:	fnRegName = "fp";
 	6'd31:	fnRegName = "sp";
-	6'd32:	fnRegName = "vm0";
-	6'd33:	fnRegName = "vm1";
-	6'd34:	fnRegName = "vm2";
-	6'd35:	fnRegName = "vm3";
-	6'd36:	fnRegName = "vm4";
-	6'd37:	fnRegName = "vm5";
-	6'd38:	fnRegName = "vm6";
-	6'd39:	fnRegName = "vm7";
-	6'd40:	fnRegName = "vm8";
-	6'd41:	fnRegName = "vm9";
-	6'd42:	fnRegName = "vm10";
-	6'd43:	fnRegName = "vm11";
-	6'd44:	fnRegName = "vm12";
-	6'd45:	fnRegName = "vm13";
-	6'd46:	fnRegName = "vm14";
-	6'd47:	fnRegName = "vm15";
-	6'd48:	fnRegName = "lc";
-	6'd49:	fnRegName = "lk1";
-	6'd50:	fnRegName = "lk2";
-	6'd51:	fnRegName = "r43";
-	6'd52:	fnRegName = "ssp";
-	6'd53:	fnRegName = "hsp";
-	6'd54:	fnRegName = "msp";
-	6'd55:	fnRegName = "isp";
-	6'd56:	fnRegName = "f0";
-	6'd57:	fnRegName = "f1";
-	6'd58:	fnRegName = "f2";
-	6'd59:	fnRegName = "f3";
-	6'd60:	fnRegName = "f4";
-	6'd61:	fnRegName = "f5";
-	6'd62:	fnRegName = "f6";
-	6'd63:	fnRegName = "f7";
+	6'd32:	fnRegName = "t8";
+	6'd33:	fnRegName = "t9";
+	6'd34:	fnRegName = "t10";
+	6'd35:	fnRegName = "t11";
+	6'd36:	fnRegName = "s10";
+	6'd37:	fnRegName = "s11";
+	6'd38:	fnRegName = "s12";
+	6'd39:	fnRegName = "s13";
+	6'd40:	fnRegName = "r40";
+	6'd41:	fnRegName = "r41";
+	6'd42:	fnRegName = "r42";
+	6'd43:	fnRegName = "r43";
+	6'd44:	fnRegName = "r44";
+	6'd45:	fnRegName = "r45";
+	6'd46:	fnRegName = "r46";
+	6'd47:	fnRegName = "r47";
+	6'd48:	fnRegName = "vm0";
+	6'd49:	fnRegName = "vm1";
+	6'd50:	fnRegName = "vm2";
+	6'd51:	fnRegName = "vm3";
+	6'd52:	fnRegName = "vm4";
+	6'd53:	fnRegName = "vm5";
+	6'd54:	fnRegName = "vm6";
+	6'd55:	fnRegName = "vm7";
+	6'd56:	fnRegName = "lc";
+	6'd57:	fnRegName = "lk1";
+	6'd58:	fnRegName = "lk2";
+	6'd59:	fnRegName = "r43";
+	6'd60:	fnRegName = "ssp";
+	6'd61:	fnRegName = "hsp";
+	6'd62:	fnRegName = "msp";
+	6'd63:	fnRegName = "isp";
 	endcase
 end
 endfunction
@@ -2386,30 +2418,49 @@ begin
 			for (n1 = 0; n1 < NTHREADS; n1 = n1 + 1)
 				$display("  thread[%d].ip=%h", n1[3:0], thread_ip[n1]);
 			$display("DecodeBuffer:");
-			$display("  1:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
+			$display("  1:%d: %c ip=%h.%d ir=%h oc=%0s", n[3:0],
 				dc_ifb[n].v ? "v":"-",
 				dc_ifb[n].ip,
+				dc_ifb[n].tag,
 				dc_ifb[n].insn,
 				dc_ifb[n].insn.any.opcode.name()
 			);
-			$display("  2:%d: %c ip=%h ir=%h oc=%0s", n[3:0],
+			$display("  2:%d: %c ip=%h.%d ir=%h oc=%0s", n[3:0],
 				dcb[n].v ? "v":"-",
 				dcb[n].ifb.ip,
+				dcb[n].ifb.tag,
 				dcb[n].ifb.insn,
 				dcb[n].ifb.insn.any.opcode.name()
 			);
 			$display("Regfetch %d,%d:", rfndx1,rfndx2);
-			$display("  1:%c ip=%h Ra%d Rb%d csro[%h]=%h",
-				rfndx1_v?"v":"-",rfb1[rfndx1].ifb.ip, rfb1[rfndx1].dec.Ra, rfb1[rfndx1].dec.Rb,rfb1[rfndx1].dec.imm[13:0],csro);
-			$display("  2:%c ip=%h Ra%d=%h Rb%d=%h",
-				rfndx2_v?"v":"-",rfb2[rfndx2].ifb.ip, rfb2[rfndx2].dec.Ra, rfo0, rfb2[rfndx2].dec.Rb, rfo1);
-			$display("pipeline_reg_t:");
-			$display("  %d: %c%c%c%c ip=%h ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
+			$display("  1:%c ip=%h.%d %0s Ra%d Rb%d csro[%h]=%h",
+				rfb1[n].v?"v":"-",
+				rfb1[n].ifb.ip,
+				rfb1[n].ifb.tag,
+				rfb1[n].ifb.insn.any.opcode.name(),
+				rfb1[n].dec.Ra,
+				rfb1[n].dec.Rb,
+				rfb1[n].dec.imm[13:0],
+				csro
+			);
+			$display("  2:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h",
+				rfb2[n].v?"v":"-",
+				rfb2[n].ifb.ip,
+				rfb2[n].ifb.tag,
+				rfb2[n].ifb.insn.any.opcode.name(),
+				rfb2[n].dec.Ra,
+				rfo0,
+				rfb2[n].dec.Rb,
+				rfo1
+			);
+			$display("Execute:");
+			$display("  %d: %c%c%c%c ip=%h.%d ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
 				exb[n].v ? "v":"-",
 				exb[n].regfetched ? "r": "-",
 				exb[n].out ? "o" : "-",
 				exb[n].executed ? "x" : "-",
 				exb[n].ifb.ip,
+				exb[n].ifb.tag,
 				exb[n].ifb.insn,
 				exb[n].ifb.insn.any.opcode.name(),
 				exb[n].res,
@@ -2419,12 +2470,19 @@ begin
 				exb[n].t,
 				exb[n].dec.imm
 			);
+			$display("Execute Pipe Input:");
+			$display("  %d ip=%h, oc=%0s,res=%h",
+				n[3:0],
+				exbr.ifb.ip,
+				exbr.ifb.insn.any.opcode.name(),
+				exbr.res
+			);
 			$display("Address Generation");
 			$display("  %c ip=%h oc=%0s tmpadr=%h res=%h",
 				agb[n].v ? "v" : "-",
 				agb[n].ifb.ip,
 				agb[n].ifb.insn.any.opcode.name(),
-				tmpadr,
+				tmpadr[n],
 				vres
 			);
 			$display("Out");

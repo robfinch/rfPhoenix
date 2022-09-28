@@ -35,19 +35,17 @@
 //                                                                          
 // ============================================================================
 
-import rfPhoenixPkg::*;
-
 package rfPhoenixMmupkg;
 
 typedef struct packed
 {
 	logic m;						// modified indicator
-	logic [511:0] data;
+	logic [255:0] data;
 } DCacheLine;
 
 typedef struct packed
 {
-	logic [511:0] data;
+	logic [255:0] data;
 } ICacheLine;
 /*
 typedef struct packed
