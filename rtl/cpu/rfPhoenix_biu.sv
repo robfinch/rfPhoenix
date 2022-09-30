@@ -43,8 +43,8 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_biu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
 	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tage, ic_tago, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
-	bte_o, bndx_o, cti_o, seg_o, cyc_o, stb_o, we_o, sel_o, adr_o, dat_o, csr_o,
-	stall_i, adack_i, rty_i, ack_i, err_i, bndx_i, dat_i, rb_i,
+	bte_o, tid_o, cti_o, seg_o, cyc_o, stb_o, we_o, sel_o, adr_o, dat_o, csr_o,
+	stall_i, next_i, rty_i, ack_i, err_i, tid_i, dat_i, rb_i,
 	dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
 	itlbmiss, clr_itlbmiss, rollback, rollback_bitmaps);
 parameter AWID=32;
@@ -79,17 +79,17 @@ output fifoFromCtrl_v;
 //output wb_write_request128_t wbm_req;
 //input wb_read_response128_t wbm_resp;
 output wb_burst_type_t bte_o;
-output reg [7:0] bndx_o;
+output wb_tranid_t tid_o;
 output wb_cycle_type_t cti_o;
 output wb_segment_t seg_o;
 output reg cyc_o;
 output reg stb_o;
 input stall_i;
-input adack_i;
+input next_i;
 input ack_i;
 input rty_i;
 input err_i;
-input [7:0] bndx_i;
+input wb_tranid_t tid_i;
 output reg we_o;
 output reg [15:0] sel_o;
 output Address adr_o;
@@ -185,7 +185,8 @@ reg memreq_rd = 0;
 MemoryArg_t memresp, memresp2;
 MemoryArg_t [6:0] mem_resp;	// memory pipeline
 reg zero_data = 0;
-Value movdat;
+wb_tranid_t tid_cnt = 'd0;
+value_t movdat;
 reg [127:0] rb_bitmaps1 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps2 [0:NTHREADS-1];
 reg [127:0] rb_bitmaps3 [0:NTHREADS-1];
@@ -382,14 +383,15 @@ ICacheLine ic_eline, ic_oline;
 reg wr_ic1, wr_ic2;
 reg [1:0] ic_rwaye,ic_rwayo,ic_wway;
 reg icache_wre, icache_wro;
-always_comb icache_wre = wr_ic2 && !ipo[5];
-always_comb icache_wro = wr_ic2 &&  ipo[5];
+always_comb icache_wre = wr_ic2 && !upd_adr[5];
+always_comb icache_wro = wr_ic2 &&  upd_adr[5];
 reg ic_invline,ic_invall;
 code_address_t ipo,ip2,ip3,ip4,ip5;
 wire [$bits(code_address_t)-1:14] ictage [0:3];
 wire [$bits(code_address_t)-1:14] ictago [0:3];
 wire [1024/4-1:0] icvalide [0:3];
 wire [1024/4-1:0] icvalido [0:3];
+wb_address_t upd_adr = 'd0;
 
 ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
@@ -417,24 +419,30 @@ always_ff @(posedge clk)
 always_ff @(posedge clk)
 	ihit3 <= ihit2;
 always_comb
+	// *** The following causes the hit to tend to oscillate between hit
+	//     and miss.
 	// If cannot cross cache line can match on either odd or even.
-	if (ip2[4:0] < 5'd22)
+	if (FALSE && ip2[4:0] < 5'd22)
 		ihit <= ip2[5] ? ihit2o : ihit2e;
 	// Might span lines, need hit on both even and odd lines
 	else
 		ihit <= ihit2e&ihit2o;
 always_comb
+	// *** The following causes the hit to tend to oscillate between hit
+	//     and miss.
 	// If cannot cross cache line can match on either odd or even.
 	// If we do not need the even cache line, mark as a hit.
-	if (ip2[4:0] < 6'd22)
+	if (FALSE && ip2[4:0] < 6'd22)
 		ihite <= ip2[5] ? 1'b1 : ihit2e;
 	// Might span lines, need hit on both even and odd lines
 	else
 		ihite <= ihit2e;
 always_comb
+	// *** The following causes the hit to tend to oscillate between hit
+	//     and miss.
 	// If cannot cross cache line can match on either odd or even.
 	// If we do not need the odd cache line, mark as a hit.
-	if (ip2[4:0] < 5'd22)
+	if (FALSE && ip2[4:0] < 5'd22)
 		ihito <= ip2[5] ? ihit2o : 1'b1;
 	// Might span lines, need hit on both even and odd lines
 	else
@@ -471,7 +479,7 @@ sram_256x1024_1r1w uicme
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.wadr({ic_wway,ipo[13:6]+ipo[5]}),
+	.wadr({ic_wway,upd_adr[13:6]+upd_adr[5]}),
 	.radr({ic_rwaye,ip2[13:6]+ip2[5]}),
 	.i(ici),
 	.o(ic_eline)
@@ -481,7 +489,7 @@ sram_256x1024_1r1w uicmo
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wro),
-	.wadr({ic_wway,ipo[13:6]}),
+	.wadr({ic_wway,upd_adr[13:6]}),
 	.radr({ic_rwayo,ip2[13:6]}),
 	.i(ici),
 	.o(ic_oline)
@@ -504,7 +512,7 @@ uictage
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.ipo(ipo),
+	.ipo(upd_adr),
 	.way(ic_wway),
 	.rclk(clk),
 	.ndx(ip2[13:6]+ip2[5]),	// virtual index (same bits as physical address)
@@ -522,7 +530,7 @@ uictago
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wro),
-	.ipo(ipo),
+	.ipo(upd_adr),
 	.way(ic_wway),
 	.rclk(clk),
 	.ndx(ip2[13:6]),		// virtual index (same bits as physical address)
@@ -576,8 +584,8 @@ uicvale
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4),
-	.ip(ipo),
-	.adr(ipo),
+	.ip(upd_adr),
+	.adr(upd_adr),
 	.wr(icache_wre),
 	.way(ic_wway),
 	.invline(ic_invline),
@@ -596,8 +604,8 @@ uicvalo
 	.rst(rst),
 	.clk(clk),
 	.invce(state==MEMORY4),
-	.ip(ipo),
-	.adr(ipo),
+	.ip(upd_adr),
+	.adr(upd_adr),
 	.wr(icache_wro),
 	.way(ic_wway),
 	.invline(ic_invline),
@@ -1245,16 +1253,33 @@ PDE pde;
 reg wr_pte;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-// Capture data.
+// Capture data and address
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+typedef struct packed
+{
+	wb_address_t adr;
+	wb_segment_t seg;
+} req_table_t;
+
+reg wr_reqtbl;
+req_table_t [255:0] reqtbl;
+req_table_t req;
 always_ff @(posedge clk)
-	if (ack_i && last_seg==wishbone_pkg::CODE)
-		case(bndx_i)
-		8'd0:	ici.data[127:  0] <= dat_i;
-		8'd1: ici.data[255:128] <= dat_i;
+	if (wr_reqtbl)
+		reqtbl[tid_o] <= {adr_o,seg_o};
+assign req = reqtbl[tid_i];
+
+always_ff @(posedge clk)
+	if (ack_i && req.seg==wishbone_pkg::CODE) begin
+		case(req.adr[4])
+		1'd0:	ici.data[127:  0] <= dat_i;
+		1'd1: ici.data[255:128] <= dat_i;
 		default:	;
 		endcase
+		if (req.adr[4]=='d0)
+			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
+	end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // State Machine
@@ -1326,6 +1351,8 @@ begin
 	stk_dep <= 'd0;
 	dcnt <= 'd0;
 	mp_delay <= 'd0;
+	wr_reqtbl <= 'd0;
+	tid_cnt <= 'd0;
 end
 endtask
 
@@ -1352,8 +1379,9 @@ else begin
 		itlbmiss <= 1'b0;
 	wr_ic1 <= FALSE;
 	wr_ic2 <= wr_ic1;
-	if (ack_i && bndx_i==8'h01 && last_seg==wishbone_pkg::CODE)
+	if (ack_i && req.adr[4]==1'b1 && req.seg==wishbone_pkg::CODE)
 		wr_ic1 <= TRUE;
+	wr_reqtbl <= 'd0;
 
 	mem_resp[DATA_ALN].wr <= FALSE;
 	tlbwr <= FALSE;
@@ -1537,7 +1565,7 @@ else begin
 		end
 	// Hardware subroutine to fetch instruction cache line
 	IFETCH1:
-	  if (!adack_i) begin
+	  if (!next_i) begin
 	  	// Cache miss, select an entry in the victim cache to
 	  	// update.
 	  	if (memr.sz!=nul) begin	// ic_valid flag
@@ -1558,7 +1586,9 @@ else begin
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
-	    bndx_o <= 8'h00;
+	    tid_o <= tid_cnt;
+    	tid_cnt <= tid_cnt + 2'd1;
+    	wr_reqtbl <= 1'b1;
 	    case(memr.hit)
 	    2'b00:		// need both even and odd cache lines (start with even)
 	    	begin
@@ -1586,9 +1616,12 @@ else begin
 	IFETCH2:
 	  begin
 	  	stb_o <= HIGH;
-	    if (adack_i) begin
+	    if (next_i) begin
+	    	wr_reqtbl <= 1'b1;
 	    	adr_o <= adr_o + 5'd16;
-	    	bndx_o <= bndx_o + 2'd1;
+				seg_o <= wishbone_pkg::CODE;
+	    	tid_o <= tid_cnt;
+	    	tid_cnt <= tid_cnt + 2'd1;
 	      icnt <= icnt + 4'd4;					// increment word count
 	      if (icnt[4:2]==3'd0)
 	      	cti_o <= wishbone_pkg::EOB;
@@ -2563,7 +2596,12 @@ begin
 				begin
 					mem_resp[PADR_SET].res <= dc_line;
 					mem_resp[PADR_SET].wr <= !(dce & dhit & mem_resp[VLOOKUP3].acr[3]);
-					mem_resp[PADR_SET].hit <= {dhito_d1,dhite_d1};
+					// Allow cache hit to set hit to one, but not zero. hit may have been
+					// one coming in if the cache line is not needed.
+					if (dhite_d1)
+						mem_resp[PADR_SET].hit[0] <= 1'b1;
+					if (dhito_d1)
+						mem_resp[PADR_SET].hit[1] <= 1'b1;
 					mem_resp[PADR_SET].mod <= dc_line_mod;
 					//if (!(dce & dhit & mem_resp[VLOOKUP3].acr[3]))
 					//	mem_resp[PADR_SET].cause <= FLT_DCM;

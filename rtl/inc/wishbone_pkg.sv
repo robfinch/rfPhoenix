@@ -35,11 +35,12 @@
 //
 package wishbone_pkg;
 
-typedef logic [63:0] wb_address_t;
+typedef logic [31:0] wb_address_t;
 typedef logic [7:0] wb_burst_len_t;		// number of beats in a burst -1
 typedef logic [3:0] wb_channel_t;			// channel for devices like system cache
-typedef logic [5:0] wb_tranid_t;			// transaction id
+typedef logic [7:0] wb_tranid_t;			// transaction id
 typedef logic [7:0] wb_priv_level_t;	// 0=all access,
+typedef logic [3:0] wb_priority_t;		// network transaction priority, higher is better
 
 typedef enum logic [2:0] {
 	CLASSIC = 3'b000,
@@ -102,125 +103,118 @@ typedef enum logic [3:0] {
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request8_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [1:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request16_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [3:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request32_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [7:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request64_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [15:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request128_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [31:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request256_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	wb_address_t adr;			// address
 	logic [63:0] sel;			// byte lane select
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic sr;							// set reservation
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_read_request512_t;
 
@@ -231,25 +225,25 @@ typedef struct packed {
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
 	logic we;							// write enable
 	wb_address_t adr;			// address
 	logic [7:0] dat;			// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request8_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -257,19 +251,18 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [1:0] sel;			// byte lane selects
 	logic [15:0] dat;			// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request16_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -277,19 +270,18 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [3:0] sel;			// byte lane selects
 	logic [31:0] dat;			// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request32_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -297,19 +289,18 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [7:0] sel;			// byte lane selects
 	logic [63:0] dat;			// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request64_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -317,19 +308,18 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [15:0] sel;			// byte lane selects
 	logic [127:0] dat;		// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request128_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -337,19 +327,18 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [31:0] sel;			// byte lane selects
 	logic [255:0] dat;		// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request256_t;
 
 typedef struct packed {
 	wb_burst_type_t bte;	// burst type extension
 	wb_cycle_type_t cti;	// cycle type indicator
+	wb_burst_len_t blen;	// length of burst-1
 	wb_segment_t seg;			// segment
 	logic cyc;						// valid cycle
 	logic stb;						// data strobe
@@ -357,13 +346,11 @@ typedef struct packed {
 	wb_address_t adr;			// address
 	logic [63:0] sel;			// byte lane selects
 	logic [511:0] dat;		// data
-	wb_burst_len_t blen;	// burst length
-	wb_burst_len_t bndx;	// burst index
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
 	logic csr;						// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;		// privilege level
-	logic [3:0] qos;			// quality of service
+	wb_priority_t pri;		// transaction priority
 	wb_cache_t cache;			// cache and buffer properties
 } wb_write_request512_t;
 
@@ -374,117 +361,108 @@ typedef struct packed {
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [7:0] dat;			// data
 } wb_read_response8_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [15:0] dat;			// data
 } wb_read_response16_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [31:0] dat;			// data
 } wb_read_response32_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [31:0] dat;			// data
 } wb_response32_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [63:0] dat;			// data
 } wb_read_response64_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [127:0] dat;		// data
 } wb_read_response128_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [127:0] dat;		// data
 } wb_response128_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [255:0] dat;		// data
 } wb_read_response256_t;
 
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
+	wb_priority_t pri;		// response priority
 	logic [511:0] dat;		// data
 } wb_read_response512_t;
 
@@ -499,14 +477,13 @@ typedef struct packed {
 typedef struct packed {
 	wb_channel_t cid;			// channel id
 	wb_tranid_t tid;			// transaction id
-	wb_burst_len_t bndx;	// burst index
 	logic stall;					// stall pipeline
-	logic adack;					// request acknowledge
+	logic next;						// advance to next transaction
 	logic ack;						// response acknowledge
 	logic rty;						// retry
 	logic err;						// error
-	wb_error_t err_type;	// error type
-	logic dat;						// data bit
+	wb_priority_t pri;		// response priority
+	logic [7:0] dat;			// data
 } wb_write_response_t;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -606,6 +583,7 @@ endpackage
 interface wb_request_i #(int WID);
 	wb_burst_type_t bte;		// burst type extension
 	wb_cycle_type_t cti;		// cycle type indicator
+	wb_burst_len_t blen;		// length of burst-1
 	wb_segment_t seg;				// segment
 	logic cyc;							// valid cycle
 	logic stb;							// data strobe
@@ -613,25 +591,22 @@ interface wb_request_i #(int WID);
 	wb_address_t adr;				// address
 	logic [WID/8-1:0] sel;	// byte lane selects
 	logic [WID-1:0] dat;		// data
-	wb_burst_len_t blen;		// burst length
-	wb_burst_len_t bndx;		// burst index
 	wb_channel_t cid;				// channel id
 	wb_tranid_t tid;				// transaction id
 	logic csr;							// set or clear reservation we:1=clear 0=set
 	wb_priv_level_t pl;			// privilege level
-	logic [3:0] qos;				// quality of service
+	wb_priority_t pri;			// transaction priority
 	wb_cache_t cache;				// cache and buffer properties
 endinterface
 
 interface wb_response_i #(int WID);
 	wb_channel_t cid;				// channel id
 	wb_tranid_t tid;				// transaction id
-	wb_burst_len_t bndx;		// burst index
 	logic stall;						// stall pipeline
-	logic adack;						// request acknowledge
+	logic next;							// advance to next transaction
 	logic ack;							// response acknowledge
 	logic rty;							// retry
 	logic err;							// error
-	wb_error_t err_type;		// error type
+	wb_priority_t pri;			// response priority
 	logic [WID-1:0] dat;		// data
 endinterface

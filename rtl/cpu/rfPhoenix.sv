@@ -64,7 +64,7 @@ pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb, wbb2;
 
 wire [1:0] bte_o;
 wire [2:0] cti_o;
-wire [7:0] bndx_o;
+wb_tranid_t tid_o;
 wire [2:0] seg_o;
 wire vpa_o;
 wire vda_o;
@@ -74,22 +74,22 @@ wire we_o;
 wire [15:0] sel_o;
 address_t adr_o;
 wire [127:0] dat_o;
-reg [7:0] bndx_i;
+wb_tranid_t tid_i;
 reg bok_i;
-reg adack_i;
+reg next_i;
 reg ack_i;
 reg stall_i;
 reg err_i;
 reg [127:0] dat_i;
 reg rb_i;
 always_comb
-	adack_i <= wb_resp.adack;
+	next_i <= wb_resp.next;
 always_comb
 	ack_i <= wb_resp.ack;
 always_comb
 	dat_i <= wb_resp.dat;
 always_comb
-	bndx_i <= wb_resp.bndx;
+	tid_i <= wb_resp.tid;
 always_comb
 	stall_i <= wb_resp.stall;
 always_comb
@@ -97,7 +97,7 @@ always_comb
 always_comb
 	wb_req.bte <= wb_burst_type_t'(bte_o);
 always_comb
-	wb_req.bndx <= bndx_o;
+	wb_req.tid <= tid_o;
 always_comb
 	wb_req.cti <= wb_cycle_type_t'(cti_o);
 always_comb
@@ -457,15 +457,15 @@ rfPhoenix_biu ubiu
 	.fifoFromCtrl_empty(memresp_fifo_empty),
 	.fifoFromCtrl_v(memresp_fifo_v),
 	.bte_o(bte_o),
-	.bndx_o(bndx_o),
+	.tid_o(tid_o),
 	.cti_o(cti_o),
 	.seg_o(seg_o),
 	.cyc_o(cyc_o),
 	.stb_o(stb_o),
 	.stall_i(stall_i),
 	.ack_i(ack_i),
-	.adack_i(adack_i),
-	.bndx_i(bndx_i),
+	.next_i(next_i),
+	.tid_i(tid_i),
 	.we_o(we_o),
 	.sel_o(sel_o),
 	.adr_o(adr_o),
@@ -1089,7 +1089,7 @@ roundRobin rr5
 	.sel_enc(oundx)
 );
 
-wire req_icload = !ihit2 && !memreq_full && (ip_icline[31:6] != last_adr[31:6] || imiss_count > 10);
+wire req_icload = !ihit2 && !memreq_full && (ip_insn[31:5] != last_adr[31:5] || imiss_count > 10);
 
 always_comb
 	ou_stall = ousel & ~ousel[oundx];
@@ -1144,7 +1144,7 @@ begin
 	end
 	if (ip_thread2_v && !ihit) begin
 		if (thread[ip_thread2].imiss[0]==1'b0)
-			thread_ip[ip_thread2] <= ip1;
+			thread_ip[ip_thread2] <= ip_icline;
 		else
 			thread_ip[ip_thread2] <= thread[ip_thread2].miss_ip;
 	end
@@ -1251,9 +1251,9 @@ begin
 		thread_hist[0][itndx] <= thread[itndx];
 		for (n = 1; n < 4; n = n + 1)
 			thread_hist[n][itndx] <= thread_hist[n-1][itndx];
-		if (itndx_v) begin
-			thread[itndx].ip <= thread[itndx].ip + 4'd5;
-		end
+//		if (itndx_v) begin
+//			thread[itndx].ip <= thread[itndx].ip + 4'd5;
+//		end
 		ip_thread1 <= itndx;			// tag lookup ip_thread1 lined up with ip
 		ip_thread2 <= ip_thread1;	// data fetch
 		ip_thread3 <= ip_thread2;	// ip_thread3 lined up with ip_icline
@@ -1265,11 +1265,11 @@ begin
 		if (ip_thread2_v) begin
 			if (!ihit) begin
 				ic_ifb.v <= 1'b0;
-				$display("Miss %d ip=%h", ip_thread2, ip1);
+				$display("Miss %d ip=%h", ip_thread2, ip_icline);
 				if (thread[ip_thread2].imiss[0]==1'b0) begin
 					thread[ip_thread2].imiss <= 5'b00111;
-					thread[ip_thread2].ip <= ip1;
-					thread[ip_thread2].miss_ip <= ip1;
+					thread[ip_thread2].ip <= ip_icline;
+					thread[ip_thread2].miss_ip <= ip_icline;
 				end
 				else begin
 					thread[ip_thread2].ip <= thread[ip_thread2].miss_ip;
@@ -1282,9 +1282,9 @@ begin
 		// The old cache line is passed back for the victim buffer.
 		if (!ihit2 && ip_thread3_v) begin
 			if (!memreq_full) begin
-				if (ip_icline[31:5] != last_adr[31:5] || imiss_count > 30) begin
+				if (ip_insn[31:5] != last_adr[31:5] || imiss_count > 30) begin
 					imiss_count <= 'd0;
-					last_adr <= ip_icline;
+					last_adr <= ip_insn;
 					tid <= tid + 2'd1;
 					memreq.tid <= tid;
 					memreq.thread <= ip_thread3;
@@ -1292,9 +1292,9 @@ begin
 					memreq.func <= MR_ICACHE_LOAD;
 					memreq.omode <= status[ip_thread3][0].om;
 					memreq.asid <= asid[ip_thread3];
-					memreq.adr <= {ip_icline[31:5],5'd0};
-					memreq.vcadr <= {ip_icline[31:5],5'd0};//{ic_tag,6'b0};
-					memreq.res <= ic_line;
+					memreq.adr <= {ip_insn[31:5],5'd0};
+					memreq.vcadr <= {ip_insn[31:5],5'd0};//{ic_tag,6'b0};
+					memreq.res <= ic_line2;
 					memreq.sz <= ic_valid ? tetra : nul;
 					// But, which line do we need?
 					memreq.hit <= {ihito2,ihite2};
