@@ -57,6 +57,7 @@ value_t fcmp_o, fcmpi_o;
 value_t fclass_o;
 wire [7:0] exp;
 wire inf, xz, vz, snan, qnan, xinf;
+value_t o2;
 
 DoubleValue sllr, slli;
 DoubleValue srlr, srli;
@@ -176,50 +177,6 @@ OP_R2:
 	OP_AND:		o = a & b;
 	OP_OR:			o = a | b;
 	OP_XOR:		o = a ^ b;
-	OP_CMP:
-		begin
-			o[0] = a == b;
-			o[1] = $signed(a) < $signed(b);
-			o[2] = $signed(a) <= $signed(b);
-			o[4:3] = 2'b0;
-			o[5] = a < b;
-			o[6] = a <= b;
-			o[7] = 1'b0;
-			o[8] = a != b;
-			o[9] = $signed(a) >= $signed(b);
-			o[10] = $signed(a) > $signed(b);
-			o[12:11] = 2'b0;
-			o[13] = a >= b;
-			o[14] = a > b;
-			o[15] = 1'b0;
-			o[16] = fcmp_o[0];	// ==
-			o[17] = fcmp_o[1];	// <
-			o[18] = fcmp_o[2];	// <=
-			o[19] = fcmp_o[3];
-			o[20] = fcmp_o[4];
-			o[21] = fcmp_o[8];	// <>
-			o[22] = fcmp_o[9];	// >=
-			o[23] = fcmp_o[10];	// >
-			o[24] = fcmp_o[11];	// mag >=
-			o[25] = fcmp_o[12];	// ordered
-			o[31:26] = 6'd0;
-		end
-	OP_CMP_EQ:	o = a == b;
-	OP_CMP_NE:	o = a != b;
-	OP_CMP_LT:	o = $signed(a) < $signed(b);
-	OP_CMP_GE:	o = $signed(a) >= $signed(b);
-	OP_CMP_LE: o = $signed(a) <= $signed(b);
-	OP_CMP_GT:	o = $signed(a) > $signed(b);
-	OP_CMP_LTU:	o = a < b;
-	OP_CMP_GEU:	o = a >= b;
-	OP_CMP_LEU:	o = a <= b;
-	OP_CMP_GTU:	o = a > b;
-	OP_FCMP_EQ:	o = fcmp_o[0];
-	OP_FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
-	OP_FCMP_LT:	o = fcmp_o[1];
-	OP_FCMP_LE:	o = fcmp_o[2];
-	OP_FCMP_GT:	o = fcmp_o[10];
-	OP_FCMP_GE:	o = fcmp_o[9];
 	OP_SLLI:			o = slli[63:32];
 	OP_SRLI:			o = srli[31: 0];
 	OP_SRAI:			o = srai[31: 0];
@@ -250,50 +207,95 @@ OP_SUBFI:		o = imm - a;
 OP_ANDI:			o = a & imm;
 OP_ORI:			o = a | imm;
 OP_XORI:			o = a ^ imm;
-OP_CMPI:
+OP_CMP:
 	begin
-		o[0] = a == imm;
-		o[1] = $signed(a) < $signed(imm);
-		o[2] = $signed(a) <= $signed(imm);
-		o[4:3] = 2'b0;
-		o[5] = a < imm;
-		o[6] = a <= imm;
-		o[7] = 1'b0;
-		o[8] = a != imm;
-		o[9] = $signed(a) >= $signed(imm);
-		o[10] = $signed(a) > $signed(imm);
-		o[12:11] = 2'b0;
-		o[13] = a >= imm;
-		o[14] = a > imm;
-		o[15] = 1'b0;
-		o[16] = fcmpi_o[0];
-		o[17] = fcmpi_o[1];
-		o[18] = fcmpi_o[2];
-		o[19] = fcmpi_o[3];
-		o[20] = fcmpi_o[4];
-		o[21] = fcmpi_o[8];	// <>
-		o[22] = fcmpi_o[9];	// >=
-		o[23] = fcmpi_o[10];	// >
-		o[24] = fcmpi_o[11];	// mag >=
-		o[25] = fcmpi_o[12];	// ordered
-		o[31:26] = 6'd0;
+		o2 = 'd0;
+		case(ir.cmp.sz)
+		2'd0:	o2 = 'd0;
+		2'd1:
+			begin
+				o2[0] = a == b;
+				o2[1] = $signed(a) < $signed(b);
+				o2[2] = $signed(a) <= $signed(b);
+				o2[4:3] = 2'b0;
+				o2[5] = a < b;
+				o2[6] = a <= b;
+				o2[7] = 1'b0;
+				o2[8] = a != b;
+				o2[9] = $signed(a) >= $signed(b);
+				o2[10] = $signed(a) > $signed(b);
+				o2[12:11] = 2'b0;
+				o2[13] = a >= b;
+				o2[14] = a > b;
+				o2[15] = 1'b0;
+			end
+		2'd2:	o2 = 'd0;
+		2'd3:	o2 = 'd0;
+		case(ir.r2.func[3:0])
+		4'd15:	o = o2;
+		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		endcase
 	end
-OP_CMP_EQI:	o = a == imm;
-OP_CMP_NEI:	o = a != imm;
-OP_CMP_LTI:	o = $signed(a) < $signed(imm);
-OP_CMP_GEI:	o = $signed(a) >= $signed(imm);
-OP_CMP_LEI:	o = $signed(a) <= $signed(imm);
-OP_CMP_GTI:	o = $signed(a) > $signed(imm);
-OP_CMP_LTUI:	o = a < imm;
-OP_CMP_GEUI:	o	= a >= imm;
-OP_CMP_LEUI:	o = a <= imm;
-OP_CMP_GTUI:	o = a > imm;
-OP_FCMP_EQI:	o = fcmpi_o[0];
-OP_FCMP_NEI:	o = fcmpi_o[8]|fcmpi_o[4];	// return 1 if Nan
-OP_FCMP_LTI:	o = fcmpi_o[1];
-OP_FCMP_LEI:	o = fcmpi_o[2];
-OP_FCMP_GTI:	o = fcmpi_o[10];
-OP_FCMP_GEI:	o = fcmpi_o[9];
+OP_CMPI32:
+	begin
+		o2 = 'd0;
+		o2[0] = a == imm;
+		o2[1] = $signed(a) < $signed(imm);
+		o2[2] = $signed(a) <= $signed(imm);
+		o2[4:3] = 2'b0;
+		o2[5] = a < imm;
+		o2[6] = a <= imm;
+		o2[7] = 1'b0;
+		o2[8] = a != imm;
+		o2[9] = $signed(a) >= $signed(imm);
+		o2[10] = $signed(a) > $signed(imm);
+		o2[12:11] = 2'b0;
+		o2[13] = a >= imm;
+		o2[14] = a > imm;
+		o2[15] = 1'b0;
+		case(ir.cmpi.N)
+		4'd15:	o = o2;
+		default:	o = {31'd0,o2[ir.cmpi.N]};
+		endcase
+	end
+OP_FCMP:
+	begin
+		o2 = 'd0;
+		if (ir.cmp.sz==2'd1) begin
+			o2[0] = fcmp_o[0];	// ==
+			o2[1] = fcmp_o[1];	// <
+			o2[2] = fcmp_o[2];	// <=
+			o2[3] = fcmp_o[3];
+			o2[4] = fcmp_o[4];
+			o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
+			o2[9] = fcmp_o[9];	// >=
+			o2[10] = fcmp_o[10];	// >
+			o2[11] = fcmp_o[11];	// mag >=
+			o2[12] = fcmp_o[12];	// ordered
+		end
+		case(ir.r2.func[3:0])
+		4'd15:	o = o2;
+		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		endcase
+	end
+OP_FCMPI32:
+	begin
+		o2 = 'd0;
+		o2[0] = fcmpi_o[0];	// ==
+		o2[1] = fcmpi_o[1];	// <
+		o2[2] = fcmpi_o[2];	// <=
+		o2[3] = fcmpi_o[3];
+		o2[4] = fcmpi_o[4];
+		o2[5] = fcmpi_o[8]|fcmpi_o[4];	// <>	return 1 if Nan
+		o2[9] = fcmpi_o[9];	// >=
+		o2[10] = fcmpi_o[10];	// >
+		o2[11] = fcmpi_o[11];	// mag >=
+		o2[12] = fcmpi_o[12];	// ordered
+		case(ir.r2.func[3:0])
+		4'd15:	o = o2;
+		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		endcase
+	end
 OP_CSR:			o = c;
 OP_RET:			o = t + imm;
 default:	o = 'd0;

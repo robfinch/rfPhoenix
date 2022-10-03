@@ -43,7 +43,7 @@ input [2:0] sp_sel;
 output decode_bus_t deco;
 
 reg pfx;
-reg op16,op32,op128;
+reg op16,op32,op64,op128;
 
 always_comb
 begin
@@ -68,18 +68,16 @@ begin
 	OP_R2:	
 		case(ifb.insn.r2.func)
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-		OP_CMPI,OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-		OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
-			begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 		OP_SLL,OP_SRL,OP_SRA,OP_SLLI,OP_SRLI,OP_SRAI:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 		default:	begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-	OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
+	OP_CMP,OP_FCMP:
+		begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
+	OP_CMPI16,OP_CMPI32,OP_CMPI64:
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI:
+	OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec;end
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	begin deco.Rt = ifb.insn.f3.Rt; deco.Rt.vec = ifb.insn.f3.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	OP_NOP:
@@ -138,18 +136,14 @@ begin
 	OP_R2:	
 		case(ifb.insn.r2.func)
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
-		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
-			begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		OP_SLL,OP_SRL,OP_SRA,OP_SLLI,OP_SRLI,OP_SRAI:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		default:	begin deco.Rt.num = 'd0; deco.Rt.vec = 1'b0; end
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-	OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
+	OP_CMP,OP_CMPI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI:
+	OP_FCMP,OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_NOP:
@@ -193,11 +187,10 @@ begin
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
-	OP_CMPI,OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
-		deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
-	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI:
-		deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
+	OP_CMPI:
+		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
+	OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
+		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
 	OP_CALL:	deco.imm = ifb.insn.call.target;
 	OP_BSR:	deco.imm = ifb.insn.call.target;
 	OP_Bcc,OP_FBcc:	deco.imm = {{64{ifb.insn.br.disp[15]}},ifb.insn.br.disp};
@@ -210,10 +203,10 @@ begin
 	endcase
 	// Handle postfixes	
 	if (pfx) begin
-		deco.imm[127:16] = {{80{ifb.pfx.imm[31]}},ifb.pfx.imm};
-`ifdef SUPPORT_128BIT_OPS		
+		deco.imm[127:13] = {{83{ifb.pfx.imm[31]}},ifb.pfx.imm};
+`ifdef SUPPORT_64BIT_OPS		
 		if (ifb.pfx2.opcode==OP_PFX) begin
-			deco.imm[127:48] = {{48{ifb.pfx2.imm[31]}},ifb.pfx.imm};
+			deco.imm[127:45] = {{51{ifb.pfx2.imm[31]}},ifb.pfx.imm};
 			/*
 			if (ifb.pfx3.opcode==OP_PFX) begin
 				deco.imm[127:80] = {{16{ifb.pfx3.imm[31]}},ifb.pfx.imm};
@@ -232,41 +225,31 @@ begin
 		case(ifb.insn.r2.func)
 		OP_R1:
 			case(ifb.insn.r1.func1)
-			OP_CNTLZ:		op16 = ifb.insn[38:37]==2'd0;
-			OP_FCLASS:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FFINITE:	op16 = ifb.insn[38:37]==2'd0;
-			OP_I2F:	op16 = ifb.insn[38:37]==2'd0;
-			OP_F2I:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FTRUNC:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FABS:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FNABS:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FNEG:	op16 = ifb.insn[38:37]==2'd0;
-			OP_FSIGN:	op16 = ifb.insn[38:37]==2'd0;
-			OP_SEXTB:	op16 = ifb.insn[38:37]==2'd0;
+			OP_CNTLZ:		op16 = ifb.insn[38:37]==PRC16;
+			OP_FCLASS:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FFINITE:	op16 = ifb.insn[38:37]==PRC16;
+			OP_I2F:	op16 = ifb.insn[38:37]==PRC16;
+			OP_F2I:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FTRUNC:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FABS:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FNABS:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FNEG:	op16 = ifb.insn[38:37]==PRC16;
+			OP_FSIGN:	op16 = ifb.insn[38:37]==PRC16;
+			OP_SEXTB:	op16 = ifb.insn[38:37]==PRC16;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
-			op16 = ifb.insn[38:37]==2'd0;
-		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
-		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
-			op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_EQ:	op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_NE:	op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_LT:	op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_GE:	op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_LE:	op16 = ifb.insn[38:37]==2'd0;
-		OP_FCMP_GT:	op16 = ifb.insn[38:37]==2'd0;
+			op16 = ifb.insn[38:37]==PRC16;
 		OP_FADD:		op16 = ifb.insn[36]==1'd0;
 		OP_FSUB:		op16 = ifb.insn[36]==1'd0;
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		op16 = ifb.insn[39]==1'd0;
-	OP_CMP_EQI,OP_CMP_NEI,OP_CMP_LTI,OP_CMP_GEI,OP_CMP_LEI,OP_CMP_GTI,
-	OP_CMP_LTUI,OP_CMP_GEUI,OP_CMP_LEUI,OP_CMP_GTUI:
-		op16 = ifb.insn[39]==1'b0;
-	OP_FCMP_EQI,OP_FCMP_NEI,OP_FCMP_LTI,OP_FCMP_GEI,OP_FCMP_LEI,OP_FCMP_GTI:
-		op16 = ifb.insn[39]==1'd0;
+	OP_CMP:	op16=ifb.insn.cmp.sz==2'b00;
+	OP_CMPI16:	op16 = TRUE;
+	OP_FCMP:	op16=ifb.insn.cmp.sz==2'b00;
+	OP_FCMPI16:	op16 = TRUE;
 	OP_FMA16,OP_FMS16,OP_FNMA16,OP_FNMS16:
 		op16 = TRUE;
 	default:	;
@@ -312,6 +295,43 @@ begin
 	endcase
 	*/
 
+	// Figure 64-bit ops
+	op64 = FALSE;
+	case(ifb.insn.any.opcode)		
+	OP_R2:
+		case(ifb.insn.r2.func)
+		OP_R1:
+			case(ifb.insn.r1.func1)
+			OP_CNTLZ:		op64 = ifb.insn[38:37]==PRC64;
+			OP_FCLASS:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FFINITE:	op64 = ifb.insn[38:37]==PRC64;
+			OP_I2F:	op64 = ifb.insn[38:37]==PRC64;
+			OP_F2I:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FTRUNC:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FABS:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FNABS:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FNEG:	op64 = ifb.insn[38:37]==PRC64;
+			OP_FSIGN:	op64 = ifb.insn[38:37]==PRC64;
+			OP_SEXTB:	op64 = ifb.insn[38:37]==PRC64;
+			default:	;
+			endcase
+		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
+			op64 = ifb.insn[38:37]==PRC64;
+	//	OP_FADD:		op64 = ifb.insn[36]==1'd0;
+//		OP_FSUB:		op64 = ifb.insn[36]==1'd0;
+		default:	;
+		endcase
+	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
+		op64 = pfx && ifb.pfx.sz==PRC64;
+	OP_CMP:	op64=ifb.insn.cmp.sz==PRC64;
+	OP_CMPI64:	op64 = TRUE;
+	OP_FCMP:	op64=ifb.insn.cmp.sz==PRC64;
+	OP_FCMPI64:	op64 = TRUE;
+	OP_FMA64,OP_FMS64,OP_FNMA64,OP_FNMS64:
+		op64 = TRUE;
+	default:	;
+	endcase
+
 	// Figure 128-bit ops
 	op128 = FALSE;
 	case(ifb.insn.any.opcode)		
@@ -319,32 +339,31 @@ begin
 		case(ifb.insn.r2.func)
 		OP_R1:
 			case(ifb.insn.r1.func1)
-			OP_FCLASS:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FFINITE:	op128 = ifb.insn[38:37]==2'd2;
-			OP_I2F:	op128 = ifb.insn[38:37]==2'd2;
-			OP_F2I:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FTRUNC:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FABS:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FNABS:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FNEG:	op128 = ifb.insn[38:37]==2'd2;
-			OP_FSIGN:	op128 = ifb.insn[38:37]==2'd2;
+			OP_CNTLZ:		op128 = ifb.insn[38:37]==PRC128;
+			OP_FCLASS:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FFINITE:	op128 = ifb.insn[38:37]==PRC128;
+			OP_I2F:	op128 = ifb.insn[38:37]==PRC128;
+			OP_F2I:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FTRUNC:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FABS:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FNABS:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FNEG:	op128 = ifb.insn[38:37]==PRC128;
+			OP_FSIGN:	op128 = ifb.insn[38:37]==PRC128;
+			OP_SEXTB:	op128 = ifb.insn[38:37]==PRC128;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
-			op128 = ifb.insn[38:37]==2'd2;
-		OP_CMP,OP_CMP_EQ,OP_CMP_NE,OP_CMP_LT,OP_CMP_GE,OP_CMP_LE,OP_CMP_GT,
-		OP_CMP_LTU,OP_CMP_GEU,OP_CMP_LEU,OP_CMP_GTU:
-			op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_EQ:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_NE:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_LT:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_GE:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_LE:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FCMP_GT:	op128 = ifb.insn[38:37]==2'd2;
-		OP_FADD128:	op128 = TRUE;
-		OP_FSUB128:	op128 = TRUE;
+			op128 = ifb.insn[38:37]==PRC128;
+//		OP_FADD:		op128 = ifb.insn[36]==1'd0;
+//		OP_FSUB:		op128 = ifb.insn[36]==1'd0;
 		default:	;
 		endcase
+	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
+		op128 = pfx && ifb.pfx.sz==PRC128;
+	OP_CMP:	op128=ifb.insn.cmp.sz==PRC128;
+	OP_CMPI128:	op128 = TRUE;
+	OP_FCMP:	op128=ifb.insn.cmp.sz==PRC128;
+	OP_FCMPI128:	op128 = TRUE;
 	OP_FMA128,OP_FMS128,OP_FNMA128,OP_FNMS128:
 		op128 = TRUE;
 	default:	;
@@ -353,6 +372,8 @@ begin
 	// Set precision for ops
 	if (op16)
 		deco.prc = PRC16;
+	else if (op64)
+		deco.prc = PRC64;
 	else if (op128)
 		deco.prc = PRC128;
 	else

@@ -38,21 +38,21 @@ import rfPhoenixPkg::*;
 
 module rfPhoenixAlu16(ir, a, b, c, imm, o);
 input instruction_t ir;
-input half_value_t a;
-input half_value_t b;
-input half_value_t c;
-input half_value_t imm;
-output half_value_t o;
+input double_value_t a;
+input double_value_t b;
+input double_value_t c;
+input double_value_t imm;
+output double_value_t o;
 
 integer n;
 
-half_value_t o2;
-half_value_t fcmp_o, fcmpi_o;
-half_value_t fclass_o;
-wire [7:0] exp;
+double_value_t o2;
+double_value_t fcmp_o, fcmpi_o;
+double_value_t fclass_o;
+wire [10:0] exp;
 wire inf, xz, vz, snan, qnan, xinf;
 
-fpDecomp16 udc1
+fpDecomp64 udc1
 (
 	.i(a),
 	.sgn(),
@@ -69,20 +69,20 @@ fpDecomp16 udc1
 	.nan(qnan)
 );
 
-assign fclass_o[0] = a[15] & inf;	// negative infinity
-assign fclass_o[1] = a[15];				// negative number
-assign fclass_o[2] = a[15] & xz & ~vz;		// negative subnormal
-assign fclass_o[3] = a[15] & vz;	// negative zero
-assign fclass_o[4] = ~a[15] & vz;	// positive zero
-assign fclass_o[5] = ~a[15] & xz & ~vz;		// positive subnormal
-assign fclass_o[6] = ~a[15];			// positive number
-assign fclass_o[7] = ~a[15] & inf;	// positive infinity
+assign fclass_o[0] = a[63] & inf;	// negative infinity
+assign fclass_o[1] = a[63];				// negative number
+assign fclass_o[2] = a[63] & xz & ~vz;		// negative subnormal
+assign fclass_o[3] = a[63] & vz;	// negative zero
+assign fclass_o[4] = ~a[63] & vz;	// positive zero
+assign fclass_o[5] = ~a[63] & xz & ~vz;		// positive subnormal
+assign fclass_o[6] = ~a[63];			// positive number
+assign fclass_o[7] = ~a[63] & inf;	// positive infinity
 assign fclass_o[8] = snan;				// signalling nan
 assign fclass_o[9] = qnan;				// quiet nan
 assign fclass_o[14:10] = 'd0;
-assign fclass_o[15] = a[15];
+assign fclass_o[15] = a[63];
 
-fpCompare16 ucmp1
+fpCompare64 ucmp1
 (
 	.a(a),
 	.b(b),
@@ -91,7 +91,7 @@ fpCompare16 ucmp1
 	.snan()
 );
 
-fpCompare16 ucmp2
+fpCompare64 ucmp2
 (
 	.a(a),
 	.b(imm),
@@ -101,7 +101,7 @@ fpCompare16 ucmp2
 );
 
 wire [4:0] cntlz_o;
-cntlz16 ucntlz1 (.i(a), .o(cntlz_o));
+cntlz64 ucntlz1 (.i(a), .o(cntlz_o));
 
 always_comb
 case(ir.any.opcode)
@@ -109,14 +109,14 @@ OP_R2:
 	case(ir.r2.func)
 	OP_R1:
 		case(ir.r2.Rb)
-		OP_CNTLZ:			o = {11'd0,cntlz_o};
-		OP_FABS:			o = {1'b0,a[14:0]};
-		OP_FNABS:			o = {1'b1,a[14:0]};
-		OP_FNEG:			o = {~a[15],a[14:0]};
+		OP_CNTLZ:			o = {57'd0,cntlz_o};
+		OP_FABS:			o = {1'b0,a[62:0]};
+		OP_FNABS:			o = {1'b1,a[62:0]};
+		OP_FNEG:			o = {~a[63],a[62:0]};
 		OP_FCLASS:		o = fclass_o;
-		OP_FSIGN:		o = vz ? 16'h0 : a[15] ? 16'hBE00 : 16'h3E00;
-		OP_FFINITE:	o = {15'd0,~xinf};
-		OP_SEXTB:		o = {{8{a[7]}},a[7:0]};
+		OP_FSIGN:		o = vz ? 64'h0 : a[63] ? 64'hBFF0000000000000 : 64'h3FF0000000000000;
+		OP_FFINITE:	o = {63'd0,~xinf};
+		OP_SEXTB:		o = {{56{a[7]}},a[7:0]};
 		default:	o = 'd0;
 		endcase
 	OP_ADD:		o = a + b;
@@ -136,7 +136,7 @@ OP_XORI:		o = a ^ imm;
 OP_CMP:
 	begin
 		o2 = 'd0;
-		if (ir.cmp.sz==PRC16) begin
+		if (ir.cmp.sz==PRC64) begin
 			o2[0] = a == b;
 			o2[1] = $signed(a) < $signed(b);
 			o2[2] = $signed(a) <= $signed(b);
@@ -154,10 +154,10 @@ OP_CMP:
 		end
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
-		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
 	end
-OP_CMPI16:
+OP_CMPI64:
 	begin
 		o2 = 'd0;
 		o2[0] = a == imm;
@@ -176,13 +176,13 @@ OP_CMPI16:
 		o2[15] = 1'b0;
 		case(ir.cmpi.N)
 		4'd15:	o = o2;
-		default:	o = {31'd0,o2[ir.cmpi.N]};
+		default:	o = {63'd0,o2[ir.cmpi.N]};
 		endcase
 	end
 OP_FCMP:
 	begin
 		o2 = 'd0;
-		if (ir.cmp.sz==PRC16) begin
+		if (ir.cmp.sz==PRC64) begin
 			o2[0] = fcmp_o[0];	// ==
 			o2[1] = fcmp_o[1];	// <
 			o2[2] = fcmp_o[2];	// <=
@@ -196,10 +196,10 @@ OP_FCMP:
 		end
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
-		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
 	end
-OP_FCMPI16:
+OP_FCMPI64:
 	begin
 		o2 = 'd0;
 		o2[0] = fcmpi_o[0];	// ==
@@ -214,7 +214,7 @@ OP_FCMPI16:
 		o2[12] = fcmpi_o[12];	// ordered
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
-		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
+		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
 	end
 default:	o = 'd0;

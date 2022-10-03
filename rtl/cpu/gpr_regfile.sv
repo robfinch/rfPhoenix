@@ -55,7 +55,7 @@ output value_t o;
 //`ifdef IS_SIM
 
 integer k;
-/*
+
    // xpm_memory_sdpram: Simple Dual Port RAM
    // Xilinx Parameterized Macro, version 2020.2
 
@@ -134,7 +134,7 @@ integer k;
 
    );
 
-*/
+/*
 
 (* ram_style = "block" *)
 value_t [NTHREADS*NREGS-1:0] mem;
@@ -154,7 +154,7 @@ begin
 end
 always_comb
 	o = mem[rar];
-
+*/
 /*
 `else
 

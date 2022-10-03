@@ -61,7 +61,7 @@ reg icv2, icv1;
 reg [1:0] rway1;
 
 integer k;
-always_ff @(posedge clk)
+always_comb//ff @(posedge clk)
 begin
 	for (k = 0; k < WAYS; k = k + 1)
 	  ihit1[k] = tag[k[1:0]]==ip[$bits(code_address_t)-1:TAGBIT] && valid[k][ndx]==1'b1;
@@ -97,7 +97,7 @@ always_ff @(posedge clk)
 	prev_rway <= rway1;
 assign rway = rway1;
 
-always_ff @(posedge clk)
+always_comb//ff @(posedge clk)
 	ihit = |ihit1;
 //always_ff @(posedge clk)
 //	ihit = #1 ihit2 & |ihit1;

@@ -288,7 +288,7 @@ wire [3:0] ififo_cnt, ofifo_cnt;
 
 wire [16:0] lfsr_o;
 
-lfsr ulfsr1
+lfsr17 #(.WID(17)) ulfsr1
 (
 	.rst(rst),
 	.clk(clk),
@@ -1271,7 +1271,13 @@ always_ff @(posedge clk)
 assign req = reqtbl[tid_i];
 
 always_ff @(posedge clk)
-	if (ack_i && req.seg==wishbone_pkg::CODE) begin
+if (rst)
+	ici.data <= 'd0;
+else begin
+	if (state==IFETCH4)
+		ici.data <= ivcache[vcn];
+
+	else if (ack_i && req.seg==wishbone_pkg::CODE) begin
 		case(req.adr[4])
 		1'd0:	ici.data[127:  0] <= dat_i;
 		1'd1: ici.data[255:128] <= dat_i;
@@ -1280,6 +1286,7 @@ always_ff @(posedge clk)
 		if (req.adr[4]=='d0)
 			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
 	end
+end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // State Machine
@@ -1312,7 +1319,6 @@ begin
 	dwait <= 3'd0;
 	iaccess <= FALSE;
 	daccess <= FALSE;
-	ici <= 'd0;
 	dci[0] <= 'd0;
 	dci[1] <= 'd0;
 	memreq_rd <= FALSE;
@@ -1658,7 +1664,6 @@ else begin
 	
 	IFETCH4:
 		begin
-			ici.data <= ivcache[vcn];
 			if (memr.sz!=nul) begin
 				ivcache[vcn] <= memr.res;
 				ivtag[vcn] <= memr.vcadr[$bits(Address)-1:5];

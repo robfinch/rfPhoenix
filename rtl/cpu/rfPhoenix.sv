@@ -164,7 +164,7 @@ wire mc_done, mcv_done;
 wire mc_done1, mcv_done1;
 wire mc_done2, mcv_done2;
 wire ihit,ihite,ihito;
-reg ihit2,ihite2,ihito2;
+reg ihit1,ihit2,ihite2,ihito2,ihite1,ihito1;
 MemoryArg_t memreq;
 MemoryArg_t memresp;
 wire memreq_full;
@@ -683,11 +683,17 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	ip_insn <= ip_icline;
 always_ff @(posedge clk_g)
-	ihit2 <= ihit;
+	ihit1 <= ihit;
 always_ff @(posedge clk_g)
-	ihite2 <= ihite;
+	ihit2 <= ihit1;
 always_ff @(posedge clk_g)
-	ihito2 <= ihito;
+	ihite1 <= ihite;
+always_ff @(posedge clk_g)
+	ihite2 <= ihite1;
+always_ff @(posedge clk_g)
+	ihito1 <= ihito;
+always_ff @(posedge clk_g)
+	ihito2 <= ihito1;
 always_ff @(posedge clk_g)
 	ic_tag2e <= ic_tage;
 always_ff @(posedge clk_g)
@@ -1089,7 +1095,7 @@ roundRobin rr5
 	.sel_enc(oundx)
 );
 
-wire req_icload = !ihit2 && !memreq_full && (ip_insn[31:5] != last_adr[31:5] || imiss_count > 10);
+wire req_icload = !ihit1 && !memreq_full && (ip1[31:5] != last_adr[31:5] || imiss_count > 10);
 
 always_comb
 	ou_stall = ousel & ~ousel[oundx];
@@ -1132,7 +1138,8 @@ always_comb
 task tIfIp;
 begin
 	if (itndx_v) begin
-		thread_ip[itndx] <= thread_ip[itndx] + 4'd5;
+		if (ihit)
+			thread_ip[itndx] <= thread_ip[itndx] + 4'd5;
 		/* The following for when instructions do not cross cache lines.
 		if (thread_ip[itndx][5:0] < 6'd45)
 			thread_ip[itndx][5:0] <= thread_ip[itndx][5:0] + 4'd5;
@@ -1142,12 +1149,14 @@ begin
 		end
 		*/
 	end
-	if (ip_thread2_v && !ihit) begin
+	/*
+	if (ip_thread2_v && !ihit1) begin
 		if (thread[ip_thread2].imiss[0]==1'b0)
 			thread_ip[ip_thread2] <= ip_icline;
 		else
 			thread_ip[ip_thread2] <= thread[ip_thread2].miss_ip;
 	end
+	*/
 end
 endtask
 
@@ -1263,8 +1272,9 @@ begin
 		ip_thread2_v <= ip_thread1_v;
 		ip_thread3_v <= ip_thread2_v;
 		if (ip_thread2_v) begin
-			if (!ihit) begin
+			if (!ihit1) begin
 				ic_ifb.v <= 1'b0;
+				/*
 				$display("Miss %d ip=%h", ip_thread2, ip_icline);
 				if (thread[ip_thread2].imiss[0]==1'b0) begin
 					thread[ip_thread2].imiss <= 5'b00111;
@@ -1275,29 +1285,30 @@ begin
 					thread[ip_thread2].ip <= thread[ip_thread2].miss_ip;
 					thread[ip_thread2].imiss[0] <= 1'b1;
 				end
+				*/
 			end
 		end
 		// On a miss, request a cache line load from the memory system. This
 		// should eventually cause a hit for the thread.
 		// The old cache line is passed back for the victim buffer.
-		if (!ihit2 && ip_thread3_v) begin
+		if (!ihit1 && ip_thread2_v) begin
 			if (!memreq_full) begin
-				if (ip_insn[31:5] != last_adr[31:5] || imiss_count > 30) begin
+				if (ip1[31:5] != last_adr[31:5] || imiss_count > 30) begin
 					imiss_count <= 'd0;
-					last_adr <= ip_insn;
+					last_adr <= ip1;
 					tid <= tid + 2'd1;
 					memreq.tid <= tid;
-					memreq.thread <= ip_thread3;
+					memreq.thread <= ip_thread2;
 					memreq.wr <= 1'b1;
 					memreq.func <= MR_ICACHE_LOAD;
-					memreq.omode <= status[ip_thread3][0].om;
-					memreq.asid <= asid[ip_thread3];
-					memreq.adr <= {ip_insn[31:5],5'd0};
-					memreq.vcadr <= {ip_insn[31:5],5'd0};//{ic_tag,6'b0};
-					memreq.res <= ic_line2;
+					memreq.omode <= status[ip_thread2][0].om;
+					memreq.asid <= asid[ip_thread2];
+					memreq.adr <= {ip1[31:5],5'd0};
+					memreq.vcadr <= {ip1[31:5],5'd0};//{ic_tag,6'b0};
+					memreq.res <= ic_line;
 					memreq.sz <= ic_valid ? tetra : nul;
 					// But, which line do we need?
-					memreq.hit <= {ihito2,ihite2};
+					memreq.hit <= {ihito1,ihite1};
 				end
 				else
 					imiss_count <= imiss_count + 2'd1;

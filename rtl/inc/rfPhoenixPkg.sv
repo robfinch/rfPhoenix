@@ -1,14 +1,15 @@
 package rfPhoenixPkg;
 
 `undef IS_SIM
-`define IS_SIM	1
+//`define IS_SIM	1
 
 // Comment out to remove the sigmoid approximate function
 //`define SIGMOID	1
 
 `define SUPPORT_16BIT_OPS		1
+//`define SUPPORT_64BIT_OPS		1
 //`define SUPPORT_128BIT_OPS	1
-`define NLANES	6
+`define NLANES	4
 `define NTHREADS	4
 `define NREGS		64
 
@@ -53,32 +54,23 @@ typedef enum logic [5:0] {
 	OP_ORI			= 6'h09,
 	OP_XORI			= 6'h0A,
 	OP_NOP			= 6'h0B,
-	OP_CMPI			= 6'h0D,
-	OP_CMP_EQI	= 6'h0E,
-	OP_CMP_NEI	= 6'h0F,
-	OP_CMP_LTI	= 6'h10,
-	OP_CMP_GEI	= 6'h11,
-	OP_CMP_LEI	= 6'h12,
-	OP_CMP_GTI	= 6'h13,
-	OP_CMP_LTUI	= 6'h14,
-	OP_CMP_GEUI	= 6'h15,
-	OP_CMP_LEUI	= 6'h16,
-	OP_CMP_GTUI	= 6'h17,
+	OP_CMPI32		= 6'h0E,
+	OP_CMP			= 6'h0F,
+	OP_CMPI16		= 6'h16,
+	OP_CMPI64		= 6'h17,
 	OP_CALL			= 6'h18,
 	OP_BSR			= 6'h19,
 	OP_RET			= 6'h1A,
 	OP_Bcc			= 6'h1C,
 	OP_FBcc			= 6'h1D,
-	OP_FCMP_EQI	= 6'h1E,
-	OP_FCMP_NEI	= 6'h1F,
+	OP_FCMPI32	= 6'h1E,
+	OP_FCMP			= 6'h1F,
 	OP_FMA16		= 6'h20,
 	OP_FMS16		= 6'h21,
 	OP_FNMA16		= 6'h22,
 	OP_FNMS16		= 6'h23,
-	OP_FCMP_LTI	= 6'h24,
-	OP_FCMP_GEI	= 6'h25,
-	OP_FCMP_LEI	= 6'h26,
-	OP_FCMP_GTI	= 6'h27,
+	OP_FCMPI16	= 6'h26,
+	OP_FCMPI64  = 6'h27,
 	OP_FMA128		= 6'h28,
 	OP_FMS128		= 6'h29,
 	OP_FNMA128	= 6'h2A,
@@ -100,6 +92,19 @@ typedef enum logic [5:0] {
 	OP_STC			= 6'h3B,
 	OP_STCR			= 6'h3D
 } opcode_t;
+
+typedef enum logic [3:0] {
+	OP_CMP_EQ	= 4'h0,
+	OP_CMP_NE	= 4'h8,
+	OP_CMP_LT	= 4'h1,
+	OP_CMP_GE	= 4'h9,
+	OP_CMP_LE	= 4'h2,
+	OP_CMP_GT	= 4'hA,
+	OP_CMP_LTU	= 4'h5,
+	OP_CMP_GEU	= 4'hD,
+	OP_CMP_LEU	= 4'h6,
+	OP_CMP_GTU= 4'hE
+} cmp_t;
 
 typedef enum logic [2:0] {
 	BLT		= 3'd0,
@@ -132,33 +137,16 @@ typedef enum logic [5:0] {
 	OP_OR				= 6'h09,
 	OP_XOR			= 6'h0A,
 	OP_VEINS		= 6'h0C,
-	OP_CMP			= 6'h0D,
-	OP_CMP_EQ		= 6'h0E,
-	OP_CMP_NE		= 6'h0F,
-	OP_CMP_LT		= 6'h10,
-	OP_CMP_GE		= 6'h11,
-	OP_CMP_LE		= 6'h12,
-	OP_CMP_GT		= 6'h13,
-	OP_CMP_LTU	= 6'h14,
-	OP_CMP_GEU	= 6'h15,
-	OP_CMP_LEU	= 6'h16,
-	OP_CMP_GTU	= 6'h17,
 	OP_SLLI			= 6'h18,
 	OP_SRLI			= 6'h19,
 	OP_SRAI			= 6'h1A,
 	OP_SLL			= 6'h1B,
 	OP_SRL			= 6'h1C,
 	OP_SRA			= 6'h1D,
-	OP_FCMP_EQ	= 6'h1E,
-	OP_FCMP_NE	= 6'h1F,
 	OP_VSLLVI		= 6'h20,
 	OP_VSRLVI		= 6'h21,
 	OP_VSLLV		= 6'h22,
 	OP_VSRLV		= 6'h23,
-	OP_FCMP_LT	= 6'h24,
-	OP_FCMP_GE	= 6'h25,
-	OP_FCMP_LE	= 6'h26,
-	OP_FCMP_GT	= 6'h27,
 	OP_FADD128	= 6'h28,
 	OP_FSUB128	= 6'h29,
 	OP_SHPTENDX	= 6'h2A,
@@ -211,7 +199,8 @@ typedef enum logic [5:0] {
 typedef enum logic [1:0] {
 	PRC16 = 2'd0,
 	PRC32 = 2'd1,
-	PRC128 = 2'd2
+	PRC64 = 2'd2,
+	PRC128 = 2'd3
 } prec_t;
 
 parameter NOP_INSN	= {34'd0,OP_NOP};
@@ -339,10 +328,12 @@ typedef logic [31:0] code_address_t;
 typedef logic [31:0] Value;
 typedef logic [31:0] value_t;
 typedef logic [63:0] DoubleValue;
+typedef logic [63:0] double_value_t;
 typedef logic [15:0] half_value_t;
 typedef logic [127:0] quad_value_t;
 typedef logic [255:0] double_quad_value_t;
 typedef half_value_t [NLANES*2-1:0] vector_half_value_t;
+typedef double_value_t [NLANES/2-1:0] vector_double_value_t;
 typedef quad_value_t [NLANES/4-1:0] vector_quad_value_t;
 typedef value_t [NLANES-1:0] VecValue;
 typedef value_t [NLANES-1:0] vector_value_t;
@@ -412,6 +403,19 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic resv2;
+	logic [1:0] sz;
+	logic resv;
+	r2func_t func;
+	regspec_t Rb;
+	logic [2:0] Rm;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} cmpinst_t;
+
+typedef struct packed
+{
 	logic [2:0] rm;
 	logic resv;
 	r2func_t func;
@@ -432,6 +436,16 @@ typedef struct packed
 	regspec_t Rt;
 	opcode_t opcode;
 } imminst_t;
+
+typedef struct packed
+{
+	logic [3:0] N;
+	logic [12:0] imm;
+	logic [2:0] Rm;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} cmpiinst_t;
 
 typedef struct packed
 {
@@ -487,6 +501,8 @@ typedef union packed
 	callinst_t	jmp;
 	imminst_t	imm;
 	imminst_t	ri;
+	cmpinst_t	cmp;
+	cmpiinst_t cmpi;
 	csrinst_t	csr;
 	lsinst_t	ls;
 	r2inst_t	lsn;

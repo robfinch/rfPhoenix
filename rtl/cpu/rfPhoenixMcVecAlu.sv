@@ -57,6 +57,7 @@ genvar g;
 reg [NLANES-1:0] don;
 
 vector_quad_value_t ab, bb, cb, ob1;
+vector_double_value_t ao, bo, co, oo1;
 vector_half_value_t aw, bw, cw, ow1;	// wydes
 
 assign ab = a;
@@ -65,6 +66,9 @@ assign cb = c;
 assign aw = a;
 assign bw = b;
 assign cw = c;
+assign ao = a;
+assign bo = b;
+assign co = c;
 
 generate begin
 	for (g = 0; g < NLANES; g = g + 1)
@@ -104,6 +108,26 @@ end
 endgenerate
 `endif
 
+`ifdef SUPPORT_64BIT_OPS
+generate begin
+	for (g = 0; g < NLANES/2; g = g + 1)
+		rfPhoenixMcAlu64 ualu1(
+			.rst(rst),
+			.clk(clk),
+			.ir(ir),
+			.a(ao[g]),
+			.b(bo[g]),
+			.c(co[g]),
+			.imm(imm[63:0]),
+			.o(oo1[g]),
+			.done(),
+			.ridi('d0),
+			.rido()
+		);
+end
+endgenerate
+`endif
+
 `ifdef SUPPORT_128BIT_OPS
 generate begin
 	for (g = 0; g < NLANES/4; g = g + 1)
@@ -131,6 +155,7 @@ begin
 	o <= wbo;
 	case(wbo.dec.prc)
 	PRC16:	o.res <= ow1;
+	PRC64:	o.res <= oo1;
 	PRC128:	o.res <= ob1;
 	default:	o.res <= o1;
 	endcase

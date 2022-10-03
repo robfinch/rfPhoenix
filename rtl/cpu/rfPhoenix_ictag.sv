@@ -51,13 +51,13 @@ input code_address_t ipo;
 input [1:0] way;
 input rclk;
 input [$clog2(LINES)-1:0] ndx;
-(* ram_style="block" *)
+(* ram_style="distributed" *)
 output [$bits(code_address_t)-1:TAGBIT] tag [0:3];
 
-typedef logic [$bits(code_address_t)-1:TAGBIT] tag_t;
+//typedef logic [$bits(code_address_t)-1:TAGBIT] tag_t;
 
-(* ram_style="block" *)
-tag_t [LINES-1:0] tags [0:WAYS-1];
+(* ram_style="distributed" *)
+reg [$bits(code_address_t)-1:TAGBIT] tags [0:WAYS-1][0:LINES-1];
 reg [7:0] rndx;
 
 integer g,g1;
@@ -66,7 +66,7 @@ integer n,n1;
 initial begin
 for (g = 0; g < WAYS; g = g + 1) begin
   for (n = 0; n < LINES; n = n + 1)
-    tags[g][n] = tag_t'(32'd1);
+    tags[g][n] = 32'd1;
 end
 end
 
@@ -77,17 +77,17 @@ always_ff @(posedge clk)
 if (rst) begin
 	for (g1 = 0; g1 < WAYS; g1 = g1 + 1) begin
 	  for (n1 = 0; n1 < LINES; n1 = n1 + 1)
-	    tags[g1][n1] = tag_t'(32'd1);
+	    tags[g1][n1] = 32'd1;
 	end
 end
 else
 `endif
 begin
 	if (wr)
-		tags[way][ipo[HIBIT:LOBIT]] <= tag_t'(ipo[$bits(code_address_t)-1:TAGBIT]);	// We know bit[5]
+		tags[way][ipo[HIBIT:LOBIT]] <= ipo[$bits(code_address_t)-1:TAGBIT];	// We know bit[5]
 end
 
-always_ff @(posedge rclk)
+always_comb//ff @(posedge rclk)
 	rndx <= ndx;
 assign tag[0] = tags[0][rndx];
 assign tag[1] = tags[1][rndx];
