@@ -1454,10 +1454,15 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 					isize = 4;
 				}
 			} */
-			if (!is_nbit(hval,16)) {
+			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13 : 16)) {
 				if (postfix)
-					*postfix = OP(1) | ((val >> 16LL) << 8);
+					*postfix = OP(1) | ((val >> 13LL) << 8);
 				isize = (5<<8)|5;
+			}
+			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45 : 48)) {
+				if (postfix2)
+					*postfix2 = OP(1) | ((val >> 45LL) << 8);
+				isize = (5<<16)|(5<<8)|5;
 			}
 			if (insn) {
 				*insn = *insn | ((val & 0xffffLL) << 23LL);
@@ -1510,10 +1515,15 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 		else {
 			if (op->type & OP_IMM)
 			isize = 5;
-			if (!is_nbit(hval,16)) {
+			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13 : 16)) {
 				if (postfix)
-					*postfix = OP(1) | ((val >> 16LL) << 8LL);
+					*postfix = OP(1) | ((val >> 13LL) << 8LL);
 				isize = (5<<8)|5;
+			}
+			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45 : 48)) {
+				if (postfix2)
+					*postfix2 = OP(1) | ((val >> 45LL) << 8);
+				isize = (5<<16)|(5<<8)|5;
 			}
 			if (insn) {
 				*insn = *insn | ((val & 0xffffLL) << 23LL);
@@ -2105,16 +2115,17 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
   uint64_t bc;
   size_t sz;
   int toobig = 0;
+  uint64_t insn_ol;		// Instructions on line
 
 	TRACE("+eval_instruction\n");
 	postfix = 0;
 	postfix2 = 0;
 	sz = encode_rfPhoenix_operands(ip,sec,pc,&postfix,&postfix2,&insn,db);
 	db->size = (sz & 0xff) + ((sz >> 8) & 0xff) + (sz >> 16);
-	// Is anything being added to the instruction stream?
+	/* Is anything being added to the instruction stream? */
 	if (db->size) {
-		// Include padding space if instruction plus postfixes will not fit on
-		// cache line.
+		/* Include padding space if instruction plus postfixes will not fit on
+		 	cache line. */
 		bc = (pc & 0x3fLL) + db->size;
 		if (bc > 63LL) {
 			toobig = !span_cache_lines;
@@ -2122,13 +2133,24 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 				db->size = db->size + (64LL-(pc & 0x3fLL));
 		}
 		d = db->data = mymalloc(db->size);
-		// Will it fit on the cache line?
+		/* Will it fit on the cache line? If it is too big fill the remainder of
+			 the cache line with NOP bytes and set the number of instructions on the
+			 line. */
 		if (toobig) {
-			bc = pc & 0x3fLL;
+			bc = pc & 63LL;
+			switch(bc) {
+			case 45:	insn_ol = 0x00; break;	/* 10 instructions on line */
+			case 50:	insn_ol = 0x40; break;	/* 11 instructions on line */
+			case 55:	insn_ol = 0x80; break;	/* 12 instructions on line */
+			case 60:	insn_ol = 0xC0; break;	/* 13 instructions on line */
+			default:  insn_ol = 0;
+			}
 			while (bc < 64LL) {
-		   	d = setval(0,d,(size_t)min(5LL,64LL - bc),(uint64_t)12);	// NOP instruction
-				bc += 5LL;
-				insn_count++;
+				if (bc==63LL)
+					d = setval(0,d,(size_t)1,(uint64_t)insn_ol);
+				else
+		   		d = setval(0,d,(size_t)1,(uint64_t)11);	/* NOP instruction */
+				bc++;
 			}
 		}
 		insn_sizes2[sz2ndx++] = db->size;

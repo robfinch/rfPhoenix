@@ -1,7 +1,7 @@
 package rfPhoenixPkg;
 
 `undef IS_SIM
-//`define IS_SIM	1
+`define IS_SIM	1
 
 // Comment out to remove the sigmoid approximate function
 //`define SIGMOID	1
@@ -56,6 +56,8 @@ typedef enum logic [5:0] {
 	OP_NOP			= 6'h0B,
 	OP_CMPI32		= 6'h0E,
 	OP_CMP			= 6'h0F,
+	OP_FCMPI16	= 6'h14,
+	OP_FCMPI64  = 6'h15,
 	OP_CMPI16		= 6'h16,
 	OP_CMPI64		= 6'h17,
 	OP_CALL			= 6'h18,
@@ -69,8 +71,10 @@ typedef enum logic [5:0] {
 	OP_FMS16		= 6'h21,
 	OP_FNMA16		= 6'h22,
 	OP_FNMS16		= 6'h23,
-	OP_FCMPI16	= 6'h26,
-	OP_FCMPI64  = 6'h27,
+	OP_FMA64		= 6'h24,
+	OP_FMS64		= 6'h25,
+	OP_FNMA64		= 6'h26,
+	OP_FNMS64		= 6'h27,
 	OP_FMA128		= 6'h28,
 	OP_FMS128		= 6'h29,
 	OP_FNMA128	= 6'h2A,
@@ -523,6 +527,7 @@ typedef struct packed
 //	postfix_t pfx4;
 	cause_code_t cause;
 	logic [2:0] sp_sel;
+	logic [1:0] ic;					// Instruction count on line 0=10,1=11,2=12,3=13
 } instruction_fetchbuf_t;
 
 typedef struct packed

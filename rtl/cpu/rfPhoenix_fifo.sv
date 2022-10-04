@@ -38,21 +38,22 @@
 //
 module rfPhoenix_fifo(rst, clk, wr, di, rd, dout, cnt, almost_full, full, empty, v);
 parameter WID=3;
-parameter DEP=16;
+parameter DEP=32;
 input rst;
 input clk;
 input wr;
 input [WID-1:0] di;
 input rd;
 output reg [WID-1:0] dout = 'd0;
-output reg [5:0] cnt = 'd0;
+output reg [$clog2(DEP)-1:0] cnt = 'd0;
 output reg almost_full = 'd0;
 output reg full = 'd0;
 output reg empty = 'd0;
 output reg v = 'd0;
 
-reg [5:0] wr_ptr;
-reg [5:0] rd_ptr;
+reg [$clog2(DEP)-1:0] wr_ptr;
+reg [$clog2(DEP)-1:0] rd_ptr;
+(* ram_style="distributed" *)
 reg [WID-1:0] mem [0:DEP-1];
 integer n;
 
@@ -60,22 +61,35 @@ always_ff @(posedge clk)
 	if (rst) begin
 		wr_ptr <= 'd0;
 		rd_ptr <= 'd0;
+		dout <= 'd0;
+		/*
 		for (n = 0; n < DEP; n = n + 1)
 			mem[n] <= 'd0;
+		*/
 	end
 	else begin
-		if (rd & wr)
-			mem[wr_ptr] <= di;
-		else if (wr) begin
+		if (empty)
+			dout <= dout;
+		else
+			dout <= mem[rd_ptr];
+		if (rd & wr) begin
 			mem[wr_ptr] <= di;
 			wr_ptr <= wr_ptr + 2'd1;
+			rd_ptr <= rd_ptr + 2'd1;
+			if (rd_ptr==wr_ptr)
+				dout <= di;
+		end
+		else if (wr) begin
+			if (!full) begin
+				mem[wr_ptr] <= di;
+				wr_ptr <= wr_ptr + 2'd1;
+			end
 		end
 		else if (rd) begin
-			rd_ptr <= rd_ptr + 2'd1;
+			if (!empty)
+				rd_ptr <= rd_ptr + 2'd1;
 		end
 	end
-always_comb
-	dout = mem[rd_ptr];
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;

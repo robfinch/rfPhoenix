@@ -231,6 +231,7 @@ OP_CMP:
 			end
 		2'd2:	o2 = 'd0;
 		2'd3:	o2 = 'd0;
+		endcase
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
@@ -297,7 +298,11 @@ OP_FCMPI32:
 		endcase
 	end
 OP_CSR:			o = c;
-OP_RET:			o = t + imm;
+OP_RET:	
+	if (ir[39])
+		o = b;
+	else
+		o = t + imm;
 default:	o = 'd0;
 endcase
 

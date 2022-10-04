@@ -47,6 +47,7 @@ integer n;
 
 quad_value_t fcmp_o, fcmpi_o;
 quad_value_t fclass_o;
+quad_value_t o2;
 wire [7:0] exp;
 wire inf, xz, vz, snan, qnan, xinf;
 
@@ -108,52 +109,48 @@ OP_R2:
 	OP_AND:		o = a & b;
 	OP_OR:			o = a | b;
 	OP_XOR:		o = a ^ b;
-	OP_CMP:
-		begin
-			o[0] = a == b;
-			o[1] = $signed(a) < $signed(b);
-			o[2] = $signed(a) <= $signed(b);
-			o[4:3] = 2'b0;
-			o[5] = a < b;
-			o[6] = a <= b;
-			o[7] = 1'b0;
-			o[8] = a != b;
-			o[9] = $signed(a) >= $signed(b);
-			o[10] = $signed(a) > $signed(b);
-			o[12:11] = 2'b0;
-			o[13] = a >= b;
-			o[14] = a > b;
-			o[15] = 1'b0;
-			o[16] = fcmp_o[0];	// ==
-			o[17] = fcmp_o[1];	// <
-			o[18] = fcmp_o[2];	// <=
-			o[19] = fcmp_o[3];
-			o[20] = fcmp_o[4];
-			o[21] = fcmp_o[8];	// <>
-			o[22] = fcmp_o[9];	// >=
-			o[23] = fcmp_o[10];	// >
-			o[24] = fcmp_o[11];	// mag >=
-			o[25] = fcmp_o[12];	// ordered
-			o[31:26] = 6'd0;
-		end
-	OP_CMP_EQ:	o = a == b;
-	OP_CMP_NE:	o = a != b;
-	OP_CMP_LT:	o = $signed(a) < $signed(b);
-	OP_CMP_GE:	o = $signed(a) >= $signed(b);
-	OP_CMP_LE: o = $signed(a) <= $signed(b);
-	OP_CMP_GT:	o = $signed(a) > $signed(b);
-	OP_CMP_LTU:	o = a < b;
-	OP_CMP_GEU:	o = a >= b;
-	OP_CMP_LEU:	o = a <= b;
-	OP_CMP_GTU:	o = a > b;
-	OP_FCMP_EQ:	o = fcmp_o[0];
-	OP_FCMP_NE:	o = fcmp_o[8]|fcmp_o[4];	// return 1 if Nan
-	OP_FCMP_LT:	o = fcmp_o[1];
-	OP_FCMP_LE:	o = fcmp_o[2];
-	OP_FCMP_GT:	o = fcmp_o[10];
-	OP_FCMP_GE:	o = fcmp_o[9];
 	default:	o = 'd0;
 	endcase
+OP_CMP:
+	begin
+		o2 = 'd0;
+		o2[0] = a == b;
+		o2[1] = $signed(a) < $signed(b);
+		o2[2] = $signed(a) <= $signed(b);
+		o2[4:3] = 2'b0;
+		o2[5] = a < b;
+		o2[6] = a <= b;
+		o2[7] = 1'b0;
+		o2[8] = a != b;
+		o2[9] = $signed(a) >= $signed(b);
+		o2[10] = $signed(a) > $signed(b);
+		o2[12:11] = 2'b0;
+		o2[13] = a >= b;
+		o2[14] = a > b;
+		o2[15] = 1'b0;
+		case(ir.r2.func[3:0])
+		4'd15:	o = o2;
+		default:	o = {127'd0,o2[ir.r2.func[3:0]]};
+		endcase
+	end
+OP_FCMP:
+	begin
+		o2 = 'd0;
+		o2[0] = fcmp_o[0];	// ==
+		o2[1] = fcmp_o[1];	// <
+		o2[2] = fcmp_o[2];	// <=
+		o2[3] = fcmp_o[3];
+		o2[4] = fcmp_o[4];
+		o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
+		o2[9] = fcmp_o[9];	// >=
+		o2[10] = fcmp_o[10];	// >
+		o2[11] = fcmp_o[11];	// mag >=
+		o2[12] = fcmp_o[12];	// ordered
+		case(ir.r2.func[3:0])
+		4'd15:	o = o2;
+		default:	o = {127'd0,o2[ir.r2.func[3:0]]};
+		endcase
+	end
 default:	o = 'd0;
 endcase
 

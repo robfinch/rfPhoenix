@@ -38,7 +38,7 @@
 //
 import rfPhoenixPkg::*;
 
-module rfPhoenix_insn_fifo(rst, clk, wr, decin, ifbin, rd, decout, ifbout, cnt, almost_full, full, empty, v);
+module rfPhoenix_insn_fifo2(rst, clk, wr, decin, ifbin, rd, decout, ifbout, cnt, almost_full, full, empty, v);
 parameter DEP=16;
 input rst;
 input clk;
@@ -95,7 +95,7 @@ wire wr_rst_busy, rd_rst_busy;
       .WRITE_DATA_WIDTH($bits(decode_bus_t)+$bits(instruction_fetchbuf_t)),     // DECIMAL
       .WR_DATA_COUNT_WIDTH(4)    // DECIMAL
    )
-   xpm_fifo_sync_inst (
+   u2 (
       .almost_empty(),   // 1-bit output: Almost Empty : When asserted, this signal indicates that
                                      // only one more read can be performed before the FIFO goes to empty.
 

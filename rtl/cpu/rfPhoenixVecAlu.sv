@@ -297,7 +297,7 @@ always_comb
 		OP_SHPTENDX:	o2 = {NLANES{ptendx}};
 		default:	o2 = o1;
 		endcase
-	OP_FCMP,OP_CMP::
+	OP_FCMP,OP_CMP:
 		if (Tt)
 			o2 = o1;
 		else if (Ta|Tb) begin

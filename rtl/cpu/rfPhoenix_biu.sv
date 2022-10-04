@@ -496,7 +496,7 @@ sram_256x1024_1r1w uicmo
 );
 
 always_comb
-	case(ip2[5])
+	case(ip3[5])
 	1'b0:	ic_line = {ic_oline.data,ic_eline.data};
 	1'b1:	ic_line = {ic_eline.data,ic_oline.data};
 	endcase

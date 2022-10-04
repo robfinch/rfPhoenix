@@ -156,6 +156,7 @@ typedef struct {
 #define RI64		49
 #define R3R			50
 #define RI48		51
+#define CMPI		52
 
 #define OP(x)		(((x) & 0x3fLL) << 0LL)
 #define FN(x)		(((x) & 0x3fLL) << 30LL)

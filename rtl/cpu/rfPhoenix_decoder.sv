@@ -8,7 +8,7 @@
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
-// modification, are permiRt[6]ed provided that the following conditions are met:
+// modification, are permitted provided that the following conditions are met:
 //
 // 1. Redistributions of source code must retain the above copyright notice, this
 //    list of conditions and the following disclaimer.
@@ -19,7 +19,7 @@
 //
 // 3. Neither the name of the copyright holder nor the names of its
 //    contributors may be used to endorse or promote products derived from
-//    this software without specific prior wriRt[6]en permission.
+//    this software without specific prior written permission.
 //
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 // AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -37,19 +37,21 @@
 import const_pkg::*;
 import rfPhoenixPkg::*;
 
-module rfPhoenix_decoder(ifb, sp_sel, deco);
+module rfPhoenix_decoder(ifb, deco);
 input instruction_fetchbuf_t ifb;
-input [2:0] sp_sel;
 output decode_bus_t deco;
 
 reg pfx;
 reg op16,op32,op64,op128;
+reg ret;
+reg [2:0] sp_sel;
 
 always_comb
 begin
 
+	sp_sel = ifb.sp_sel;
 	pfx = ifb.pfx.opcode==OP_PFX;
-
+	ret = ifb.insn.any.opcode==OP_RET;
 	deco.v = ifb.v;
 
 	deco.rti = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r2.Rb==OP_RTI;
@@ -58,7 +60,7 @@ begin
 	deco.irq = 1'b0;//ifb.insn.any.opcode==R2 && ifb.insn.r2.func==R1 && ifb.insn.r2.Rb==;
 	deco.rex = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r2.Rb==OP_REX;
 	deco.Ra = ifb.insn.r2.Ra;
-	deco.Rb = ifb.insn.r2.Rb;
+	deco.Rb = ret ? 7'd59 : ifb.insn.r2.Rb;
 	deco.Rm = {3'b110,ifb.insn.r2.Rm};
 	deco.Ta = ifb.insn.r2.Ra.vec;
 	deco.Tb = ifb.insn.r2.Rb.vec;
@@ -92,43 +94,6 @@ begin
 	default:	begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	endcase
 	
-	// Stack pointer spec mux
-	if (deco.Ra==7'd31)
-		case(sp_sel)
-		3'd1:	deco.Ra = 7'd60;
-		3'd2:	deco.Ra = 7'd61;
-		3'd3:	deco.Ra = 7'd62;
-		3'd4:	deco.Ra = 7'd63;
-		default:	;
-		endcase
-
-	if (deco.Rb==7'd31)
-		case(sp_sel)
-		3'd1:	deco.Rb = 7'd60;
-		3'd2:	deco.Rb = 7'd61;
-		3'd3:	deco.Rb = 7'd62;
-		3'd4:	deco.Rb = 7'd63;
-		default:	;
-		endcase
-
-	if (deco.Rc==7'd31)
-		case(sp_sel)
-		3'd1:	deco.Rc = 7'd60;
-		3'd2:	deco.Rc = 7'd61;
-		3'd3:	deco.Rc = 7'd62;
-		3'd4:	deco.Rc = 7'd63;
-		default:	;
-		endcase
-	
-	if (deco.Rt==7'd31)
-		case(sp_sel)
-		3'd1:	deco.Rt = 7'd60;
-		3'd2:	deco.Rt = 7'd61;
-		3'd3:	deco.Rt = 7'd62;
-		3'd4:	deco.Rt = 7'd63;
-		default:	;
-		endcase
-
 	// Register file writes	
 	deco.rfwr = 'd0;
 	deco.vrfwr = 'd0;
@@ -137,11 +102,11 @@ begin
 		case(ifb.insn.r2.func)
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 		OP_SLL,OP_SRL,OP_SRA,OP_SLLI,OP_SRLI,OP_SRAI:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-		default:	begin deco.Rt.num = 'd0; deco.Rt.vec = 1'b0; end
+		default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-	OP_CMP,OP_CMPI:
+	OP_CMP,OP_CMPI16,OP_CMPI32,OP_CMPI64:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_FCMP,OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
@@ -155,9 +120,6 @@ begin
 	OP_CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
-	// Disable writing r0. r0 is set to zero when the FPGA is loaded.
-	if (deco.Rt=='d0)
-		deco.rfwr = 1'b0;
 
 	deco.multicycle = 'd0;
 	case(ifb.insn.any.opcode)
@@ -187,7 +149,7 @@ begin
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
-	OP_CMPI:
+	OP_CMPI16,OP_CMPI32,OP_CMPI64:
 		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
 	OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
 		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
@@ -322,7 +284,7 @@ begin
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		op64 = pfx && ifb.pfx.sz==PRC64;
+		op64 = pfx && ifb.pfx.prc==PRC64;
 	OP_CMP:	op64=ifb.insn.cmp.sz==PRC64;
 	OP_CMPI64:	op64 = TRUE;
 	OP_FCMP:	op64=ifb.insn.cmp.sz==PRC64;
@@ -359,11 +321,9 @@ begin
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		op128 = pfx && ifb.pfx.sz==PRC128;
+		op128 = pfx && ifb.pfx.prc==PRC128;
 	OP_CMP:	op128=ifb.insn.cmp.sz==PRC128;
-	OP_CMPI128:	op128 = TRUE;
 	OP_FCMP:	op128=ifb.insn.cmp.sz==PRC128;
-	OP_FCMPI128:	op128 = TRUE;
 	OP_FMA128,OP_FMS128,OP_FNMA128,OP_FNMS128:
 		op128 = TRUE;
 	default:	;
@@ -407,10 +367,47 @@ begin
 	deco.mem = deco.store|deco.load|deco.stcr|deco.ldsr;
 	deco.popq = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r1.func1==OP_POPQ;
 
+	deco.Rc = ifb.insn.f3.Rc;
+
+	// Stack pointer spec mux
+	if (deco.Ra==7'd31)
+		case(sp_sel)
+		3'd1:	deco.Ra = 7'd60;
+		3'd2:	deco.Ra = 7'd61;
+		3'd3:	deco.Ra = 7'd62;
+		3'd4:	deco.Ra = 7'd63;
+		default:	;
+		endcase
+
+	if (deco.Rb==7'd31)
+		case(sp_sel)
+		3'd1:	deco.Rb = 7'd60;
+		3'd2:	deco.Rb = 7'd61;
+		3'd3:	deco.Rb = 7'd62;
+		3'd4:	deco.Rb = 7'd63;
+		default:	;
+		endcase
+
+	if (deco.Rc==7'd31)
+		case(sp_sel)
+		3'd1:	deco.Rc = 7'd60;
+		3'd2:	deco.Rc = 7'd61;
+		3'd3:	deco.Rc = 7'd62;
+		3'd4:	deco.Rc = 7'd63;
+		default:	;
+		endcase
+	
+	if (deco.Rt==7'd31)
+		case(sp_sel)
+		3'd1:	deco.Rt = 7'd60;
+		3'd2:	deco.Rt = 7'd61;
+		3'd3:	deco.Rt = 7'd62;
+		3'd4:	deco.Rt = 7'd63;
+		default:	;
+		endcase
+
 	if (deco.br|deco.store)
-		deco.Rc = ifb.insn.r2.Rt;
-	else
-		deco.Rc = ifb.insn.f3.Rc;
+		deco.Rc = deco.Rt;
 
 	// Memory operation sizes
 	case(ifb.insn.any.opcode)
@@ -446,19 +443,43 @@ begin
 
 	deco.hasRa = ifb.insn.any.opcode!=OP_PFX && !deco.cjb;
 	deco.hasRb = (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func!=OP_R1) ||
+								ifb.insn.any.opcode==OP_FMA16 ||
+								ifb.insn.any.opcode==OP_FMS16 ||
+								ifb.insn.any.opcode==OP_FNMA16 ||
+								ifb.insn.any.opcode==OP_FNMS16 ||
+								ifb.insn.any.opcode==OP_FMA64 ||
+								ifb.insn.any.opcode==OP_FMS64 ||
+								ifb.insn.any.opcode==OP_FNMA64 ||
+								ifb.insn.any.opcode==OP_FNMS64 ||
+								ifb.insn.any.opcode==OP_FMA128 ||
+								ifb.insn.any.opcode==OP_FMS128 ||
+								ifb.insn.any.opcode==OP_FNMA128 ||
+								ifb.insn.any.opcode==OP_FNMS128 ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS
 								;
 	deco.hasRc = 	deco.br || deco.store ||
+								ifb.insn.any.opcode==OP_FMA16 ||
+								ifb.insn.any.opcode==OP_FMS16 ||
+								ifb.insn.any.opcode==OP_FNMA16 ||
+								ifb.insn.any.opcode==OP_FNMS16 ||
+								ifb.insn.any.opcode==OP_FMA64 ||
+								ifb.insn.any.opcode==OP_FMS64 ||
+								ifb.insn.any.opcode==OP_FNMA64 ||
+								ifb.insn.any.opcode==OP_FNMS64 ||
+								ifb.insn.any.opcode==OP_FMA128 ||
+								ifb.insn.any.opcode==OP_FMS128 ||
+								ifb.insn.any.opcode==OP_FNMA128 ||
+								ifb.insn.any.opcode==OP_FNMS128 ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS
 								;
 	deco.hasRm =  !deco.cjb && !deco.br && !deco.pfx;
-	deco.hasRt =	!deco.pfx;
+	deco.hasRt =	!deco.pfx && !deco.br;
 
 	deco.is_vector = (deco.hasRt & deco.Rt.vec) |
 									(deco.hasRa & deco.Ra.vec) |
