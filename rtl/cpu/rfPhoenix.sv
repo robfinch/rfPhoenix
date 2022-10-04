@@ -148,6 +148,7 @@ postfix_t pfx,irpfx,rf_pfx;
 decode_bus_t deco;
 decode_bus_t [NTHREADS-1:0] dco;
 reg [6+TidMSB+1:0] ra0,ra1,ra2,ra3,ra4;
+reg [6+TidMSB+1:0] ra0d,ra1d,ra2d,ra3d,ra4d;
 value_t rfo0, rfo1, rfo2, rfo3, rfo4;
 value_t ximm,mcimm;
 ASID xasid;
@@ -1394,45 +1395,54 @@ endtask
 // the register file.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+always_ff @(posedge clk_g)
+	ra0d <= ra0;
+always_ff @(posedge clk_g)
+	ra1d <= ra1;
+always_ff @(posedge clk_g)
+	ra2d <= ra2;
+always_ff @(posedge clk_g)
+	ra3d <= ra3;
+
 value_t csro;
 always_comb
 	tReadCSR(csro,rfndx2,rfb2[rfndx2].dec.imm[13:0]);
 	
 vector_value_t opera,operb,operc;
 always_comb
-	if (ra0==7'd0 && !ra0[6])
+	if (ra0d==7'd0 && !ra0d[6])
 		opera = 'd0;
-	else if (ra0==7'd59 && !ra0[6])
+	else if (ra0d==7'd59 && !ra0d[6])
 		opera = {NLANES{dcb[n].ifb.ip}};
 //	else if (dcb[n].dec.Ra == exb[n].dec.Rt)
 //		opera = vres;
-	else if (ra0[6])
+	else if (ra0d[6])
 		opera = vrfo0;
 	else
 		opera = {NLANES{rfo0}};
 
 always_comb
-	if (ra1==7'd0 && !ra1[6])
+	if (ra1d==7'd0 && !ra1d[6])
 		operb = 'd0;
-	else if (ra1==7'd59 && !ra1[6])
+	else if (ra1d==7'd59 && !ra1d[6])
 		operb = {NLANES{dcb[n].ifb.ip}};
 //	else if (dcb[n].dec.Rb == exb[n].dec.Rt)
 //		operb = vres;
-	else if (ra1[6])
+	else if (ra1d[6])
 		operb = vrfo1;
 	else
 		operb = {NLANES{rfo1}};
 
 always_comb
-	if (ra2==7'd0 && !ra2[6])
+	if (ra2d==7'd0 && !ra2d[6])
 		operc = 'd0;
-	else if (ra2==7'd59 && !ra2[6])
+	else if (ra2d==7'd59 && !ra2d[6])
 		operc = {NLANES{dcb[n].ifb.ip}};
 	else if (dcb[n].dec.csr)
 		operc = {NLANES{csro}};
 //	else if (dcb[n].dec.Rc == exb[n].dec.Rt)
 //		operc = vres;
-	else if (ra2[6])
+	else if (ra2d[6])
 		operc = vrfo2;
 	else
 		operc = {NLANES{rfo2}};
@@ -1458,12 +1468,12 @@ integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 		// RF stage #1, not much to do but propagate.
-//		rfndx1 <= dcndx;
-//		rfb1[n] <= dcb[n];
+		rfndx1 <= dcndx;
+		rfb1[n] <= dcb[n];
 
 		// RF stage #2
-		rfndx2 <= dcndx;
-		rfb2[n] <= dcb[n];
+		rfndx2 <= rfndx1;
+		rfb2[n] <= rfb1[n];
 
 		if (rollback_ipv[n] && rfb1[n].ifb.ip != rollback_ip[n]) begin
 			rfb2[n].v <= 1'b0;

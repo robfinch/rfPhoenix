@@ -48,6 +48,11 @@ input [9:0] radr;
 input ICacheLine i;
 output ICacheLine o;
 
+reg wr1;
+reg [9:0] wadr1;
+ICacheLine i1;
+ICacheLine o1;
+
 // xpm_memory_sdpram : In order to incorporate this function into the design,
 //      Verilog      : the following instance declaration needs to be placed
 //     instance      : in the body of the design code.  The instance name
@@ -91,7 +96,7 @@ output ICacheLine o;
       .dbiterrb(),             // 1-bit output: Status signal to indicate double bit error occurrence
                                // on the data output of port B.
 
-      .doutb(o),               // READ_DATA_WIDTH_B-bit output: Data output for port B read operations.
+      .doutb(o1),              // READ_DATA_WIDTH_B-bit output: Data output for port B read operations.
       .sbiterrb(),             // 1-bit output: Status signal to indicate single bit error occurrence
                                // on the data output of port B.
 
@@ -135,6 +140,20 @@ output ICacheLine o;
                               // is 32, wea would be 4'b0010.
 
    );
+
+// If reading and writing the same address at the same time, return the new data.
+
+always_ff @(posedge clk)
+	wr1 <= wr;
+always_ff @(posedge clk)
+	wadr1 <= wadr;
+always_ff @(posedge clk)
+	i1 <= i;
+always_comb
+	if (wr1 && wadr1==radr)
+		o = i1;
+	else
+		o = o1;
 
 endmodule
 

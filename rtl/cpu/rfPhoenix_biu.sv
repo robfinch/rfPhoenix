@@ -468,7 +468,7 @@ always_ff @(posedge clk)
 
 always_ff @(posedge clk)
 	// If cannot cross cache line can match on either odd or even.
-	if (ip2[4:0] < 5'd22)
+	if (FALSE && ip2[4:0] < 5'd22)
 		ic_valid <= ip2[5] ? ic_valid2o : ic_valid2e;
 	else
 		ic_valid <= ic_valid2o & ic_valid2e;
@@ -484,6 +484,7 @@ sram_256x1024_1r1w uicme
 	.i(ici),
 	.o(ic_eline)
 );
+
 sram_256x1024_1r1w uicmo
 (
 	.rst(rst),
