@@ -275,6 +275,7 @@ parameter CSR_MTIMECMP	= 16'h3FE1;
 
 typedef enum logic [11:0] {
 	FLT_NONE	= 12'h000,
+	FLT_EXV		= 12'h002,
 	FLT_TLBMISS = 12'h04,
 	FLT_DCM		= 12'h005,
 	FLT_SSM		= 12'h020,
@@ -317,7 +318,8 @@ typedef enum logic [2:0] {
 	wyde = 3'd2,
 	tetra = 3'd3,
 	octa = 3'd4,
-	vect = 3'd5
+	hexi = 3'd5,
+	vect = 3'd6
 } memsz_t;
 
 typedef logic [TidMSB:0] Tid;
@@ -327,7 +329,8 @@ typedef logic [9:0] ASID;
 typedef logic [31:0] Address;
 typedef logic [31:0] address_t;
 typedef logic [31:0] VirtualAddress;
-typedef logic [31:0] PhysicalAddress;
+typedef logic [47:0] PhysicalAddress;
+typedef logic [47:0] physical_address_t;
 typedef logic [31:0] code_address_t;
 typedef logic [31:0] Value;
 typedef logic [31:0] value_t;
@@ -679,10 +682,11 @@ typedef struct packed
 	logic tlb_access;
 	logic ptgram_en;
 	logic rgn_en;
+	logic pde_en;
 	logic pmtram_ena;
 	logic wr_tgt;
 	regspec_t tgt;				// target register
-} MemoryArg_t;		//
+} memory_arg_t;		//
 
 // The full pipeline structure is not needed for writeback. The writeback fifos
 // can be made smaller using a smaller structure.

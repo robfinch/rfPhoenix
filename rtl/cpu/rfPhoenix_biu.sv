@@ -43,7 +43,7 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_biu(rst,clk,tlbclk,clock,UserMode,MUserMode,omode,bounds_chk,pe,
 	ip,ip_o,ihit,ihite,ihito,ifStall,ic_line,ic_valid,ic_tage, ic_tago, fifoToCtrl_wack,
 	fifoToCtrl_i,fifoToCtrl_full_o,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
-	bte_o, tid_o, cti_o, seg_o, cyc_o, stb_o, we_o, sel_o, adr_o, dat_o, csr_o,
+	bte_o, blen_o, tid_o, cti_o, seg_o, cyc_o, stb_o, we_o, sel_o, adr_o, dat_o, csr_o,
 	stall_i, next_i, rty_i, ack_i, err_i, tid_i, dat_i, rb_i,
 	dce, keys, arange, ptbr, ipage_fault, clr_ipage_fault,
 	itlbmiss, clr_itlbmiss, rollback, rollback_bitmaps);
@@ -69,9 +69,9 @@ output reg [$bits(Address)-1:7] ic_tage;
 output reg [$bits(Address)-1:7] ic_tago;
 // Fifo controls
 output fifoToCtrl_wack;
-input MemoryArg_t fifoToCtrl_i;
+input memory_arg_t fifoToCtrl_i;
 output fifoToCtrl_full_o;
-output MemoryArg_t fifoFromCtrl_o;
+output memory_arg_t fifoFromCtrl_o;
 input fifoFromCtrl_rd;
 output fifoFromCtrl_empty;
 output fifoFromCtrl_v;
@@ -79,6 +79,7 @@ output fifoFromCtrl_v;
 //output wb_write_request128_t wbm_req;
 //input wb_read_response128_t wbm_resp;
 output wb_burst_type_t bte_o;
+output wb_burst_len_t blen_o;
 output wb_tranid_t tid_o;
 output wb_cycle_type_t cti_o;
 output wb_segment_t seg_o;
@@ -156,6 +157,7 @@ wb_segment_t last_seg;
 reg xlaten_stk;
 wb_segment_t seg_stk;
 wb_burst_type_t bte_stk;
+wb_burst_len_t blen_stk;
 wb_cycle_type_t cti_stk;
 reg cyc_stk;
 reg stb_stk;
@@ -178,12 +180,21 @@ wire memq_v;
 reg [31:0] memreq_sel;
 code_address_t last_cadr;
 PDCE ptc;
-PhysicalAddress padrd1,padrd2,padrd3;
+physical_address_t padrd1,padrd2,padrd3;	// physical_address_t
 
-MemoryArg_t memreq,imemreq;
-reg memreq_rd = 0;
-MemoryArg_t memresp, memresp2;
-MemoryArg_t [6:0] mem_resp;	// memory pipeline
+memory_arg_t memreq,imemreq;
+reg memr_v;
+reg memr_fed;
+wire tlbrdy;
+
+// In this case back-toback reads of the fifo are allowed as a memory
+// pipeline is being filled.
+reg memreq_rd;
+always_comb
+	memreq_rd = !fifoToCtrl_empty && tlbrdy && !memr_v;
+
+memory_arg_t memresp, memresp2;
+memory_arg_t [6:0] mem_resp;	// memory pipeline
 reg zero_data = 0;
 wb_tranid_t tid_cnt = 'd0;
 value_t movdat;
@@ -195,6 +206,8 @@ reg [1023:0] dc_line;
 reg [1023:0] dc_linein;
 reg [1:0] dc_line_mod;
 wire [1023:0] stmask;
+reg [127:0] memr_sel;
+reg [1023:0] memr_res;
 
 // 0,1: PTE
 // 2,3: PMT
@@ -266,10 +279,10 @@ REGION region;
 wire [2:0] region_num;
 reg rgn_wr;
 reg rgn_en;
-reg [5:0] rgn_adr;
-Value rgn_dat;
-Value rgn_dat_o;
-wire [31:0] padr;
+reg [6:0] rgn_adr;
+value_t rgn_dat;
+value_t rgn_dat_o;
+physical_address_t padr;
 
 rfPhoenix_active_region uargn
 (
@@ -353,11 +366,21 @@ rfPhoenix_mem_resp_fifo uofifo1
 
 // This fifo sits between the output of the data cache lookup memory pipe and
 // the external bus sequencer. 
-
-reg rd_memq;
+// This bit of logic ensures that back-to-back reads of the fifo do not occur.
+// It takes a clock cycle for the state machine to move out of the MEMORY1
+// state, and two reads of the fifo were happening when only one was desired.
+reg rd_memq, rd_memq1;
 wire memq_empty;
+always_comb
+	rd_memq = !memq_empty && state==MEMORY1 && !rd_memq1;
+always_ff @(posedge clk)
+if (rst)
+	rd_memq1 <= FALSE;
+else
+	rd_memq1 <= rd_memq;
+
 wire [3:0] memq_cnt;
-MemoryArg_t memq_o, memr;
+memory_arg_t memq_o, memr;
 
 rfPhoenix_mem_resp_fifo uofifo2
 (
@@ -479,7 +502,7 @@ sram_256x1024_1r1w uicme
 	.rst(rst),
 	.clk(clk),
 	.wr(icache_wre),
-	.wadr({ic_wway,upd_adr[13:6]+upd_adr[5]}),
+	.wadr({ic_wway,upd_adr[13:6]}),//+upd_adr[5]}),
 	.radr({ic_rwaye,ip2[13:6]+ip2[5]}),
 	.i(ici),
 	.o(ic_eline)
@@ -652,6 +675,7 @@ always_comb
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // Data Cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+reg wr_dc1, wr_dc2;
 wire [3:0] tlbacr;
 reg [3:0] tlbacrd;
 always_ff @(posedge clk)
@@ -677,7 +701,7 @@ sram_257x1024_1r1w udcme
 	.rst(rst),
 	.clk(clk),
 	.wr(dc_ewr),
-	.wadr({dc_ewway,dadr[13:6]+dadr[5]}),
+	.wadr({dc_ewway,upd_adr[13:6]+upd_adr[5]}),
 	.radr({dc_erway,padrd1[13:6]+padrd1[5]}),
 	.i(dci[0]),
 	.o(dc_eline)
@@ -688,7 +712,7 @@ sram_257x1024_1r1w udcmo
 	.rst(rst),
 	.clk(clk),
 	.wr(dc_owr),
-	.wadr({dc_owway,dadr[13:6]}),
+	.wadr({dc_owway,upd_adr[13:6]}),
 	.radr({dc_orway,padrd1[13:6]}),
 	.i(dci[0]),
 	.o(dc_oline)
@@ -757,8 +781,8 @@ rfPhoenix_dctag
 udcotag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && adr_o[5]),
-	.adr(adr_o),
+	.wr(wr_dc2 && upd_adr[5]),
+	.adr(upd_adr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
 	.ndx(padrd1[13:6]),
@@ -774,8 +798,8 @@ rfPhoenix_dctag
 udcetag
 (
 	.clk(clk),
-	.wr(state==DFETCH7 && ~adr_o[5]),
-	.adr(adr_o),
+	.wr(wr_dc2 && ~upd_adr[5]),
+	.adr(upd_adr),
 	.way(lfsr_o[1:0]),
 	.rclk(tlbclk),
 	.ndx(padrd1[13:6]+padrd1[5]),
@@ -794,8 +818,8 @@ udcovalid
 	.clk(clk),
 	.invce(state==MEMORY4 && adr_o[5]),
 	.dadr(adr_o),
-	.adr(adr_o),
-	.wr(state==DFETCH7 && adr_o[5]),
+	.adr(upd_adr),
+	.wr(wr_dc2 && upd_adr[5]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -814,8 +838,8 @@ udcevalid
 	.clk(clk),
 	.invce(state==MEMORY4 && ~adr_o[5]),
 	.dadr(adr_o),
-	.adr(adr_o),
-	.wr(state==DFETCH7 && ~adr_o[5]),
+	.adr(upd_adr),
+	.wr(wr_dc2 && ~upd_adr[5]),
 	.way(lfsr_o[1:0]),
 	.invline(dc_invline),
 	.invall(dc_invall),
@@ -826,15 +850,16 @@ rfPhoenix_dcache_wr udcwre
 (
 	.clk(clk),
 	.state(state),
+	.wr_dc(wr_dc2),
 	.ack(ack_i),
 	.func(memreq.func),
 	.dce(dce),
-	.hit(|memr.sz),
+	.hit(|memr.hit),
 	.hit2(memr.dchit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
 	.eaeo(~memr.adr[5]),
-	.daeo(~adr_o[5]),
+	.daeo(~upd_adr[5]),
 	.wr(dc_ewr)
 );
 
@@ -842,15 +867,16 @@ rfPhoenix_dcache_wr udcwro
 (
 	.clk(clk),
 	.state(state),
+	.wr_dc(wr_dc2),
 	.ack(ack_i),
 	.func(memreq.func),
 	.dce(dce),
-	.hit(|memr.sz),
+	.hit(|memr.hit),
 	.hit2(memr.dchit),
 	.inv(ic_invline|ic_invall|dc_invline|dc_invall),
 	.acr(memr.acr),
 	.eaeo(memr.adr[5]),
-	.daeo(adr_o[5]),
+	.daeo(upd_adr[5]),
 	.wr(dc_owr)
 );
 
@@ -859,6 +885,7 @@ rfPhoenix_dcache_way udcwaye
 	.rst(rst),
 	.clk(clk),
 	.state(state),
+	.wr_dc(wr_dc2),
 	.ack(ack_i),
 	.func(memreq.func),
 	.dce(dce),
@@ -877,6 +904,7 @@ rfPhoenix_dcache_way udcwayo
 	.rst(rst),
 	.clk(clk),
 	.state(state),
+	.wr_dc(wr_dc2),
 	.ack(ack_i),
 	.func(memreq.func),
 	.dce(dce),
@@ -899,7 +927,6 @@ TLBE tmptlbe;
 reg [5:0] ipt_miss_count;
 reg tlben, tlbwr;
 wire tlbmiss;
-wire tlbrdy;
 TLBE tlbdato;
 reg [31:0] tlb_ia;
 TLBE tlb_ib;
@@ -956,7 +983,7 @@ rfPhoenix_tlb utlb
 
 reg [4:0] mp_delay;
 wire [3:0] region_at;
-vtdl #(.WID($bits(PhysicalAddress)), .DEP(32)) umpd1 (.clk(clk), .ce(1'b1), .a(mp_delay), .d(padr), .q(padrd1));
+vtdl #(.WID($bits(physical_address_t)), .DEP(32)) umpd1 (.clk(clk), .ce(1'b1), .a(mp_delay), .d(padr), .q(padrd1));
 vtdl #(.WID(4), .DEP(32)) umpd2 (.clk(clk), .ce(1'b1), .a(mp_delay), .d(region.at[3:0]), .q(region_at));
 
 //always_ff @(posedge clk)	// delay for data tag lookup
@@ -965,6 +992,34 @@ always_ff @(posedge clk)	// two cycle delay for data fetch
 	padrd2 <= padrd1;
 always_ff @(posedge clk)
 	padrd3 <= padrd2;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+// Page Directory Entries
+//   There are only 64 PDEs required to map the upper six bits of the address
+// space. So, to improve performance and conserve memory the PDE table has
+// its own dedicated memory.
+//   The PDE table is memory mapped for programmatic read/write access.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+reg pde_wr;
+reg pde_en;
+PDE pde_dat;
+PDE pde_o;
+PDE miss_pde;
+reg [9:0] pde_adr;
+sram_PDEx1024_1rw1w upder1
+(
+	.rst(rst),
+	.clk(clk),
+	.ena(pde_en),
+	.wra(pde_wr),
+	.adra(pde_adr),
+	.ia(pde_dat),
+	.oa(pde_o),
+	.enb(tlbmiss),
+	.adrb({mem_resp[VLOOKUP3].thread,tlbmiss_adr[31:26]}),
+	.ob(miss_pde)
+);
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // IPT
@@ -1259,32 +1314,73 @@ reg wr_pte;
 
 typedef struct packed
 {
+	wb_burst_len_t blen;
+	logic we;
 	wb_address_t adr;
 	wb_segment_t seg;
 } req_table_t;
 
+wb_tranid_t prev_tid;
+reg req_done, clr_req_done;
+reg [7:0] count;
 reg wr_reqtbl;
 req_table_t [255:0] reqtbl;
 req_table_t req;
 always_ff @(posedge clk)
 	if (wr_reqtbl)
-		reqtbl[tid_o] <= {adr_o,seg_o};
+		reqtbl[tid_o] <= {blen_o,we_o,adr_o,seg_o};
 assign req = reqtbl[tid_i];
 
 always_ff @(posedge clk)
-if (rst)
+if (rst) begin
 	ici.data <= 'd0;
+	dci[0].data <= 'd0;
+	req_done <= 'd1;
+	count <= 'd0;
+	prev_tid <= 'd0;
+end
 else begin
+	if (ack_i) begin
+		if (tid_i[7:3]!=prev_tid[7:3]) begin
+			count <= 'd0;
+			if (req.blen>3'd0)
+				req_done <= 1'b0;
+			prev_tid <= tid_i;
+		end
+		else
+			count <= count + 2'd1;
+	end
+
 	if (state==IFETCH4)
 		ici.data <= ivcache[vcn];
 
 	else if (ack_i && req.seg==wishbone_pkg::CODE) begin
-		case(req.adr[4])
+		if (req.blen==count)
+			req_done <= 1'b1;
+		case(tid_i[0])
 		1'd0:	ici.data[127:  0] <= dat_i;
 		1'd1: ici.data[255:128] <= dat_i;
 		default:	;
 		endcase
-		if (req.adr[4]=='d0)
+		if (count=='d0)
+			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
+	end
+	else if (ack_i && req.seg==wishbone_pkg::DATA && !req.we) begin
+		if (req.blen==count)
+			req_done <= 1'b1;
+  	case(tid_i[2:0])
+  	3'd0:	begin dci[0].data[127:  0] <= dat_i; dci[0].m <= 1'b0; end
+  	3'd1: dci[0].data[255:128] <= dat_i;
+  	default:	;
+  	endcase
+  	/*
+		case(req.adr[4])
+		1'd0:	dci[0].data[127:  0] <= dat_i;
+		1'd1: dci[0].data[255:128] <= dat_i;
+		default:	;
+		endcase
+		*/
+		if (count=='d0)
 			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
 	end
 end
@@ -1322,7 +1418,7 @@ begin
 	daccess <= FALSE;
 	dci[0] <= 'd0;
 	dci[1] <= 'd0;
-	memreq_rd <= FALSE;
+//	memreq_rd <= FALSE;
 	memresp <= 'd0;
 	memresp2 <= 'd0;
   xlaten <= FALSE;
@@ -1340,8 +1436,7 @@ begin
 	tlb_access <= 1'b0;
 	sel <= 'd0;
 	dfetch2 <= 1'b0;
-	rd_memq <= 'd0;
-	memreq_rd <= FALSE;
+//	rd_memq1 <= 'd0;
 	mem_resp[0] <= 'd0;
 	mem_resp[1] <= 'd0;
 	mem_resp[2] <= 'd0;
@@ -1360,6 +1455,9 @@ begin
 	mp_delay <= 'd0;
 	wr_reqtbl <= 'd0;
 	tid_cnt <= 'd0;
+	clr_req_done <= 'd0;
+	memr_v <= FALSE;
+	memr_fed <= FALSE;
 end
 endtask
 
@@ -1386,9 +1484,14 @@ else begin
 		itlbmiss <= 1'b0;
 	wr_ic1 <= FALSE;
 	wr_ic2 <= wr_ic1;
-	if (ack_i && req.adr[4]==1'b1 && req.seg==wishbone_pkg::CODE)
+	if (ack_i && count==req.blen && req.seg==wishbone_pkg::CODE)
 		wr_ic1 <= TRUE;
+	wr_dc1 <= FALSE;
+	wr_dc2 <= wr_dc1;
+	if (ack_i && count==req.blen && req.seg==wishbone_pkg::DATA)
+		wr_dc1 <= TRUE;
 	wr_reqtbl <= 'd0;
+	clr_req_done <= 'd0;
 
 	mem_resp[DATA_ALN].wr <= FALSE;
 	tlbwr <= FALSE;
@@ -1411,20 +1514,21 @@ else begin
 		begin
 			for (n5 = 0; n5 < 8; n5 = n5 + 1)
 				ptc[n5] <= 'd0;
-			rd_memq <= FALSE;
+//			rd_memq1 <= FALSE;
 			goto (MEMORY1);
 		end
 
 	MEMORY1:
 		begin
-			rd_memq <= FALSE;
-			if (!memq_empty)
-				rd_memq <= TRUE;
-			if (rd_memq) begin
+//			if (!memq_empty)
+//				rd_memq <= TRUE;
+			if (rd_memq1) begin
 				if (memq_o.tid != last_tid) begin
-					rd_memq <= FALSE;
+//					rd_memq <= FALSE;
 					last_tid <= memq_o.tid;
 					memr <= memq_o;
+					memr_sel <= memq_o.sel;
+					memr_res <= memq_o.res;
 					memreq <= memq_o;
 					dci[0].data <= memq_o.res[255:0];
 					dci[1].data <= memq_o.res[511:256];
@@ -1464,7 +1568,7 @@ else begin
 		  memresp.adr <= ea;
 		  memresp.wr <= TRUE;
 			memresp.res <= 128'd0;
-		  ret();
+		  ret(0);
 		end
 `endif
 	MEMORY5: goto (MEMORY5a);
@@ -1489,48 +1593,15 @@ else begin
 			if (memr.hit==2'b11)
 				goto (MEMORY_UPD2);
 			else
-				ret();
+				ret(0);
 		end
 	MEMORY_UPD2:
-		ret();
-
-	MEMORY8:
-	  begin
-    	goto (MEMORY9);
-	    dadr <= {dadr[AWID-1:4] + 2'd1,4'd0};
-			ptgram_adr <= memr.adr[18:4];
-			rgn_adr <= memr.adr[9:4];
-	  end
-  
-	// Wait a couple of clocks for MR_TLB lookup
-	MEMORY9:
-		begin
-`ifdef SUPPORT_HASHPT
-			if (ptg_state==IPT_RW_PTG5 || ptg_state==IPT_RW_PTG6 || !ptg_en)
-`endif			
-	  	goto (MEMORY10);
-		end
-`ifdef SUPPORT_KEYCHK
-	MEMORY10:
-		begin
-		  goto (MEMORY_KEYCHK2);
-		end
- 
-	MEMORY_KEYCHK2:
-		tKeyCheck(MEMORY11);
-`else
-	MEMORY10:
-	  goto (MEMORY11);
-`endif
-
-	MEMORY11:		// Allow time for lookup
-		goto (MEMORY_ACTIVATE_HI);
-
-	MEMORY_ACTIVATE_HI:
-		tMemoryActivateHi();
+		ret(0);
 
 	DATA_ALIGN:
-		tDataAlign();
+		if (mem_pipe_adv) begin
+			tDataAlign();
+		end
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	// Complete TLB access cycle
@@ -1547,29 +1618,12 @@ else begin
 	    memresp.cmt <= TRUE;
 			memresp.tid <= memreq.tid;
 			memresp.wr <= TRUE;
-	   	ret();
+	   	ret(0);
 		end
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 	// Hardware subroutine to load an instruction cache line.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	// Use ipo to hold onto the original ip value. The ip value might
-	// change during a cache load due to a branch. We also want the start
-	// of the cache line identified as the access will span into the next
-	// cache line.
-	IFETCH0:
-		begin
-		  ic_wway <= waycnt;
-			waycnt <= waycnt + 2'd1;
-			ipo <= {memr.adr[$bits(Address)-1:5],5'b0};
-			goto (IFETCH1);
-			for (n = 0; n < 5; n = n + 1) begin
-				if (ivtag[n]==memr.adr[$bits(Address)-1:5] && ivvalid[n]) begin
-					vcn <= n;
-		    	goto (IFETCH4);
-	    	end
-			end
-		end
 	// Hardware subroutine to fetch instruction cache line
 	IFETCH1:
 	  if (!next_i) begin
@@ -1594,28 +1648,31 @@ else begin
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
 	    tid_o <= tid_cnt;
-    	tid_cnt <= tid_cnt + 2'd1;
+    	tid_cnt[2:0] <= tid_cnt[2:0] + 2'd1;
     	wr_reqtbl <= 1'b1;
 	    case(memr.hit)
 	    2'b00:		// need both even and odd cache lines (start with even)
 	    	begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
 					ipo <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
 				end
 	    2'b01:		// If got a hit on the even address, the odd one must be missing
 	    	begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[$bits(Address)-1:6],1'b1,5'h0};
 					ipo <= {memr.adr[$bits(Address)-1:6],1'b1,5'h0};
 				end
 			2'b10:		// Otherwise the even one must be missing
 				begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
 					ipo <= {memr.adr[$bits(Address)-1:6]+memr.adr[5],1'b0,5'h0};
 				end
 			2'b11:		// not missing lines, finished
 				begin
 					tDeactivateBus();
-					ret();
+					ret(0);
 				end
 			endcase
   		goto (IFETCH2);
@@ -1628,11 +1685,11 @@ else begin
 	    	adr_o <= adr_o + 5'd16;
 				seg_o <= wishbone_pkg::CODE;
 	    	tid_o <= tid_cnt;
-	    	tid_cnt <= tid_cnt + 2'd1;
+	    	tid_cnt[2:0] <= tid_cnt[2:0] + 2'd1;
 	      icnt <= icnt + 4'd4;					// increment word count
-	      if (icnt[4:2]==3'd0)
+	      if (icnt[4:2]==blen_o-1)
 	      	cti_o <= wishbone_pkg::EOB;
-	      if (icnt[4:2]==3'd1) begin		// Are we done?
+	      if (icnt[4:2]==blen_o) begin		// Are we done?
 	      	case(memr.hit)
 	      	2'b00:	memr.hit <= 2'b01;
 	      	2'b01:	memr.hit <= 2'b11;
@@ -1658,9 +1715,12 @@ else begin
 	IFETCH3:
 		begin
 		  if (memr.hit==2'b11)
-		  	ret();
-	  	else
+		  	ret(0);
+	  	else begin
+	    	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+  	  	tid_cnt[2:0] <= 'd0;
 	  		goto (IFETCH1);
+	  	end
 		end
 	
 	IFETCH4:
@@ -1688,7 +1748,7 @@ else begin
 
 	// Initiate burst access
 	DFETCH2:
-	  if (!ack_i) begin
+	  if (!next_i) begin
 	  	seg_o <= wishbone_pkg::DATA;
 			last_seg <= wishbone_pkg::DATA;
 	  	bte_o <= wishbone_pkg::LINEAR;
@@ -1696,18 +1756,31 @@ else begin
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
+	    tid_o <= {tid_cnt[7:3]+2'd1,3'd0};
+    	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+    	tid_cnt[2:0] <= 'd0;
+    	wr_reqtbl <= 1'b1;
 	    goto (DFETCH5);
 	    case(memr.hit)
 	    2'b00:		// need both even and odd cache lines (start with even)
+	    	begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[AWID-1:6]+memr.adr[5],1'b0,5'h0};
+				end
 	    2'b01:		// If got a hit on the even address, the odd one must be missing
+	    	begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[AWID-1:6],1'b1,5'h0};
+				end
 			2'b10:		// Otherwise the even one must be missing
+				begin
+			  	blen_o <= 8'd1;
 					adr_o <= {memr.adr[AWID-1:6]+memr.adr[5],1'b0,5'h0};
+				end
 			2'b11:		// not missing lines, finished
 				begin
 					tDeactivateBus();
-					ret();
+					ret(0);
 				end
 			endcase
 	  end
@@ -1716,11 +1789,18 @@ else begin
 	DFETCH5:
 	  begin
 	  	stb_o <= HIGH;
-	    if (ack_i) begin
+	    if (next_i) begin
+	    	wr_reqtbl <= 1'b1;
+	    	adr_o <= adr_o + 5'd16;
+				seg_o <= wishbone_pkg::DATA;
+	    	tid_o <= tid_cnt;
+	    	tid_cnt[2:0] <= tid_cnt[2:0] + 2'd1;
 	    	dcnt <= dcnt + 4'd4;
-	      dci[0].data <= {dat_i,dci[0].data[255:128]};
-	      dci[0].m <= 1'b0;
-	      if (dcnt[4:2]==3'd1) begin		// Are we done?
+	      //dci[0].data <= {dat_i,dci[0].data[255:128]};
+	      //dci[0].m <= 1'b0;
+	      if (dcnt[4:2]==blen_o-1)
+	      	cti_o <= wishbone_pkg::EOB;
+	      if (dcnt[4:2]==blen_o) begin		// Are we done?
 	      	case(memr.hit)
 	      	2'b00:	memr.hit <= 2'b01;
 	      	2'b01:	memr.hit <= 2'b11;
@@ -1728,12 +1808,14 @@ else begin
 	      	2'b11:	memr.hit <= 2'b11;
 	      	endcase
 	      	// Fill in missing memory data.
+	      	/*
 	      	case(memr.hit)
 	      	2'b00:	memr.res[ 255:  0] <= {dat_i,dci[0].data[255:128]};
 	      	2'b01:	memr.res[ 511:256] <= {dat_i,dci[0].data[255:128]};
 	      	2'b10:	memr.res[ 255:  0] <= {dat_i,dci[0].data[255:128]};
 	      	2'b11:	;
 	      	endcase
+	      	*/
 	      	tDeactivateBus();
 	      	goto (DFETCH7);
 	    	end
@@ -1758,9 +1840,10 @@ else begin
 	// Trgger a data cache update. The data cache line is in dci. The only thing
 	// left to do is update the tag and valid status.
 	DFETCH7:
-		if (memr.sz==2'b11) begin
+		if (memr.hit==2'b11) begin
 			tDeactivateBus();
-			ret();
+			// Now that the cache has been loaded, resubmit the memory request.
+			ret(1);
 		end
 		else
 			goto(DFETCH2);
@@ -1772,18 +1855,22 @@ else begin
 	  if (!ack_i) begin
 			if (dstore1) begin
 	  		dstore1 <= 1'b0;
-				if (memr.adr[6])
+				if (memr.adr[5])
 					adr_o <= {memr.adr[AWID-1:6],1'b1,5'h0};
 				else
 					adr_o <= {memr.adr[AWID-1:6],1'b0,5'h0};
 			end
 	  	seg_o <= wishbone_pkg::DATA;
 	  	bte_o <= wishbone_pkg::LINEAR;
+	  	blen_o <= 3'd1;
 	  	cti_o <= wishbone_pkg::CLASSIC;
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
   		sel_o <= 16'hFFFF;
 			dat_o <= memr.res[127:0];
+	    tid_o <= {tid_cnt[7:3]+2'd1,3'd0};
+    	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+    	tid_cnt[2:0] <= 'd0;
 	    goto (DSTORE2);
 	  end
 
@@ -1796,11 +1883,12 @@ else begin
 		begin
 			stb_o <= LOW;
 			if (!ack_i)	begin							// wait till consumer ready
+				tid_cnt[2:0] <= tid_cnt[2:0] + 2'd1;
 	    	dcnt <= dcnt + 4'd4;
-				if (dcnt[4:2]==3'd3) begin
+				if (dcnt[4:2]==blen_o) begin
 					memr.mod <= 2'b00;
 					tDeactivateBus();
-					ret();
+					ret(0);
 				end
 				else
 					goto (DSTORE1);
@@ -1871,7 +1959,7 @@ else begin
 		begin
 			// Restore the bus state, it should not miss now.
 			tPopBus();
-			ret();
+			ret(0);
 		end
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1936,7 +2024,7 @@ else begin
 					if (ptgc[n4].dadr == dadr && ptgc[n4].v) begin
 						tDeactivateBus();
 						ptg <= ptgc[n4];
-						ret();
+						ret(0);
 					end
 				end
 			end
@@ -1959,7 +2047,7 @@ else begin
 `endif	      		
     		ptgc[0].v <= 1'b1;
 `endif	      		
-      	ret();
+      	ret(0);
 			end
 			else begin
 				if (dce & dhit)
@@ -2023,7 +2111,7 @@ else begin
 `endif	      		
 			      	tDeactivateBus();
 			      	daccess <= FALSE;
-			      	ret();
+			      	ret(0);
 			    	end
 			    	else if (!bok_i) begin				// burst mode supported?
 			    		cti_o <= wishbone_pkg::CLASSIC;						// no, use normal cycles
@@ -2044,7 +2132,7 @@ else begin
 			end
 		end
 	IPT_RW_PTG6:
-		ret();
+		ret(0);
 
 	IPT_WRITE_PTE:
 		begin
@@ -2095,25 +2183,25 @@ else begin
 	  	case(ptbr[10:8])
 	  	3'd1:
 	  		begin
-	  			pte <= ptbr[31:16];
-	  			pte.lvl <= 3'd1;
+	  			pte.ppn <= ptbr[31:14];
+	  			pte.lvl <= 3'd0;
 	  			pte.m <= 1'b0;
 	  			pte.a <= 1'b1;
 	  			pte.v <= 1'b1;
-	  			adr_slice <= {miss_adr[27:16],1'b0};
-	  			if (miss_adr[AWID-1:28] != 'd0 && miss_adr[AWID-1:28] != {AWID-28{1'b1}})
+	  			adr_slice <= miss_adr[25:14];
+	  			if (miss_adr[AWID-1:26] != 'd0 && miss_adr[AWID-1:26] != {AWID-26{1'b1}})
 	  				tPageFault(0,miss_adr);
 	  			else
 	  				call (PT_RW_PTE1, PT_FETCH3);
 	  		end
 	  	3'd2:
 	  		begin
-	  			pde <= ptbr[31:16];
+	  			pde.ppn <= ptbr[31:14];
 	  			pde.v <= 1'b1;
 	  			pde.d <= 1'b0;
 	  			pde.a <= 1'b1;
-	  			pde.lvl <= 3'd2;
-	  			adr_slice <= miss_adr[31:28];	// [40:28]
+	  			pde.lvl <= 3'd1;
+	  			adr_slice <= miss_adr[31:26];	// [40:28]
 	  			call (PT_RW_PDE1, PT_FETCH2);
 	  		end // 8 bits
 	  	/*
@@ -2147,28 +2235,8 @@ else begin
 	  			adr_slice <= miss_adr[79:67];
 	  			call (PT_READ_PDE1, PT_FETCH2);
 	  		end // 13 bits
-	  	3'd6:
-	  		begin
-	  			pde <= ptbr[31:12];
-	  			pde.v <= 1'b1;
-	  			pde.d <= 1'b0;
-	  			pde.a <= 1'b1;
-	  			pde.lvl <= 3'd6;
-	  			adr_slice <= miss_adr[92:80];
-	  			call (PT_READ_PDE1, PT_FETCH2);
-	  		end // 13 bits
-	  	3'd7:
-	  		begin
-	  			pde <= ptbr[31:12];
-	  			pde.v <= 1'b1;
-	  			pde.d <= 1'b0;
-	  			pde.a <= 1'b1;
-	  			pde.lvl <= 3'd7;
-	  			adr_slice <= miss_adr[105:93];
-	  			call (PT_READ_PDE1, PT_FETCH2);
-	  		end // 13 bits
 	  	*/
-	  	default:	ret();
+	  	default:	ret(0);
 	  	endcase
 		end
 	PT_FETCH2:
@@ -2179,8 +2247,8 @@ else begin
 		  	case(dep)
 		  	3'd1:
 		  		begin
-		  			pte[15:0] <= pde[15:0];
-		  			adr_slice <= {miss_adr[27:16],1'b0};
+		  			pte.ppn <= pde.ppn;
+		  			adr_slice <= miss_adr[25:14];
 		  			call (PT_RW_PTE1, PT_FETCH3);
 		  		end
 /*		  	
@@ -2208,20 +2276,8 @@ else begin
 		  			gosub (PT_READ_PDE1);
 		  			dep <= pde.lvl;
 		  		end // 13 bits
-		  	3'd6:
-		  		begin
-		  			adr_slice <= miss_adr[92:80];
-		  			gosub (PT_READ_PDE1);
-		  			dep <= pde.lvl;
-		  		end // 13 bits
-		  	3'd7:
-		  		begin
-		  			adr_slice <= miss_adr[105:93];
-		  			gosub (PT_READ_PDE1);
-		  			dep <= pde.lvl;
-		  		end // 13 bits
 */		  		
-		  	default:	ret();
+		  	default:	ret(0);
 		  	endcase
 	  end
 	PT_FETCH3:
@@ -2232,7 +2288,7 @@ else begin
 			tlb_ia[31] <= 1'b1;	// write to tlb
 			tlb_ia[15:14] <= 2'b10;	// write a random way
 			tlb_ia[13:10] <= 4'h0;
-			tlb_ia[9:0] <= miss_adr[25:16];
+			tlb_ia[9:0] <= miss_adr[23:14];
 			tlb_ib.ppn <= pte.ppn;
 			tlb_ib.d <= pte.d;
 			tlb_ib.u <= pte.u;
@@ -2284,7 +2340,7 @@ else begin
 		begin
 			// Restore the bus state, it should not miss now.
 			tPopBus();
-			ret();
+			ret(0);
 		end
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2296,37 +2352,36 @@ else begin
 	 		xlaten <= FALSE;
 			daccess <= TRUE;
 			iaccess <= FALSE;
-			dadr <= {pte[15:0],adr_slice[12:1],4'h0};
+			dadr <= {pte.ppn,adr_slice[11:0],2'h0};
 			goto (PT_RW_PTE3);
 		end
 `endif
 	PT_RW_PTE2:
 		goto (PT_RW_PTE3);
 	PT_RW_PTE3:
-		begin
-			if (!ack_i) begin
-				seg_o <= wishbone_pkg::DATA;
-		  	bte_o <= wishbone_pkg::LINEAR;
-		  	cti_o <= wishbone_pkg::FIXED;	// constant address burst cycle
-		    cyc_o <= HIGH;    
-				stb_o <= HIGH;
-				we_o <= wr_pte;
-		    sel_o <= 16'hFFFF;
-		    dat_o <= pte;
-		    goto (PT_RW_PTE4);
-			end
+		if (!ack_i) begin
+			seg_o <= wishbone_pkg::DATA;
+	  	bte_o <= wishbone_pkg::LINEAR;
+	  	blen_o <= 'd0;
+	  	cti_o <= wishbone_pkg::CLASSIC;
+	    cyc_o <= HIGH;    
+			stb_o <= HIGH;
+			we_o <= wr_pte;
+	    sel_o <= 16'hFFFF;
+	    dat_o <= pte;
+	    goto (PT_RW_PTE4);
 		end
 	PT_RW_PTE4:
 		if (ack_i) begin
 			tDeactivateBus();
 			if (!wr_pte)
-				pte <= dat_i;
+				pte <= dat_i >> {adr_o[3:2],5'd0};
 			goto (PT_RW_PTE5);
 		end
 	PT_RW_PTE5:
 		begin
 			if (pte.v)
-				ret();
+				ret(0);
 			else
 				tPageFault(fault_code,miss_adr);
 		end
@@ -2338,8 +2393,8 @@ else begin
 			iaccess <= FALSE;
 			wr_pte <= TRUE;
 			pte <= tlb_dat;
-			dadr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
-			miss_adr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
+			dadr <= {tlb_adr[AWID-1:2],2'h0};
+			miss_adr <= {tlb_adr[AWID-1:2],2'h0};
 			goto (PT_RW_PTE2);
 		end
 
@@ -2353,13 +2408,13 @@ else begin
 	 		xlaten <= FALSE;
 			daccess <= TRUE;
 			iaccess <= FALSE;
-			dadr <= {pde[15:0],adr_slice[12:1],4'h0};
+			dadr <= {pde.ppn,adr_slice[11:0],2'h0};
 `ifdef SUPPORT_MMU_CACHE			
 			if (!wr_pte)
 				for (n4 = 0; n4 < 12; n4 = n4 + 1)
-					if (ptc[n4].adr=={pde[15:0],adr_slice[12:0],3'h0} && ptc[n4].v) begin
+					if (ptc[n4].adr=={pde.ppn,adr_slice[11:0],2'h0} && ptc[n4].v) begin
 						pde <= ptc[n4].pde;
-						ret();
+						ret(0);
 					end
 `endif					
 		end
@@ -2367,7 +2422,8 @@ else begin
 		if (!ack_i) begin
 			seg_o <= wishbone_pkg::DATA;
 	  	bte_o <= wishbone_pkg::LINEAR;
-	  	cti_o <= wishbone_plg::FIXED;	// constant address burst cycle
+	  	blen_o <= 'd0;
+	  	cti_o <= wishbone_plg::CLASSIC;
 	    cyc_o <= HIGH;    
 			stb_o <= HIGH;
 			we_o <= wr_pte;
@@ -2379,7 +2435,7 @@ else begin
 		if (ack_i) begin
 			tDeactivateBus();
 			if (!wr_pte)
-				pde <= adr_slice[0] ? dat_i[127:64] : dat_i[63:0];
+				pde <= dat_i >> {adr_slice[1:0],5'h0};
 			pde.padr <= adr_o;
 			goto (PT_RW_PDE5);
 		end
@@ -2390,10 +2446,10 @@ else begin
 				for (n4 = 0; n4 < 11; n4 = n4 + 1)
 					ptc[n4+1] <= ptc[n4];
 				ptc[0].v <= 1'b1;
-				ptc[0].adr <= dadr|{adr_slice[0],3'b0};
+				ptc[0].adr <= dadr;
 				ptc[0].pde <= pde;
 `endif				
-				ret();
+				ret(0);
 			end
 			else
 				tPageFault(fault_code,miss_adr);
@@ -2418,18 +2474,35 @@ begin
 end
 endtask
 
+
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Start of memory pipeline.
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 wire mem_pipe_adv = !memresp_full;
 
+// memreq_rd cannot be used to signal the start of pipeline loading of mem_resp
+// as it must pulse only once for each read of the fifo. If it is held the fifo
+// would be emptied out incorrectly. wasrd is the sticky version of signal
+// needed in case the pipeline is stalled.
+reg wasrd;
+
 // Add request to pipeline
-// Compute data select signals
 task tStage0;
 begin
-	memreq_rd <= FALSE;
+	if (mem_pipe_adv)
+		wasrd <= FALSE;
+//	memreq_rd <= FALSE;
+	memr_fed <= FALSE;
 	xlaten <= FALSE;
-	if (!fifoToCtrl_empty && tlbrdy)
-		memreq_rd <= TRUE;
-	mem_resp[0] <= 'd0;
+//	if (!fifoToCtrl_empty && tlbrdy && !memr_v) begin
+//		memreq_rd <= TRUE;
 	if (memreq_rd) begin
+		wasrd <= TRUE;
+	end
+	mem_resp[0] <= 'd0;
+	if (wasrd) begin
 		if (mem_pipe_adv) begin
 			if (tlbrdy) begin
 				if (tlb_cyc) begin
@@ -2438,10 +2511,29 @@ begin
 					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
 				end
 				else if (fifoToCtrl_v) begin
-					xlaten <= TRUE;
+					xlaten <= imemreq.omode != 2'd3;
 					mem_resp[0] <= imemreq;
 					mem_resp[0].v <= 1'b1;
 					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+				end
+			end
+		end
+		// Hold onto the request if pipe could not advance.
+		else
+			mem_resp[0] <= mem_resp[0];
+	end
+	// If there is an empty spot, insert an outstanding memory request that
+	// missed on a data cache read.
+	else begin
+		if (mem_pipe_adv) begin
+			if (tlbrdy) begin
+				if (memr_v) begin
+					xlaten <= memr.omode != 2'd3;
+					mem_resp[0] <= memr;
+					mem_resp[0].v <= 1'b1;
+					rb_bitmaps2[memr.thread][memr.tgt] <= 1'b1;
+					memr_fed <= TRUE;
+					memr_v <= FALSE;
 				end
 			end
 		end
@@ -2456,72 +2548,78 @@ begin
 end
 endtask
 
+// Stage 1
+// Perform cache operation
+// Setup access to special memory mapped entities
+// Compute select lines for memory access
+
 task tStage1;
 begin
 	if (mem_pipe_adv) begin
-	tlb_access <= 1'b0;
-	rgn_en <= 1'b0;
-	ptgram_en <= 1'b0;
-	mem_resp[1] <= mem_resp[0];
-	mem_resp[1].cause <= FLT_NONE;
-	if (mem_resp[0].func==MR_CACHE) begin
-		ic_invline <= mem_resp[0].res[2:0]==3'd1;
-		ic_invall	<= mem_resp[0].res[2:0]==3'd2;
-		dc_invline <= mem_resp[0].res[5:3]==3'd3;
-		dc_invall	<= mem_resp[0].res[5:3]==3'd4;
-		if (mem_resp[0].res[5:3]==3'd1)
-			dce <= TRUE;
-		if (mem_resp[0].res[4:2]==3'd2)
-			dce <= FALSE;
-    mem_resp[1].cmt <= TRUE;
-		mem_resp[1].wr <= TRUE;
-		mem_resp[1].res <= 'd0;
-	end
-	else if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || 
-		mem_resp[0].func==MR_TLBRD || mem_resp[0].func==MR_TLBRW ||
-		mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
-    mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].adr[3:0];
-		casez(mem_resp[0].adr)
-		32'hFF9F????:
-			begin
-				mem_resp[1].rgn_en <= 1'b1;
-				rgn_en <= 1'b1;
-				rgn_wr <= mem_resp[0].func==MR_STORE;
-			end
-		32'hFFA?????:
-			begin
-				mem_resp[1].ptgram_en <= 1'b1;
-				ptgram_en <= 1'b1;
-				ptgram_wr <= mem_resp[0].func==MR_STORE;
-			end
-		32'hFFD?????:
-			begin
-			end
-		32'hFFE?????:
-			begin
-				tlbwr <= mem_resp[0].func==MR_TLBRW;
-				mem_resp[1].tlb_access <= 1'b1;
-				tlb_access <= 1'b1;
-				tlb_ia <= mem_resp[0].adr[15:0];
-				tlb_ib <= mem_resp[0].res;
-				/*
-				tlb_bucket[0] <= tlbdato[ 63:  0];
-				tlb_bucket[1] <= tlbdato[127: 64];
-				tlb_bucket[2] <= tlbdato[191:128];
-				tlb_bucket[3] <= tlbdato[255:192];
-				tlb_bucket[4] <= tlbdato[287:256];
-				tlb_bucket[5] <= tlbdato[319:288];
-				*/
-			end
-		default:	;
-		endcase
-		rgn_adr <= mem_resp[0].adr[9:4];
-		rgn_dat <= mem_resp[0].res;
+		tlb_access <= 1'b0;
+		rgn_en <= 1'b0;
+		ptgram_en <= 1'b0;
+		pde_en <= FALSE;
+		mem_resp[1] <= mem_resp[0];
+		mem_resp[1].cause <= FLT_NONE;
+		if (mem_resp[0].func==MR_CACHE) begin
+			ic_invline <= mem_resp[0].res[2:0]==3'd1;
+			ic_invall	<= mem_resp[0].res[2:0]==3'd2;
+			dc_invline <= mem_resp[0].res[5:3]==3'd3;
+			dc_invall	<= mem_resp[0].res[5:3]==3'd4;
+			if (mem_resp[0].res[5:3]==3'd1)
+				dce <= TRUE;
+			if (mem_resp[0].res[4:2]==3'd2)
+				dce <= FALSE;
+	    mem_resp[1].cmt <= TRUE;
+			mem_resp[1].wr <= TRUE;
+			mem_resp[1].res <= 'd0;
+		end
+		else if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || 
+			mem_resp[0].func==MR_TLBRD || mem_resp[0].func==MR_TLBRW ||
+			mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
+	    mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].adr[3:0];
+			casez(mem_resp[0].adr)
+			32'hFF9F????:
+				begin
+					mem_resp[1].rgn_en <= 1'b1;
+					rgn_en <= 1'b1;
+					rgn_wr <= mem_resp[0].func==MR_STORE;
+				end
+			32'hFFA?????:
+				begin
+					mem_resp[1].ptgram_en <= 1'b1;
+					ptgram_en <= 1'b1;
+					ptgram_wr <= mem_resp[0].func==MR_STORE;
+				end
+			32'hFFD?????:
+				begin
+				end
+			32'hFFE0????:
+				begin
+					tlbwr <= mem_resp[0].func==MR_TLBRW;
+					mem_resp[1].tlb_access <= 1'b1;
+					tlb_access <= 1'b1;
+					tlb_ia <= mem_resp[0].adr[15:0];
+					tlb_ib <= mem_resp[0].res;
+				end
+			32'hFFEF????:
+				begin
+					mem_resp[1].pde_en <= 1'b1;
+					pde_wr <= mem_resp[0].func==MR_STORE;
+					pde_en <= 1'b1;
+				end
+			default:	;
+			endcase
+			rgn_adr <= mem_resp[0].adr[8:2];
+			rgn_dat <= mem_resp[0].res;
+			pde_adr <= {mem_resp[0].thread,mem_resp[0].adr[7:2]};
+			pde_dat <= mem_resp[0].res[$bits(PDE)-1:0];
 `ifdef SUPPORT_HASHPT
-		ptgram_adr <= mem_resp[0].adr[18:4];
-		ptgram_dati <= mem_resp[0].res;
+			ptgram_adr <= mem_resp[0].adr[18:4];
+			ptgram_dati <= mem_resp[0].res;
 `endif
-	end
+		end
 	end
 end
 endtask
@@ -2540,25 +2638,26 @@ begin
 		mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP1];	// data tag lookup
 	//	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP2];	// data fetch 1
 		mem_resp[PADR_SET] <= mem_resp[VLOOKUP3];	// data fetch 2
-		// No address translations for machine mode
-		if (mem_resp[VLOOKUP3].omode!=2'd3) begin
-			mem_resp[PADR_SET].adr <= padrd1;
-		end
-		else
-			mem_resp[PADR_SET].acr <= region_at[3:0];
+		// No address translations for machine mode, this is checked in the TLB so
+		// this condition statement may not be necessary.
+		if (mem_resp[VLOOKUP3].omode!=2'd3)
+			mem_resp[PADR_SET].adr <= padrd1[31:0];
+		// Always check the PMA, for sure when not in machine mode.
+		mem_resp[PADR_SET].acr <= region_at[3:0];
+		// TLB access rights enable everything in machine mode. acr=Fh
 		if (mem_resp[VLOOKUP3].v) begin
-		  if (!region_at[0] && mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
-		    mem_resp[PADR_SET].cause <= FLT_PMA;
+		  if (!(region_at[0]&tlbacr[0]) && mem_resp[VLOOKUP3].func==MR_ICACHE_LOAD)
+		    mem_resp[PADR_SET].cause <= FLT_EXV;
 		 	//we_o <= wr & tlbwr & region.at[1];
-		  if (mem_resp[VLOOKUP3].func==MR_STORE && !region_at[1])
+		  if (mem_resp[VLOOKUP3].func==MR_STORE && !(region_at[1] & tlbacr[1]))
 			  mem_resp[PADR_SET].cause <= FLT_WRV;
-		  else if (mem_resp[VLOOKUP3].func!=MR_STORE && !region_at[2])
-			  mem_resp[PADR_SET].cause <= FLT_RDV;
+//		  else if (mem_resp[VLOOKUP3].func!=MR_STORE && !(region_at[2] & tlbacr[2]))
+//			  mem_resp[PADR_SET].cause <= FLT_RDV;
 		   // TLB miss has higher precedence than PMA
 		   // No TLB miss in machine mode
 			if (tlbmiss && mem_resp[VLOOKUP3].omode!=2'd3)
 				mem_resp[PADR_SET].cause <= FLT_TLBMISS;
-		 	if (!tlbacr[2] && (mem_resp[VLOOKUP3].func==MR_LOAD || mem_resp[VLOOKUP3].func==MR_LOADZ)) begin
+		 	if (!(tlbacr[2] & region_at[2]) && (mem_resp[VLOOKUP3].func==MR_LOAD || mem_resp[VLOOKUP3].func==MR_LOADZ)) begin
 		 		mem_resp[PADR_SET].cause <= FLT_RDV;
 		 		//tReadViolation(mem_resp[4].adr);
 	//		if (tlbacr[3])
@@ -2573,6 +2672,7 @@ endtask
 
 // Access cached data
 // Determine whether a memory access is required.
+// Load read data from special memory mapped components
 
 task tCacheAccess;
 begin
@@ -2598,6 +2698,7 @@ begin
 			mem_resp[VLOOKUP3].tlb_access:	begin mem_resp[PADR_SET].res <= tlbdato; mem_resp[PADR_SET].wr <= TRUE; end
 			mem_resp[VLOOKUP3].ptgram_en:		begin mem_resp[PADR_SET].res <= ptgram_dato; mem_resp[PADR_SET].wr <= TRUE; end
 			mem_resp[VLOOKUP3].rgn_en:			begin mem_resp[PADR_SET].res <= rgn_dat_o; mem_resp[PADR_SET].wr <= TRUE; end
+			mem_resp[VLOOKUP3].pde_en:			begin mem_resp[PADR_SET].res <= pde_o; mem_resp[PADR_SET].wr <= TRUE; end
 			default:		
 				begin
 					mem_resp[PADR_SET].res <= dc_line;
@@ -2651,6 +2752,8 @@ begin
 			// A response will be sent back here only on a load when there is a cache hit.
 			// Otherwise the memory sequencer is needed.
 			case(mem_resp[PADR_SET].func)
+			// For now, always use sequencer on a store. At some point the sequencer may
+			// not be needed if there was a cache hit on a store and policy is writeback.
 			MR_STORE:					memresp.wr <= FALSE;
 			MR_LOAD,MR_LOADZ:	memresp.wr <= ~mem_resp[PADR_SET].wr;
 			MR_TLBRW,MR_TLBRD:	memresp.wr <= TRUE;
@@ -2662,6 +2765,7 @@ begin
 			mem_resp[PADR_SET].tlb_access:	;
 			mem_resp[PADR_SET].ptgram_en:		;
 			mem_resp[PADR_SET].rgn_en:			;
+			mem_resp[PADR_SET].pde_en:			;
 			default:		
 			  case(mem_resp[PADR_SET].func)
 			  MR_LOAD,MR_MOVLD:
@@ -2674,6 +2778,7 @@ begin
 		//    	hexi:	begin memresp.res <= datis[127:0]; end
 		//    	hexipair:	memresp.res <= dati;
 		//    	hexiquad:	begin memresp.res <= dati512; end
+					// vector, return entire result
 		    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
 		    	endcase
 			  MR_LOADZ:
@@ -2686,6 +2791,7 @@ begin
 		//    	hexi:	begin memresp.res <= datis[127:0]; end
 		//    	hexipair:	memresp.res <= dati;
 		//    	hexiquad:	begin memresp.res <= dati512; end
+					// vector, return entire result
 		    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
 		    	endcase
 			  default:  ;
@@ -2696,68 +2802,119 @@ begin
 end
 endtask
 
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// End of memory pipeline.
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Sequencer states
+// -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+
+// Use ipo to hold onto the original ip value. The ip value might
+// change during a cache load due to a branch. We also want the start
+// of the cache line identified as the access will span into the next
+// cache line.
+
+task tBeginIFetch;
+begin
+  ic_wway <= waycnt;
+	waycnt <= waycnt + 2'd1;
+	ipo <= {memr.adr[$bits(Address)-1:5],5'b0};
+	goto (IFETCH1);
+	for (n = 0; n < 5; n = n + 1) begin
+		if (ivtag[n]==memr.adr[$bits(Address)-1:5] && ivvalid[n]) begin
+			vcn <= n;
+    	goto (IFETCH4);
+  	end
+	end
+	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+	tid_cnt[2:0] <= 'd0;
+end
+endtask
+
+task tBeginStore;
+begin
+`ifdef SUPPORT_HWWALK    		
+	// Invalidate PTCEs when a store occurs to the PDE
+	for (n4 = 0; n4 < 12; n4 = n4 + 1)
+		if (ptc[n4].pde.padr[AWID-1:4]==memr.adr[AWID-1:4])
+			ptc[n4].v <= 1'b0;
+`endif						
+	seg_o <= wishbone_pkg::DATA;
+	bte_o <= wishbone_pkg::LINEAR;
+	blen_o <= 3'd0;
+	cti_o <= wishbone_pkg::CLASSIC;
+	cyc_o <= HIGH;
+	stb_o <= HIGH;
+	we_o <= HIGH;
+	sel_o <= memr_sel[15:0];
+	if (stk_dep=='d1)
+		adr_o <= {memr.adr[31:4],4'd0};
+	else
+		adr_o <= adr_o + 5'd16;
+	dat_o <= memr_res[127:0];
+	dat <= memr_res[127:0];
+	csr_o <= memr.func2==MR_STC;
+  tid_o <= {tid_cnt[7:3] + 2'd1,3'd0};
+	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+	tid_cnt[2:0] <= 'd0;
+	wr_reqtbl <= 1'b1;
+	goto (MEMORY_ACK);
+end
+endtask
+
+task tBeginLoad;
+begin
+	// It was cachable data and a miss occurred. Fetch the data and return
+	// a miss status to the execute unit so it will try again.
+	// If the line was modified, write it out first.
+	if (memr.acr[3]) begin
+		if (|memr.mod)
+			gosub(DSTORE1);
+		else
+			goto (DFETCH2);
+	end
+	// Otherwise non-cacheable data, begin a load operation.
+	else begin
+		seg_o <= wishbone_pkg::DATA;
+  	bte_o <= wishbone_pkg::LINEAR;
+  	blen_o <= 3'd0;
+		cti_o <= wishbone_pkg::CLASSIC;
+		cyc_o <= HIGH;
+		stb_o <= HIGH;
+		we_o <= LOW;
+		sel_o <= memr_sel[15:0];
+		if (stk_dep=='d1)
+  		adr_o <= {memr.adr[31:4],4'd0};
+  	else
+  		adr_o <= adr_o + 5'd16;
+		csr_o <= memr.func2==MR_LDR;
+    tid_o <= {tid_cnt[7:3] + 2'd1,3'd0};
+  	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
+  	tid_cnt[2:0] <= 'd0;
+  	wr_reqtbl <= 1'b1;
+		goto (MEMORY_ACK);
+	end
+end
+endtask
+
 task tMemoryActivate;
 begin
 	dfetch2 <= 1'b0;
 	dstore1 <= 1'b0;
 	strips <= 2'd0;
 	dcnt <= 'd0;
-	// Detect cache controller commands
 	case(memr.func)
-	MR_STORE,MR_MOVST:
-		begin
-`ifdef SUPPORT_HWWALK    		
-			// Invalidate PTCEs when a store occurs to the PDE
-			for (n4 = 0; n4 < 12; n4 = n4 + 1)
-				if (ptc[n4].pde.padr[AWID-1:4]==memr.adr[AWID-1:4])
-					ptc[n4].v <= 1'b0;
-`endif						
-			seg_o <= wishbone_pkg::DATA;
-	  	bte_o <= wishbone_pkg::LINEAR;
-			cti_o <= wishbone_pkg::CLASSIC;
-			cyc_o <= HIGH;
-			stb_o <= HIGH;
-			we_o <= HIGH;
-			sel_o <= memr.sel[15:0];
-			if (stk_dep=='d1)
-	  		adr_o <= {memr.adr[31:4],4'd0};
-	  	else
-	  		adr_o <= adr_o + 5'd16;
-	  	dat_o <= memr.res;
-	  	dat <= memr.res;
-			csr_o <= memr.func2==MR_STC;
-  		goto (MEMORY_ACK);
-		end
-	MR_ICACHE_LOAD:
-		goto (IFETCH0);
-	MR_LOAD,MR_LOADZ:
-		begin
-			// It was cachable data and a miss occurred. Fetch the data and return
-			// a miss status to the execute unit so it will try again.
-			// If the line was modified, write it out first.
-			if (memr.acr[3]) begin
-				if (|memr.mod)
-					gosub(DSTORE1);
-				else
-					goto (DFETCH2);
-			end
-			else begin
-				seg_o <= wishbone_pkg::DATA;
-		  	bte_o <= wishbone_pkg::LINEAR;
-  			cti_o <= wishbone_pkg::CLASSIC;
-  			cyc_o <= HIGH;
-  			stb_o <= HIGH;
-  			we_o <= LOW;
-  			sel_o <= memr.sel[15:0];
-				if (stk_dep=='d1)
-		  		adr_o <= {memr.adr[31:4],4'd0};
-		  	else
-		  		adr_o <= adr_o + 5'd16;
-   			csr_o <= memr.func2==MR_LDR;
-	  		goto (MEMORY_ACK);
-			end
-		end
-	default:	ret();	// unknown operation
+	MR_STORE,MR_MOVST:	tBeginStore();
+	// Trim a cycle off of I$ update by starting the access here.
+	MR_ICACHE_LOAD:			tBeginIFetch();
+	MR_LOAD,MR_LOADZ:		tBeginLoad();
+	// Other operations should have been filtered out by the memory pipeline.
+	default:	ret(0);	// unknown operation
 	endcase
 end
 endtask
@@ -2775,7 +2932,7 @@ begin
       goto (MEMORY_NACK);
       stb_o <= LOW;
     end
-  default:	ret();
+  default:	ret(0);
 	endcase
 end
 endtask
@@ -2783,7 +2940,7 @@ endtask
 task tMemoryNack;
 begin
   if (~ack_i) begin
-   	memr.sel <= memr.sel >> 16;
+   	memr_sel <= memr_sel >> 16;
     case(memr.func)
     MR_LOAD,MR_LOADZ,MR_MOVLD:
     	begin
@@ -2798,11 +2955,12 @@ begin
 	    	3'd7: dati[1023:896] <= dat_i;
 	    	default:	;
 	    	endcase
-		    if (|memr.sel[31:16]) begin
+		    if (|memr_sel[31:16]) begin
+		    	// Recursive call, goes a max of eight deep.
 	  	    gosub (MEMORY_ACTIVATE);
 	  	  end
 	  	  else begin
-	  	  	if (memr.sel[127:16]=='d0) begin
+	  	  	if (memr_sel[127:16]=='d0) begin
     				tDeactivateBus();
 	        	goto (DATA_ALIGN);
 	        end
@@ -2810,12 +2968,13 @@ begin
     	end
     MR_STORE,MR_MOVST:
     	begin
-		    if (|sel[31:16]) begin
-      		memr.res <= memr.res >> 128;
+		    if (|memr_sel[31:16]) begin
+      		memr_res <= memr_res >> 128;
+		    	// Recursive call, goes a max of eight deep.
 		    	gosub (MEMORY_ACTIVATE);
 			  end
 			  else begin
-			  	if (memr.sel[127:16]=='d0) begin
+			  	if (memr_sel[127:16]=='d0) begin
 		    		if (memreq.func2==MR_STPTR) begin	// STPTR
 				    	if (~|ea[AWID-5:0] || shr_ma[5:3] >= region.at[18:16]) begin
 		  					memresp.cause <= FLT_NONE;
@@ -2825,7 +2984,7 @@ begin
 	  						memresp.wr <= TRUE;
 								memresp.res <= {127'd0,rb_i};
 								if (!memresp_full)
-									ret();
+									ret(0);
 				    	end
 				    	else begin
 				    		if (shr_ma=='d0) begin
@@ -2848,12 +3007,12 @@ begin
 							memresp.res <= {127'd0,rb_i};
 							if (!memresp_full) begin
 								if (|memr.hit[1:0]) begin
-									if (memr.adr[6])
+									if (memr.adr[5])
 										dci <= {dci[0],dci[1]};
 									goto (MEMORY_UPD1);
 								end
 								else
-									ret();
+									ret(0);
 							end
 			      end
 		    	end
@@ -2861,13 +3020,14 @@ begin
     	end
     default:
     	begin
-    		ret();
+    		ret(0);
     	end
     endcase
   end
 end
 endtask
 
+/*
 task tMemoryActivateHi;
 begin
 `ifndef SUPPORT_HASHPT
@@ -2886,7 +3046,7 @@ begin
   	goto (MEMORY_ACKHI);
 `endif
 		if (dhit && (memreq.func==MR_LOAD ||
-			memreq.func==MR_LOADZ || memreq.func==MR_MOVLD /*|| memreq.func==RTS2*/) && dce && tlbacr[3])
+			memreq.func==MR_LOADZ || memreq.func==MR_MOVLD || memreq.func==RTS2) && dce && tlbacr[3])
  			tDeactivateBus();
 		else begin
 			seg_o <= wishbone_pkg::DATA;
@@ -2910,40 +3070,49 @@ begin
   end
 end
 endtask
+*/
+
+// This data align is for non-cached data.
 
 task tDataAlign;
 begin
 	memresp2.cause <= FLT_NONE;
 	tDeactivateBus();
+	// Do we not always want to return?
+	ret(0);
+	/*
 	if ((memr.func==MR_LOAD || memr.func==MR_LOADZ || memr.func==MR_MOVLD) & memr.sz!=2'b11 & dcachable & memr.acr[3] & dce &
 	 	~memr.ptgram_en & ~memr.rgn_en & ~memr.tlb_access) begin
 		memresp2.cause <= FLT_DCM;
 	end
-	else if (memreq.func==MR_MOVLD) begin
-		ret();
+	else if (memr.func==MR_MOVLD) begin
+		ret(0);
 	end
-	else if (!memresp_full) begin
+	else if (mem_pipe_adv) begin
+		ret(0);
+		// Not sure what this code was doing, but mem_resp[] is not available here.
 		// Find an open spot
 		case(mem_resp[PADR_SET].func)
-		MR_STORE:					ret();
-		MR_LOAD,MR_LOADZ:	if (!mem_resp[PADR_SET].v) ret();
-		MR_TLBRW,MR_TLBRD:	ret();
-		MR_ICACHE_LOAD:		ret();
-		default:	if (!mem_resp[PADR_SET].v) ret();
+		MR_STORE:					ret(0);
+		MR_LOAD,MR_LOADZ:	if (!mem_resp[PADR_SET].v) ret(0);
+		MR_TLBRW,MR_TLBRD:	ret(0);
+		MR_ICACHE_LOAD:		ret(0);
+		default:	if (!mem_resp[PADR_SET].v) ret(0);
 		endcase
 	end
-	if (memreq.func2==MR_LDG) begin
-		if (memreq.step == NLANES-1) begin
+	*/
+	if (memr.func2==MR_LDG) begin
+		if (memr.step == NLANES-1) begin
 			memresp2.wr <= TRUE;
 		end
-		memresp2.res[memreq.count] <= datis2[63:0];
-		memresp2.step <= memreq.step;
-		memresp2.tid <= memreq.tid;
+		memresp2.res[memr.count] <= datis2[63:0];
+		memresp2.step <= memr.step;
+		memresp2.tid <= memr.tid;
 	end
 	else begin
-		memresp2.step <= memreq.step;
+		memresp2.step <= memr.step;
 	  memresp2.cmt <= TRUE;
-		memresp2.tid <= memreq.tid;
+		memresp2.tid <= memr.tid;
 		memresp2.wr <= TRUE;
 	end
 	csr_o <= LOW;
@@ -2998,23 +3167,6 @@ endtask
 // the current bus cycle. Next a hardware subroutine is called to walk the 
 // page tables and update the TLB with a translation.
 
-task tTlbMiss;
-input MemoryArg_t req;
-input MemoryArg_t oresp;
-output MemoryArg_t resp;
-begin
-	//tDeactivateBus();
-	resp <= oresp;
-	resp.step <= req.step;
-	resp.cmt <= TRUE;
-  resp.cause <= FLT_TLBMISS;
-	resp.tid <= req.tid;
-  resp.adr <= req.adr;
-  resp.wr <= TRUE;
-	resp.res <= 'd0;
-end
-endtask
-
 // Page faults occur only during hardware page table walks when a translation
 // cannot be found.
 
@@ -3025,38 +3177,6 @@ begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
   memresp.cause <= typ;
-	memresp.tid <= memreq.tid;
-  memresp.adr <= ba;
-  memresp.wr <= TRUE;
-	memresp.res <= 128'd0;
-	tDeactivateBus();
-	if (!memresp_full)
-		goto (MEMORY_IDLE);
-end
-endtask
-
-task tWriteViolation;
-input Address ba;
-begin
-	memresp.step <= memreq.step;
-	memresp.cmt <= TRUE;
-  memresp.cause <= FLT_WRV;
-	memresp.tid <= memreq.tid;
-  memresp.adr <= ba;
-  memresp.wr <= TRUE;
-	memresp.res <= 128'd0;
-	tDeactivateBus();
-	if (!memresp_full)
-		goto (MEMORY_IDLE);
-end
-endtask
-
-task tReadViolation;
-input Address ba;
-begin
-	memresp.step <= memreq.step;
-	memresp.cmt <= TRUE;
-  memresp.cause <= FLT_RDV;
 	memresp.tid <= memreq.tid;
   memresp.adr <= ba;
   memresp.wr <= TRUE;
@@ -3107,12 +3227,13 @@ begin
   		io_keys[adr_o[12:2]] <= memreq.res[19:0];
   	end
 		if (!memresp_full)
-	  	ret();
+	  	ret(0);
 	end
 end
 endtask
 `endif
 
+/* Probably dead code, wanted for reference to key violation.
 task tPMAEA;
 input wr;
 input tlbwr;
@@ -3130,10 +3251,13 @@ begin
 	dcachable <= dcachable & region.at[3];
 end
 endtask
+*/
 
 task tDeactivateBus;
 begin
 	seg_o <= wishbone_pkg::DATA;
+	bte_o <= wishbone_pkg::LINEAR;
+	blen_o <= 'd0;
 	cti_o <= wishbone_pkg::CLASSIC;	// Normal cycles again
 	cyc_o <= LOW;
 	stb_o <= LOW;
@@ -3149,6 +3273,7 @@ begin
 	xlaten_stk <= xlaten;
 	seg_stk <= seg_o;
 	bte_stk <= bte_o;
+	blen_stk <= blen_o;
 	cti_stk <= cti_o;
 	cyc_stk <= cyc_o;
 	stb_stk <= stb_o;
@@ -3165,6 +3290,7 @@ begin
 	xlaten <= xlaten_stk;
 	seg_o <= seg_stk;
 	bte_o <= bte_stk;
+	blen_o <= blen_stk;
 	cti_o <= cti_stk;
 	cyc_o <= cyc_stk;
 	stb_o <= stb_stk;
@@ -3203,10 +3329,21 @@ end
 endtask
 
 task ret;
+input loop;
 integer n;
 begin
-	state <= stk_state[stk_dep-2'd1];
-	stk_dep <= stk_dep - 2'd1;
+	if (loop) begin
+		if (!memr_fed)
+			memr_v <= TRUE;
+		else begin
+			state <= stk_state[stk_dep-2'd1];
+			stk_dep <= stk_dep - 2'd1;
+		end
+	end
+	else begin
+		state <= stk_state[stk_dep-2'd1];
+		stk_dep <= stk_dep - 2'd1;
+	end
 end
 endtask
 

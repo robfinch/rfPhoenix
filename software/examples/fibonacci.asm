@@ -1,4 +1,4 @@
-# Fibonacci calculator Thor2021 asm
+# Fibonacci calculator rfPhoenix asm
 # r1 in the end will hold the Nth fibonacci number
 
 	.bss
@@ -9,13 +9,13 @@ _bss_a:
 _data_a:
 	.space	10
 
-#	.org	0xFFFFFFFFFFFE0000
+#	.org	0xFFFFFFFFFFFD0000
 	.text
 	.align	1
 start:
-	AND		r0,r0,0				# set r0 to zero
+	LDI		vm7,-1				# mask of all ones
 	CSRRD	r2,r0,0x3001	# get the thread number
-	AND	r2,r2,3					# 0 to 3
+	AND	r2,r2,15				# 0 to 3
 	BNE	r2,r0,stall			# Allow only thread 0 to work
 
 	LDI	r2,0xFD
@@ -31,10 +31,10 @@ start:
 
 floop: 
 	LDT	r2,0xFFFC0004		# x = a
-	ADD	r1,r1,r2	# a += x
+	ADD	r1,r1,r2				# a += x
 	STT	r1,0xFFFC0004		# stores a
 	STT	r2,0xFFFC0000		# stores x
-	ADD	r3,r3,-1	# y -= 1
+	ADD	r3,r3,-1				# y -= 1
   BNE r3,r0,floop	# jumps back to loop if Z bit != 0 (y's decremention isn't zero yet)
   NOP
   NOP
@@ -44,3 +44,6 @@ floop:
 	NOP  
 stall:
 	BRA	stall
+
+	.balign	0x100,0x0B
+

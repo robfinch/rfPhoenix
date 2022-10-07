@@ -1,4 +1,4 @@
-F00:0001       # Fibonacci calculator Thor2021 asm
+F00:0001       # Fibonacci calculator rfPhoenix asm
 F00:0002       # r1 in the end will hold the Nth fibonacci number
 F00:0003       
 F00:0004       	.bss
@@ -13,63 +13,66 @@ F00:0012       #	.org	0xFFFFFFFFFFFE0000
 F00:0013       	.text
 F00:0014       	.align	1
 F00:0015       start:
-F00:0016       	AND		r0,r0,0				# set r0 to zero
-               S03:00000000:  08 00 00 00 00
+F00:0016       	LDI		vm7,-1				# mask of all ones
+               S03:00000000:  C9 0D 80 FF FF
 F00:0017       	CSRRD	r2,r0,0x3001	# get the thread number
-               S03:00000005:  87 00 80 00 18
-F00:0018       	AND	r2,r2,3					# 0 to 3
-               S03:0000000A:  88 40 80 01 00
+               S03:00000005:  87 00 80 00 98
+F00:0018       	AND	r2,r2,15				# 0 to 3
+               S03:0000000A:  88 40 80 07 80
 F00:0019       	BNE	r2,r0,stall			# Allow only thread 0 to work
-               S03:0000000F:  9C 00 70 30 00
+               S03:0000000F:  9C 00 70 41 80
 F00:0020       
 F00:0021       	LDI	r2,0xFD
-               S03:00000014:  89 00 80 7E 00
+               S03:00000014:  89 00 80 7E 80
 F00:0022       	LDI	r2,0x01		# x = 1
-               S03:00000019:  89 00 80 00 00
+               S03:00000019:  89 00 80 00 80
 F00:0023       	STT	r2,0xFFFC0000
-               S03:0000001E:  BA 00 00 00 00 01 FC FF
+               S03:0000001E:  BA 00 00 00 00 01 E0 FF 07 00
 F00:0024       
 F00:0025       	LDI	r3,0x10		# calculates 16th fibonacci number (13 = D in hex) (CHANGE HERE IF YOU WANT TO CALCULATE ANOTHER NUMBER)
-               S03:00000026:  C9 00 00 08 00
+               S03:00000028:  C9 00 00 08 80
 F00:0026       	OR	r1,r3,r0	# transfer y register to accumulator
-               S03:0000002B:  42 60 00 40 02
+               S03:0000002D:  42 60 00 40 22
 F00:0027       	ADD	r3,r3,-3	# handles the algorithm iteration counting
-               S03:00000030:  C4 60 80 FE 7F
+               S03:00000032:  C4 60 80 FE FF
 F00:0028       
 F00:0029       	LDI	r1,2		# a = 2
-               S03:00000035:  49 00 00 01 00
+               S03:00000037:  49 00 00 01 80
 F00:0030       	STT	r1,0xFFFC0004		# stores a
-               S03:0000003A:  7A 00 00 02 00 01 FC FF
+               S03:0000003C:  7A 00 00 02 00 01 E0 FF 07 00
 F00:0031       
 F00:0032       floop: 
 F00:0033       	LDT	r2,0xFFFC0004		# x = a
-               S03:00000042:  B4 00 00 02 00 01 FC FF
+               S03:00000046:  B4 00 00 02 00 01 E0 FF 07 00
 F00:0034       	ADD	r1,r1,r2	# a += x
-               S03:0000004A:  42 20 00 01 01
+               S03:00000050:  42 20 00 01 21
 F00:0035       	STT	r1,0xFFFC0004		# stores a
-               S03:0000004F:  7A 00 00 02 00 01 FC FF
+               S03:00000055:  7A 00 00 02 00 01 E0 FF 07 00
 F00:0036       	STT	r2,0xFFFC0000		# stores x
-               S03:00000057:  BA 00 00 00 00 01 FC FF
+               S03:0000005F:  BA 00 00 00 00 01 E0 FF 07 00
 F00:0037       	ADD	r3,r3,-1	# y -= 1
-               S03:0000005F:  C4 60 80 FF 7F
+               S03:00000069:  C4 60 80 FF FF
 F00:0038         BNE r3,r0,floop	# jumps back to loop if Z bit != 0 (y's decremention isn't zero yet)
-               S03:00000064:  DC 00 70 EF FF
+               S03:0000006E:  DC 00 70 EC FF
 F00:0039         NOP
-               S03:00000069:  0B
+               S03:00000073:  0B 00 00 00 00
 F00:0040         NOP
-               S03:0000006A:  0B
+               S03:00000078:  0B 00 00 00 00
 F00:0041         NOP
-               S03:0000006B:  0B
+               S03:0000007D:  0B 00 00 00 00
 F00:0042         NOP
-               S03:0000006C:  0B
+               S03:00000082:  0B 00 00 00 00
 F00:0043         NOP
-               S03:0000006D:  0B
+               S03:00000087:  0B 00 00 00 00
 F00:0044       	NOP  
-               S03:0000006E:  0B
+               S03:0000008C:  0B 00 00 00 00
 F00:0045       stall:
 F00:0046       	BRA	stall
-               S03:0000006F:  19 00 00 00 00
+               S03:00000091:  19 00 00 00 00
 F00:0047       
+F00:0048       	.balign	0x100,0x0B
+F00:0049       
+F00:0050       
 
 
 Sections:
@@ -83,8 +86,8 @@ F00  fibonacci.asm
 
 
 Symbols:
-floop LAB (0x42) sec=.text 
-stall LAB (0x6f) sec=.text 
+floop LAB (0x46) sec=.text 
+stall LAB (0x91) sec=.text 
 start LAB (0x0) UNUSED sec=.text 
 _data_a LAB (0x0) UNUSED sec=.data 
 _bss_a LAB (0x0) UNUSED sec=.bss 

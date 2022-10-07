@@ -47,24 +47,24 @@ input rst;
 input clk;
 input wr0;
 output reg wr_ack0;
-input MemoryArg_t i0;
+input memory_arg_t i0;
 input wr1;
 output reg wr_ack1;
-input MemoryArg_t i1;
+input memory_arg_t i1;
 input rd;
-output MemoryArg_t o;
+output memory_arg_t o;
 output reg valid;
 output reg empty;
-output MemoryArg_t ldo0;
+output memory_arg_t ldo0;
 output reg found0;
-output MemoryArg_t ldo1;
+output memory_arg_t ldo1;
 output reg found1;
 output reg full;
 input [NTHREADS-1:0] rollback;
 output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
 reg [4:0] qndx = 'd0;
-MemoryArg_t [QDEP-1:0] que;
+memory_arg_t [QDEP-1:0] que;
 reg [QDEP-1:0] valid_bits = 'd0;
 reg [63:0] isel0, isel1;
 reg [63:0] qsel [0:QDEP-1];
@@ -150,11 +150,11 @@ end
 task tSearch;
 input [3:0] func1;
 input [3:0] func2;
-input MemoryArg_t i;
+input memory_arg_t i;
 input [63:0] isel;
 input [31:0] sx;
 input [255:0] imask;
-output MemoryArg_t ldo;
+output memory_arg_t ldo;
 output found;
 integer n2;
 reg [255:0] dat1;
@@ -210,7 +210,7 @@ else begin
 	if (wr1 && found1)
 		wr_ack1 <= 1'b1;
 	// Port #0 take precedence.
-	if (rd & wr0 & !foundst0) begin
+	if ((rd & ~empty) & wr0 & !foundst0) begin
 		for (n3 = 1; n3 < QDEP; n3 = n3 + 1) begin
 			que[n3-1] <= que[n3];
 			qsel[n3-1] <= qsel[n3];
@@ -229,7 +229,7 @@ else begin
 		else
 			qndx <= qndx - 2'd1;
 	end
-	else if (rd & wr1 & !foundst1) begin
+	else if ((rd & ~empty) & wr1 & !foundst1) begin
 		for (n3 = 1; n3 < QDEP; n3 = n3 + 1) begin
 			que[n3-1] <= que[n3];
 			qsel[n3-1] <= qsel[n3];
@@ -274,7 +274,7 @@ else begin
 			wr_ack1 <= 1'b1;
 		end
 	end
-	else if (rd) begin
+	else if (rd & ~empty) begin
 		if (|qndx)
 			qndx <= qndx - 2'd1;
 		for (n3 = 1; n3 < QDEP; n3 = n3 + 1) begin

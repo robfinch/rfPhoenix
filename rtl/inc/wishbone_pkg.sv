@@ -36,7 +36,7 @@
 package wishbone_pkg;
 
 typedef logic [31:0] wb_address_t;
-typedef logic [7:0] wb_burst_len_t;		// number of beats in a burst -1
+typedef logic [2:0] wb_burst_len_t;		// number of beats in a burst -1
 typedef logic [3:0] wb_channel_t;			// channel for devices like system cache
 typedef logic [7:0] wb_tranid_t;			// transaction id
 typedef logic [7:0] wb_priv_level_t;	// 0=all access,

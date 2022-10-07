@@ -38,9 +38,10 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_dcache_wr(clk, state, ack, func, dce, hit, hit2, inv, acr, eaeo, daeo, wr);
+module rfPhoenix_dcache_wr(clk, state, wr_dc, ack, func, dce, hit, hit2, inv, acr, eaeo, daeo, wr);
 input clk;
 input [6:0] state;
+input wr_dc;
 input ack;
 input [6:0] func;
 input dce;
@@ -68,11 +69,13 @@ begin
 			if (eaeo)
 				wr <= acr[3];
 		end
+	/*
 	DFETCH7:
 		begin
 	  	if (daeo)
 	  		wr <= acr[3];
 	  end
+	*/
 	IPT_RW_PTG4:
 		if (!inv && (dce & hit) && func==MR_STORE && ack) begin
 			if (daeo)
@@ -80,6 +83,10 @@ begin
 		end
 	default:	;
 	endcase
+	if (wr_dc) begin
+  	if (daeo)
+  		wr <= 1'b1;//acr[3];
+	end
 end
 
 endmodule

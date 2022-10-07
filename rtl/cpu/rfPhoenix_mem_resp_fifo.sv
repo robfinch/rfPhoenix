@@ -44,9 +44,9 @@ parameter DEP=16;
 input rst;
 input clk;
 input wr;
-input MemoryArg_t di;
+input memory_arg_t di;
 input rd;
-output MemoryArg_t dout;
+output memory_arg_t dout;
 output [$clog2(DEP)-1:0] cnt;
 output full;
 output empty;
@@ -69,12 +69,12 @@ integer n,n2;
       .PROG_EMPTY_THRESH(3),    // DECIMAL
       .PROG_FULL_THRESH(9),     // DECIMAL
       .RD_DATA_COUNT_WIDTH(4),   // DECIMAL
-      .READ_DATA_WIDTH($bits(MemoryArg_t)),      // DECIMAL
+      .READ_DATA_WIDTH($bits(memory_arg_t)),      // DECIMAL
       .READ_MODE("std"),         // String
       .SIM_ASSERT_CHK(0),        // DECIMAL; 0=disable simulation messages, 1=enable simulation messages
       .USE_ADV_FEATURES("0707"), // String
       .WAKEUP_TIME(0),           // DECIMAL
-      .WRITE_DATA_WIDTH($bits(MemoryArg_t)),     // DECIMAL
+      .WRITE_DATA_WIDTH($bits(memory_arg_t)),     // DECIMAL
       .WR_DATA_COUNT_WIDTH(4)    // DECIMAL
    )
    xpm_fifo_sync_inst (

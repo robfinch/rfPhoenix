@@ -55,12 +55,12 @@ input sys_mode_i;
 input xlaten_i;
 input we_i;
 input stptr_i;
-input Address dadr_i;
+input address_t dadr_i;
 input next_i;
 input iacc_i;
 input dacc_i;
-input Address iadr_i;
-output PhysicalAddress padr_o;
+input address_t iadr_i;
+output physical_address_t padr_o;
 output reg [3:0] acr_o;
 input tlben_i;
 input wrtlb_i;
@@ -68,18 +68,18 @@ input [15:0] tlbadr_i;
 input TLBE tlbdat_i;
 output TLBE tlbdat_o;
 output reg tlbmiss_o;
-output Address tlbmiss_adr_o;
+output address_t tlbmiss_adr_o;
 output reg [31:0] tlbkey_o;
 output reg m_cyc_o;
 input m_ack_i;
-output Address m_adr_o;
+output address_t m_adr_o;
 output reg [127:0] m_dat_o;
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
 
 integer n;
-Address adr_i;
-Address last_ladr, last_iadr;
+address_t adr_i;
+address_t last_ladr, last_iadr;
 
 reg [1:0] al;
 reg LRU;
@@ -101,7 +101,7 @@ TLBE tentryo [0:ASSOC-1];
 TLBE tentryo2 [0:ASSOC-1];
 reg stptr;
 reg xlatend;
-Address iadrd;
+address_t iadrd;
 
 reg [ASSOC-1:0] wr;
 reg wed;
@@ -175,19 +175,19 @@ edge_det u5 (
 
 // Detect a change in the page number
 wire cd_dadr, cd_iadr;
-change_det #(.WID($bits(Address)-14)) ucd1 (
+change_det #(.WID($bits(address_t)-14)) ucd1 (
 	.rst(rst_i),
 	.clk(clk_g),
 	.ce(1'b1),
-	.i(dadr_i[$bits(Address)-1:14]),
+	.i(dadr_i[$bits(address_t)-1:14]),
 	.cd(cd_dadr)
 );
 
-change_det #(.WID($bits(Address)-14)) ucd2 (
+change_det #(.WID($bits(address_t)-14)) ucd2 (
 	.rst(rst_i),
 	.clk(clk_g),
 	.ce(1'b1),
-	.i(iadr_i[$bits(Address)-1:14]),
+	.i(iadr_i[$bits(address_t)-1:14]),
 	.cd(cd_iadr)
 );
 
@@ -262,14 +262,14 @@ ST_RST:
 				tlbdat_rst <= 'd0;
 				tlbdat_rst.asid <= 'd0;
 				tlbdat_rst.pte.g <= 1'b1;
-				tlbdat_rst.pte.v <= 1'b1;
 				tlbdat_rst.pte.m <= 1'b1;
 				tlbdat_rst.pte.rwx <= 3'd7;
 				tlbdat_rst.pte.c <= 1'b1;
 				// FFFC0000
 				// 1111_1111_1111_1100_00 00_0000_0000_0000
-				tlbdat_rst.vpn <= {14'h3FFF,count[3:0]};
-				tlbdat_rst.pte.ppn <= {14'h3FFF,count[3:0]};
+				tlbdat_rst.vpn <= 8'hFF;
+				tlbdat_rst.pte.ppn <= {18'h03FFF,count[3:0]};
+				tlbdat_rst.ppnx <= 12'h000;
 				rcount <= {6'h3F,count[3:0]};
 			end // Map 16MB ROM/IO area
 		1'b1: begin state <= ST_RUN; tlbwrr[ASSOC-1] <= 1'd1; end
@@ -447,8 +447,9 @@ endgenerate
 
 always_ff @(posedge clk_g, posedge rst_i)
 if (rst_i) begin
+	padr_o <= 'd0;
   padr_o[15:0] <= rstip[15:0];
-  padr_o[$bits(Address)-1:16] <= rstip[$bits(Address)-1:16];
+  padr_o[$bits(address_t)-1:16] <= rstip[$bits(address_t)-1:16];
   hit <= 4'd15;
   tlbmiss_o <= FALSE;
 	tlbmiss_adr_o <= 'd0;
@@ -464,7 +465,7 @@ else begin
   else begin
 		if (!xlatend) begin
 	    tlbmiss_o <= FALSE;
-	  	padr_o[31:0] <= iadrd[31:0];
+	  	padr_o <= {16'h0000,iadrd[31:0]};
 	    acr_o <= 4'hF;
 		end
 		else begin
@@ -474,9 +475,10 @@ else begin
 			acr_o <= 4'h0;
 			for (n = 0; n < ASSOC; n = n + 1) begin
 				tentryo2[n] <= tentryo[n];
-				if (tentryo[n].vpn[17:10]==iadrd[31:24] && (tentryo[n].asid==asid_i || tentryo[n].pte.g) && tentryo[n].pte.v) begin
+				if (tentryo[n].vpn==iadrd[31:24] && (tentryo[n].asid==asid_i || tentryo[n].pte.g) && |tentryo[n].pte.rwx) begin
 			  	padr_o[13:0] <= iadrd[13:0];
-					padr_o[31:14] <= tentryo[n].pte.ppn[17:0];
+					padr_o[35:14] <= tentryo[n].pte.ppn[21:0];
+					padr_o[47:36] <= tentryo[n].ppnx[11:0];
 					acr_o <= {tentryo[n].pte.ppn < 18'h03FFF || tentryo[n].pte.ppn > 18'h3FFF0,tentryo[n].pte.rwx};
 					tlbmiss_o <= FALSE;
 					hit <= n;

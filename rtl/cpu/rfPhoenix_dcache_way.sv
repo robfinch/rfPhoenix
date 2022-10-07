@@ -38,10 +38,11 @@
 import rfPhoenixPkg::*;
 import rfPhoenixMmupkg::*;
 
-module rfPhoenix_dcache_way(rst, clk, state, ack, func, dce, hit, inv, acr, eaeo, daeo, lfsr, rway, wway);
+module rfPhoenix_dcache_way(rst, clk, state, wr_dc, ack, func, dce, hit, inv, acr, eaeo, daeo, lfsr, rway, wway);
 input rst;
 input clk;
 input [6:0] state;
+input wr_dc;
 input ack;
 input [6:0] func;
 input dce;
@@ -73,13 +74,17 @@ else begin
 			//if (eaeo)
 				wway <= rway;
 		end
+	/*
 	DFETCH7:
 		begin
 	  	//if (daeo)
 				wway <= lfsr;
 	  end
+	*/
 	default:	;
 	endcase
+	if (wr_dc)
+		wway <= lfsr;
 end
 
 endmodule

@@ -166,8 +166,8 @@ wire mc_done1, mcv_done1;
 wire mc_done2, mcv_done2;
 wire ihit,ihite,ihito;
 reg ihit1,ihit2,ihit3,ihite2,ihito2,ihite1,ihito1;
-MemoryArg_t memreq;
-MemoryArg_t memresp;
+memory_arg_t memreq;
+memory_arg_t memresp;
 wire memreq_full;
 reg memresp_fifo_rd;
 wire memresp_fifo_empty;
@@ -899,24 +899,6 @@ begin
 end
 endtask
 
-task tSpSel;
-input [3:0] thread;
-input [5:0] i;
-output [5:0] o;
-begin
-	if (i==6'd31)
-		case(sp_sel[thread])
-		3'd1:	o <= 6'd60;
-		3'd2:	o <= 6'd61;
-		3'd3:	o <= 6'd62;
-		3'd4:	o <= 6'd63;
-		default:	o <= 6'd31;
-		endcase
-	else
-		o <= i;
-end
-endtask
-
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Schedulers
 //
@@ -1023,7 +1005,7 @@ roundRobin rr3
 // Generate stall signal for threads that could have sent instructions down
 // the execute pipe but did not get selected.
 always_comb
-	mc_stall <= (mcsel & ~mcsel[mcndx]) | ({NTHREADS{mcbf_full}} & mcsel);
+	mc_stall <= (mcsel & ~(16'd1 << mcndx)) | ({NTHREADS{mcbf_full}} & mcsel);
 
 // exndx selects the thread to move to the execution stage. To be selected the
 // register file values must have been fetched.
@@ -1058,7 +1040,7 @@ always_ff @(posedge clk_g)
 // Generate stall signal for threads that could have sent instructions down
 // the execute pipe but did not get selected.
 always_comb
-	ex_stall <= (exsel & ~exsel[exndx]) | ({NTHREADS{exbrf_full}} & exsel) | mc_stall;
+	ex_stall <= (exsel & ~(16'd1 << exndx)) | ({NTHREADS{exbrf_full}} & exsel) | mc_stall;
 
 // Select thread for address generation
 /*
@@ -1100,9 +1082,9 @@ reg [NTHREADS-1:0] ousel;
 generate begin : gOusel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			ousel[g] = agb[g].dec.mem && agb[g].v &&
-				!(memreq_full || req_icload)
-				;
+			ousel[g] = agb[g].dec.mem && agb[g].v;// &&
+//				!(memreq_full || req_icload)
+//				;
 end
 endgenerate
 
@@ -1117,10 +1099,10 @@ roundRobin rr5
 	.sel_enc(oundx)
 );
 
-wire req_icload = !ihit1 && !memreq_full && (ip1[31:5] != last_adr[31:5] || imiss_count > 10);
+wire req_icload = !ihit1 && !memreq_full && (ip1[31:5] != last_adr[31:5] || imiss_count > 30);
 
 always_comb
-	ou_stall = ousel & ~ousel[oundx];
+	ou_stall = (ousel & ~({16'd0,|ousel} << oundx)) | (({16'd0,(memreq_full||req_icload) && agb[oundx].dec.mem}) << oundx);
 
 // The following is dead code. The instruction for writeback is now chosen from
 // a pipeline fifo.
@@ -1470,6 +1452,12 @@ begin
 		// RF stage #1, not much to do but propagate.
 		rfndx1 <= dcndx;
 		rfb1[n] <= dcb[n];
+		if (rollback_ipv[n] && dcb[n].ifb.ip != rollback_ip[n]) begin
+			rfb1[n].v <= 1'b0;
+			rfb1[n].dec.rfwr <= 1'b0;
+			rfb1[n].dec.vrfwr <= 1'b0;
+			rfb1[n].executed <= 1'b0;
+		end
 
 		// RF stage #2
 		rfndx2 <= rfndx1;
@@ -1884,8 +1872,10 @@ begin
 			if (agb[n].agen) begin
 				if (!memreq_full && !req_icload) begin
 					if (|ousel) begin
-						tOuLoad(oundx);
-						tOuStore(oundx);
+						if (n==oundx) begin
+							tOuLoad(oundx);
+							tOuStore(oundx);
+						end
 					end
 				end
 				// If the load/store could not be queued backout the decoded and out

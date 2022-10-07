@@ -56,10 +56,11 @@ typedef struct packed
 typedef struct packed
 {
 	logic [19:0] at;
-	rfPhoenixPkg::Address cta;
-	rfPhoenixPkg::Address pmt;
-	rfPhoenixPkg::Address nd;
-	rfPhoenixPkg::Address start;
+	rfPhoenixPkg::physical_address_t cta;
+	rfPhoenixPkg::physical_address_t pmt;
+	rfPhoenixPkg::physical_address_t nd;
+	rfPhoenixPkg::physical_address_t start;
+	logic [31:0] lock;
 } REGION;
 
 typedef struct packed
@@ -81,46 +82,48 @@ typedef struct packed
 // Page Table Entry
 typedef struct packed
 {
-	logic [18:0] ppn;
-	logic [1:0] sw;
+	logic [21:0] ppn;
+	logic sw;
 	logic m;
 	logic a;
 	logic g;
 	logic c;
 	logic [2:0] rwx;
-	logic [2:0] lvl;
-	logic v;
+	logic [1:0] lvl;
 } PTE;	// 32 bits
-
-typedef PTE PDE;
 
 typedef struct packed
 {
-	logic [31:0] resv3;
+	logic [17:0] pteptr;
+	logic [11:0] ppnx;
+	logic [1:0] lvl;
+} PDE;	// 32 bits
+
+typedef struct packed
+{
+	logic [15:0] resv3;
+	logic [15:0] adrhi;
 	logic [31:0] adr;
-	logic [18:0] vpn;
-	logic resv1;
+	logic [7:0] vpn;
 	logic [11:0] asid;
+	logic [11:0] ppnx;
 	PTE		pte;
 } TLBE;	// 128 bits
 
 // Small Hash Page Table Entry
+// Used to map 32-bit virtual addresses into a 36-bit physical address space.
 typedef struct packed
 {
-	logic [9:0] asid;
-	logic g;
-	logic [3:0] bc;
-	logic pad1b;
-	logic [15:0] vpn;
-	logic v;
-	logic [2:0] lvl;
-	logic [2:0] mb;
-	logic [2:0] me;
+	logic [11:0] asid;
+	logic [4:0] bc;
+	logic [17:0] vpn;
+	logic [21:0] ppn;
+	logic sw;
 	logic m;
-	logic [2:0] rwx;
 	logic a;
+	logic g;
 	logic c;
-	logic [15:0] ppn;
+	logic [2:0] rwx;
 } SHPTE;	// 64 bits
 
 // Hash Page Table Entry
@@ -128,21 +131,17 @@ typedef struct packed
 {
 	logic [31:0] vpnhi;
 	logic [31:0] ppnhi;
-	logic [9:0] asid;
-	logic g;
-	logic [3:0] bc;
-	logic pad1b;
-	logic [15:0] vpn;
-	logic v;
-	logic [2:0] lvl;
-	logic [2:0] mb;
-	logic [2:0] me;
+	logic [11:0] asid;
+	logic [4:0] bc;
+	logic [17:0] vpn;
+	logic [21:0] ppn;
+	logic sw;
 	logic m;
-	logic [2:0] rwx;
 	logic a;
+	logic g;
 	logic c;
-	logic [15:0] ppn;
-} HPTE;	// 64 bits
+	logic [2:0] rwx;
+} HPTE;	// 128 bits
 
 typedef struct packed
 {
