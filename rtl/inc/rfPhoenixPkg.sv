@@ -40,6 +40,7 @@ parameter pL1ICacheWays = `L1ICacheWays;
 parameter pL1DCacheWays = `L1DCacheWays;
 parameter TidMSB = $clog2(`NTHREADS)-1;
 
+parameter REGFILE_LATENCY = 2;
 parameter RAS_DEPTH	= 4;
 
 typedef enum logic [5:0] {

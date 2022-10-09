@@ -57,10 +57,10 @@ output cause_code_t wcause;
 
 parameter IC_LATENCY = 2;
 
-integer n10;
+integer n2,n3,n4,n10;
 
 wire clk_g = clk_i;
-pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, exb, agb, oub, wbb, wbb2;
+pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, rfb3, exb, agb, oub, wbb, wbb2;
 
 wire [1:0] bte_o;
 wire [2:0] cti_o;
@@ -123,9 +123,10 @@ reg exndx_v,exndx1_v;
 reg dcndx_v, wbndx_v;
 reg agndx_v,oundx_v;
 reg itndx_v;
-reg rfndx1_v, rfndx2_v;
-tid_t dcndx,itndx,exndx,exndx1,oundx,wbndx,wbndx2,rfndx1,rfndx2,agndx;
+reg rfndx1_v, rfndx2_v, rfndx3_v;
+tid_t dcndx,itndx,exndx,exndx1,exndx2,oundx,wbndx,wbndx2,rfndx1,rfndx2,rfndx3,agndx;
 reg xrid_v,mcrid_v;
+reg [NTHREADS-1:0] dcb_v, rfb3_v, exb_v;
 tid_t mcv_ridi, mcv_rido;
 tid_t ithread, dthread, xthread, commit_thread;
 reg dthread_v;
@@ -142,7 +143,7 @@ code_address_t [NTHREADS-1:0] thread_ip;
 reg [31:0] ip, ip2, ip3, ip4;
 reg [NTHREADS-1:0] thread_busy;
 code_address_t iip, dip, ip_icline, ip_insn, ip1;
-instruction_t ir,dir,xir,mir,insn,mir1,mir2;
+instruction_t ir,dir,xir,bxir,mir,insn,mir1,mir2;
 instruction_t rf_insn;
 postfix_t pfx,irpfx,rf_pfx;
 decode_bus_t deco;
@@ -150,7 +151,7 @@ decode_bus_t [NTHREADS-1:0] dco;
 reg [6+TidMSB+1:0] ra0,ra1,ra2,ra3,ra4;
 reg [6+TidMSB+1:0] ra0d,ra1d,ra2d,ra3d,ra4d;
 value_t rfo0, rfo1, rfo2, rfo3, rfo4;
-value_t ximm,mcimm;
+value_t ximm,mcimm,bxa,bxc;
 ASID xasid;
 vector_value_t vrfo0, vrfo1, vrfo2, vrfo3, vrfo4;
 vector_value_t xa,xb,xc,xt,xm;
@@ -224,6 +225,7 @@ wire exbrf_full, memf_full, mcbf_full;
 wire exbrf_empty, memf_empty, mcbf_empty;
 wire exbrf_v, memf_v, mcbf_v;
 prec_t xprc, mprc;
+code_address_t [NTHREADS-1:0] last_ip;
 
 // CSRs
 reg [31:0] cr0;
@@ -500,21 +502,24 @@ ffo12 ufo10 (.i({11'd0,ou_rollback}), .o(ort));
 assign mem_rollback_thread = mrt;
 assign ou_rollback_thread = ort;
 
-generate begin : gScoreboard
-for (g = 0; g < NTHREADS; g = g + 1) begin
-	always_comb
-	begin
-		rollback[g] <= 'd0;
-		rollback_bitmaps[g] <= 'd0;
-		if (mem_rollback[g]) begin
-			rollback[g] <= 1'b1;
-			rollback_bitmaps[g] <= mem_rollback_bitmaps[g];
+always_comb
+	for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1) begin
+		if (mem_rollback[n2]) begin
+			rollback[n2] = TRUE;
+			rollback_bitmaps[n2] = mem_rollback_bitmaps[n2];
 		end
-		else if (ou_rollback[g]) begin
-			rollback[g] <= 1'b1;
-			rollback_bitmaps[g] <= ou_rollback_bitmaps[g];
+		else if (ou_rollback[n2]) begin
+			rollback[n2] = TRUE;
+			rollback_bitmaps[n2] = ou_rollback_bitmaps[n2];
+		end
+		else begin
+			rollback[n2] = FALSE;
+			rollback_bitmaps[n2] = 'd0;
 		end
 	end
+	
+generate begin : gScoreboard
+for (g = 0; g < NTHREADS; g = g + 1) begin
 
 	rfPhoenix_scoreboard uscb1
 	(
@@ -544,9 +549,9 @@ else
 
 rfPhoenix_branch_eval ube1
 (
-	.ir(xir),
-	.a(xa[0]),
-	.b(xc[0]),
+	.ir(bxir),
+	.a(bxa),
+	.b(bxc),
 	.o(takb)
 );
 
@@ -701,6 +706,7 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	ic_tag2o <= ic_tago;
 reg [NTHREADS-1:0] wr_ififo;
+wire [$bits(dco)+$bits(dc_ifb)-1:0] ififo_out [0:NTHREADS-1];
 generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
@@ -711,7 +717,12 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	else
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
-		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX;
+		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX && ic_ifb.ip != last_ip[g];
+	always_ff @(posedge clk_g)
+	if (rst_i)
+		last_ip[g] <= 'd0;
+	else if (ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX)
+		last_ip[g] <= ic_ifb.ip;
 
 	rfPhoenix_fifo #(.WID($bits({deco,ic_ifb})), .DEP(16)) ufifo1
 	(
@@ -720,14 +731,16 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.wr(wr_ififo[g]),
 		.di(rollback[g] ? 'd0 : {deco,ic_ifb}),
 		.rd(sb_will_issue[g]),
-		.dout({dco[g],dc_ifb[g]}),		
+		.dout(ififo_out[g]),		
 		.cnt(),
 		.almost_full(ififo_almost_full[g]),
 		.full(),
 		.empty(ififo_empty[g]),
 		.v()
 	);
-	
+	always_comb
+		{dco[g],dc_ifb[g]} = rollback[g] ? 'd0 : ififo_out[g];
+
 /*
 	rfPhoenix_insn_fifo #(.DEP(16)) ufifo1
 	(
@@ -881,6 +894,7 @@ begin
 	rd_trace <= 1'b0;
 	memp <= 'd0;
 	ic_ifb <= 'd0;
+	exndx2 <= 'd0;
 end
 endtask
 
@@ -891,8 +905,8 @@ begin
 	memreq.wr <= 1'b0;
 	memresp_fifo_rd <= 1'b0;
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		mem_rollback[n] <= 1'b0;
-		ou_rollback[n] <= 1'b0;
+		mem_rollback[n] <= FALSE;
+		ou_rollback[n] <= FALSE;
 		if (ou_rollback[n])
 			ou_rollback_bitmaps[n] <= 'd0;
 	end
@@ -986,7 +1000,7 @@ generate begin : gMcsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
 			mcsel[g] = 	exb[g].dec.multicycle &&	// multi-cycle
-									exb[g].v;						// and it is valid
+									exb_v[g];						// and it is valid
 end
 endgenerate
 
@@ -1014,9 +1028,9 @@ reg [NTHREADS-1:0] exsel;
 generate begin : gExsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			exsel[g] = 	!rfb2[g].dec.mem &&	// not memory
-									!rfb2[g].dec.multicycle &&	// not multi-cycle
-									 rfb2[g].v;						// and it is valid
+			exsel[g] = 	!rfb3[g].dec.mem &&	// not memory
+									!rfb3[g].dec.multicycle &&	// not multi-cycle
+									 rfb3_v[g];						// and it is valid
 end
 endgenerate
 
@@ -1031,7 +1045,8 @@ roundRobin rr4
 	.sel_enc(exndx)
 );
 
-assign exndx_v = |exsel;
+always_comb
+	exndx_v = |exsel;
 always_ff @(posedge clk_g)
 	exndx1_v <= exndx_v;
 always_ff @(posedge clk_g)
@@ -1235,7 +1250,8 @@ begin
 		ic_ifb.sp_sel <= sp_sel[ip_thread2];
 		ic_ifb.thread <= ip_thread2;
 		ic_ifb.tag <= insn_otag[ip_thread2];
-		insn_otag[ip_thread2] <= insn_otag[ip_thread2] + 2'd1;
+		if (ihit3)
+			insn_otag[ip_thread2] <= insn_otag[ip_thread2] + 2'd1;
 		// External interrupt has highest priority.
 		if (irq_i > status[ip_thread2][0].ipl && gie[ip_thread2] && status[ip_thread2][0].mie)
 			ic_ifb.cause <= cause_code_t'({irq_i,8'h00}|FLT_IRQ);
@@ -1346,29 +1362,32 @@ begin
 			dcb[n] <= dcb[n];
 		else begin
 			dcb[n].thread <= n;
-			dcb[n].v <= dc_ifb[n].v;
+//				dcb[n].v <= dc_ifb[n].v;
 			dcb[n].ifb <= dc_ifb[n];
 			dcb[n].dec <= dco[n];
+			// Needed for virtualization
+			if (dco[n].csr && omode[n]!=OM_MACHINE)
+				dcb[n].cause <= FLT_CSR;
 			if (n==dcndx) begin
 				ra0 <= {dcndx,fnSpSel(n,dco[n].Ra)};
 				ra1 <= {dcndx,fnSpSel(n,dco[n].Rb)};
 				ra2 <= {dcndx,fnSpSel(n,dco[n].Rc)};
 				ra3 <= {dcndx,dco[n].Rm.num};
-				ra4 <= {dcndx,fnSpSel(n,dco[n].Rt)};
+//				ra4 <= {dcndx,fnSpSel(n,dco[n].Rt)};
 			end
-			if (rollback[n])
-				dcb[n].v <= FALSE;
-			else if (sb_will_issue[n]) begin
-				// Needed for virtualization
-				if (dco[n].csr && omode[n]!=OM_MACHINE)
-					dcb[n].cause <= FLT_CSR;
-			end
-			else
-				dcb[n].v <= FALSE;
 		end
 	end
 end
 endtask
+
+always_comb
+	for (n4 = 0; n4 < NTHREADS; n4 = n4 + 1) begin
+		dcb_v[n4] <= (dcb[n4].ifb.ip != dc_ifb[n4].ip) && dc_ifb[n4].v;
+		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb[n4].ifb.ip) &&
+			(dcb_v[n4] || (dcb[n4].ifb.ip == dc_ifb[n4].ip && dc_ifb[n4].v));
+		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip) &&
+			(rfb3_v[n4] || (rfb3[n4].ifb.ip == dcb[n4].ifb.ip && dcb_v[n4]));
+	end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // RF Stage
@@ -1378,17 +1397,17 @@ endtask
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 always_ff @(posedge clk_g)
-	ra0d <= ra0;
+	ra0d <= stall_pipe ? ra0d : ra0;
 always_ff @(posedge clk_g)
-	ra1d <= ra1;
+	ra1d <= stall_pipe ? ra1d : ra1;
 always_ff @(posedge clk_g)
-	ra2d <= ra2;
+	ra2d <= stall_pipe ? ra2d : ra2;
 always_ff @(posedge clk_g)
-	ra3d <= ra3;
+	ra3d <= stall_pipe ? ra3d : ra3;
 
 value_t csro;
 always_comb
-	tReadCSR(csro,rfndx2,rfb2[rfndx2].dec.imm[13:0]);
+	tReadCSR(csro,rfndx1,rfb1[rfndx1].dec.imm[13:0]);
 	
 vector_value_t opera,operb,operc;
 always_comb
@@ -1432,12 +1451,19 @@ always_comb
 task tRegf;
 input tid_t n;
 begin
-	rfb2[n].a <= opera;
-	rfb2[n].b <= operb;
-	rfb2[n].c <= operc;
-	rfb2[n].mask <= rfo3;
-	if ((rfb1[n].dec.rfwr & ~rfb1[n].dec.Rt.vec) | (rfb1[n].dec.vrfwr & rfb1[n].dec.Rt.vec))
-		ou_rollback_bitmaps[n][rfb1[n].dec.Rt] <= 1'b1;
+	rfb3[n].a <= opera;
+	rfb3[n].b <= operb;
+	rfb3[n].c <= operc;
+	rfb3[n].mask <= rfo3;
+	if (REGFILE_LATENCY==2) begin
+		if ((dcb[n].dec.rfwr & ~dcb[n].dec.Rt.vec) | (dcb[n].dec.vrfwr & dcb[n].dec.Rt.vec))
+			ou_rollback_bitmaps[n][dcb[n].dec.Rt] <= 1'b1;
+	end
+	// ToDo: update for more latencies.
+	else if (REGFILE_LATENCY==3) begin
+	end
+	else if (REGFILE_LATENCY==4) begin
+	end
 end
 endtask
 
@@ -1449,34 +1475,55 @@ task tRegfetch;
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		// RF stage #1, not much to do but propagate.
-		rfndx1 <= dcndx;
-		rfb1[n] <= dcb[n];
-		if (rollback_ipv[n] && dcb[n].ifb.ip != rollback_ip[n]) begin
-			rfb1[n].v <= 1'b0;
-			rfb1[n].dec.rfwr <= 1'b0;
-			rfb1[n].dec.vrfwr <= 1'b0;
-			rfb1[n].executed <= 1'b0;
+
+		if (REGFILE_LATENCY==2) begin
+			rfndx3 <= dcndx;
+			rfb3[n] <= dcb[n];
+			if (rollback[n] && rollback_ipv[n] && dcb[n].ifb.ip == rollback_ip[n]) begin
+				rollback_ipv[n] <= INV;
+				if (n==rfndx3)
+					tRegf(n);
+			end
+			else begin
+				if (n==rfndx3)
+					tRegf(n);
+			end
+		end
+	
+		else if (REGFILE_LATENCY==3) begin
+			rfndx2 <= dcndx;
+			rfndx3 <= rfndx2;
+			rfb2[n] <= dcb[n];
+			rfb2[n].v <= dcb_v[n];
+			rfb3[n] <= rfb2[n];
+			if (rollback[n] && rollback_ipv[n] && rfb2[n].ifb.ip == rollback_ip[n]) begin
+				rollback_ipv[n] <= INV;
+				if (n==rfndx3)
+					tRegf(n);
+			end
+			else begin
+				if (n==rfndx3)
+					tRegf(n);
+			end
 		end
 
-		// RF stage #2
-		rfndx2 <= rfndx1;
-		rfb2[n] <= rfb1[n];
-
-		if (rollback_ipv[n] && rfb1[n].ifb.ip != rollback_ip[n]) begin
-			rfb2[n].v <= 1'b0;
-			rfb2[n].dec.rfwr <= 1'b0;
-			rfb2[n].dec.vrfwr <= 1'b0;
-			rfb2[n].executed <= 1'b0;
-		end
-		else if (rollback_ipv[n] && rfb1[n].ifb.ip == rollback_ip[n]) begin
-			rollback_ipv[n] <= 1'b0;
-			if (n==rfndx2)
-				tRegf(n);
-		end
-		else begin
-			if (n==rfndx2)
-				tRegf(n);
+		else if (REGFILE_LATENCY==4) begin
+			rfndx1 <= dcndx;
+			rfndx2 <= rfndx1;
+			rfndx3 <= rfndx2;
+			rfb1[n] <= dcb;
+			rfb1[n].v <= dcb_v[n];
+			rfb2[n] <= rfb1[n];
+			rfb3[n] <= rfb2[n];
+			if (rollback[n] && rollback_ipv[n] && rfb3[n].ifb.ip == rollback_ip[n]) begin
+				rollback_ipv[n] <= INV;
+				if (n==rfndx3)
+					tRegf(n);
+			end
+			else begin
+				if (n==rfndx3)
+					tRegf(n);
+			end
 		end
 	end
 end
@@ -1489,51 +1536,37 @@ endtask
 task tExCall;
 input tid_t exndx;
 begin
-	case(rfb2[exndx].ifb.insn.any.opcode)
-	OP_PFX:
-		begin
-			exb[exndx].out <= 1'b0;
-			exb[exndx].executed <= 1'b1;
-		end
-	OP_NOP:
-		begin
-			exb[exndx].out <= 1'b0;
-			exb[exndx].executed <= 1'b1;
-			thread[exndx].ip <= rfb2[exndx].ifb.ip - 4'd4;
-		end
+	if (rfb3_v[exndx])
+	case(rfb3[exndx].ifb.insn.any.opcode)
+	OP_PFX:	;
+	OP_NOP:	;
 	OP_CALL:
 		begin
-			thread[exndx].ip <= rfb2[exndx].dec.imm;
-			rollback_ip[exndx] <= rfb2[exndx].dec.imm;
+			thread[exndx].ip <= rfb3[exndx].dec.imm;
+			rollback_ip[exndx] <= rfb3[exndx].dec.imm;
 			rollback_ipv[exndx] <= 1'b1;
 			exb[exndx].res <= 'd0;
-			exb[exndx].res[0] <= rfb2[exndx].ifb.ip + 4'd5;
+			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd5;
 			ou_rollback[exndx] <= 1'b1;
-			ou_rollback_bitmaps[exndx][rfb2[exndx].dec.Rt] <= 1'b1;
-			exb[exndx].out <= 1'b0;
-			exb[exndx].executed <= 1'b1;
+			ou_rollback_bitmaps[exndx][rfb3[exndx].dec.Rt] <= 1'b1;
 		end
 	OP_BSR:
 		begin
-			thread[exndx].ip <= rfb2[exndx].dec.imm + rfb2[exndx].ifb.ip;
-			rollback_ip[exndx] <= rfb2[exndx].dec.imm + rfb2[exndx].ifb.ip;
+			thread[exndx].ip <= rfb3[exndx].dec.imm + rfb3[exndx].ifb.ip;
+			rollback_ip[exndx] <= rfb3[exndx].dec.imm + rfb3[exndx].ifb.ip;
 			rollback_ipv[exndx] <= 1'b1;
 			exb[exndx].res <= 'd0;
-			exb[exndx].res[0] <= rfb2[exndx].ifb.ip + 4'd5;
+			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd5;
 			ou_rollback[exndx] <= 1'b1;
-			ou_rollback_bitmaps[exndx][rfb2[exndx].dec.Rt] <= 1'b1;
-			exb[exndx].out <= 1'b0;
-			exb[exndx].executed <= 1'b1;
+			ou_rollback_bitmaps[exndx][rfb3[exndx].dec.Rt] <= 1'b1;
 		end
 	OP_RET:
 		begin
-			exb[exndx].out <= 1'b0;
-			exb[exndx].executed <= 1'b1;
-			thread[exndx].ip <= rfb2[exndx].a[0];
-			rollback_ip[exndx] <= rfb2[exndx].a[0];
-			rollback_ipv[exndx] <= 1'b1;
-			ou_rollback[exndx] <= 1'b1;
-			ou_rollback_bitmaps[exndx][rfb2[exndx].dec.Rt] <= 1'b1;
+			thread[exndx].ip <= rfb3[exndx].a[0];
+			rollback_ip[exndx] <= rfb3[exndx].a[0];
+			rollback_ipv[exndx] <= VAL;
+			ou_rollback[exndx] <= TRUE;
+			ou_rollback_bitmaps[exndx][rfb3[exndx].dec.Rt] <= TRUE;
 		end
 	default:	;
 	endcase
@@ -1543,18 +1576,27 @@ endtask
 task tExBranch;
 input tid_t exndx;
 begin
-	if (rfb2[exndx].dec.br) begin
-		exb[exndx].out <= 1'b0;
-		exb[exndx].executed <= 1'b1;
+	if (rfb3[exndx].dec.br & rfb3_v[exndx]) begin
 		if (takb) begin
-			thread[exndx].ip <= rfb2[exndx].ifb.ip + rfb2[exndx].dec.imm;
-			rollback_ip[exndx] <= rfb2[exndx].ifb.ip + rfb2[exndx].dec.imm;
-			rollback_ipv[exndx] <= 1'b1;
-			ou_rollback[exndx] <= 1'b1;
+			thread[exndx].ip <= rfb3[exndx].ifb.ip + rfb3[exndx].dec.imm;
+			rollback_ip[exndx] <= rfb3[exndx].ifb.ip + rfb3[exndx].dec.imm;
+			rollback_ipv[exndx] <= TRUE;
+			ou_rollback[exndx] <= TRUE;
 		end
 	end
 end
 endtask
+
+
+// This combo to feed branch evaluation to avoid needing another pipeline stage.
+always_comb
+	for (n3 = 0; n3 < NTHREADS; n3 = n3 + 1) begin
+		if (n3==exndx && exndx_v) begin
+			bxir <= rfb3[n3].ifb.insn;
+			bxa <= rfb3[n3].a[0];
+			bxc <= rfb3[n3].c[0];
+		end
+	end
 
 task tExecute;
 integer n;
@@ -1568,46 +1610,41 @@ begin
 		if (stall_pipe[n])
 			exb[n] <= exb[n];
 		else
-			exb[n] <= rfb2[n];
+			exb[n] <= rfb3[n];
 
 		if (!stall_pipe[n]) begin
 			exb[n].regfetched <= 1'b0;
-			exb[n].out <= 1'b1;
 			exb[n].retry <= 'd0;
 
-			if (rfb2[n].dec.multicycle) begin
+			if (rfb3[n].dec.multicycle) begin
 				if (n==mcndx && |mcsel) begin
-					mcbi <= rfb2[n];
+					mcbi <= rfb3[n];
 					mcbi.v <= 1'b1;
-					mir <= rfb2[n].ifb.insn;
-					mprc <= rfb2[n].dec.prc;
-					mca <= rfb2[n].a;
-					mcb <= rfb2[n].b;
-					mcc <= rfb2[n].c;
-					mct <= rfb2[n].t;
-					mcimm <= rfb2[n].dec.imm;
-					mcm <= rfb2[n].mask;
+					mir <= rfb3[n].ifb.insn;
+					mprc <= rfb3[n].dec.prc;
+					mca <= rfb3[n].a;
+					mcb <= rfb3[n].b;
+					mcc <= rfb3[n].c;
+					mct <= rfb3[n].t;
+					mcimm <= rfb3[n].dec.imm;
+					mcm <= rfb3[n].mask;
 				end
 			end
 			else begin
-				if (n==exndx && |exsel) begin
-					xir <= rfb2[n].ifb.insn;
-					xprc <= rfb2[n].dec.prc;
-					xa <= rfb2[n].a;
-					xb <= rfb2[n].b;
-					xc <= rfb2[n].c;
-					xt <= rfb2[n].t;
-					xta <= rfb2[n].dec.Ta;
-					xtb <= rfb2[n].dec.Tb;
-					xtt <= rfb2[n].dec.Tt;
-					xm <= rfb2[n].mask;
-					ximm <= rfb2[n].dec.imm;
+				if (n==exndx && exndx_v) begin
+					xir <= rfb3[n].ifb.insn;
+					xprc <= rfb3[n].dec.prc;
+					xa <= rfb3[n].a;
+					xb <= rfb3[n].b;
+					xc <= rfb3[n].c;
+					xt <= rfb3[n].t;
+					xta <= rfb3[n].dec.Ta;
+					xtb <= rfb3[n].dec.Tb;
+					xtt <= rfb3[n].dec.Tt;
+					xm <= rfb3[n].mask;
+					ximm <= rfb3[n].dec.imm;
 					xasid <= asid[n];
 					xhmask <= hmask;
-		//			$display("Decode %d:", dcndx);
-		//			$display("  insn=%h a=%h b=%h c=%h i=%h", dc_ifb[dcndx].ifb.insn, dc_ifb[dcndx].a, dc_ifb[dcndx].b, dc_ifb[dcndx].c, dc_ifb[dcndx].dec.imm);
-		//			$display("Execute %d:", n);
-		//			$display("  insn=%h a=%h b=%h c=%h i=%h", exb[n].ifb.insn, exb[n].a, exb[n].b, exb[n].c, exb[n].dec.imm);
 				end
 			end
 			tExCall(n);
@@ -1616,8 +1653,9 @@ begin
 	end
 
 	if (exndx1_v)
-		if (!stall_pipe[exndx1]) begin
+		if (!stall_pipe[exndx1] & exb_v[exndx1] & ~exb[exndx1].dec.mem) begin
 			exbr <= exb[exndx1];
+			exbr.v <= exb_v[exndx1];
 			exbr.res <= vres;
 			exbrf_wr <= TRUE;
 		end
@@ -1651,8 +1689,12 @@ begin
 		else begin
 			if (wbb[n].dec.need_steps && wbb[n].dec.mem && wbb[n].count != 'd0)
 				agb[n] <= wbb[n];
-			else
+			else if (exb[n].dec.mem) begin
 				agb[n] <= exb[n];
+				agb[n].v <= exb_v[n];
+			end
+			else
+				agb[n].v <= INV;
 			// Get result
 			if (!exb[n].dec.cjb)
 				agb[n].res <= vres;
@@ -1700,7 +1742,7 @@ begin
 		memreq.tid <= tid;
 		memreq.tag <= agb[oundx].ifb.tag;
 		// Skip masked memory operation when mask is zero
-		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
+		if (agb[oundx].dec.need_steps && agb[oundx].mask=='d0)
 			memreq.wr <= 1'b0;
 		else begin
 			memreq.wr <= 1'b1;
@@ -1726,12 +1768,13 @@ begin
 		default:	memreq.sel <= 64'hF;
 		endcase
 		// Try the same address again on a cache miss.
-		if (oub[oundx].cause != FLT_DCM) begin
-			if (oub[oundx].dec.memsz==vect) begin
-				if (oub[oundx].dec.loadr) begin
-					if (oub[oundx].dec.Ra.vec) begin
-						if (oub[oundx].step < NLANES-1) begin
-							oub[oundx].step <= oub[oundx].step + 2'd1;
+		// Cannot get a cache miss anymore.
+		if (agb[oundx].cause != FLT_DCM) begin
+			if (agb[oundx].dec.memsz==vect) begin
+				if (agb[oundx].dec.loadr) begin
+					if (agb[oundx].dec.Ra.vec) begin
+						if (agb[oundx].step < NLANES-1) begin
+							oub[oundx].step <= agb[oundx].step + 2'd1;
 							memreq.sel <= 64'hF;
 						end
 					end
@@ -1742,13 +1785,14 @@ begin
 				end
 				else begin
 					memreq.sel <= 64'hF;
-					if (oub[oundx].step < NLANES-1 && oub[oundx].dec.loadn)
+					if (agb[oundx].step < NLANES-1 && agb[oundx].dec.loadn)
 						oub[oundx].step <= oub[oundx].step + 2'd1;
 				end
 			end
 		end
-		else if (oub[oundx].retry < 3'd5) begin
-			oub[oundx].retry <= oub[oundx].retry + 2'd1;
+		// This bit of code should be dead.
+		else if (agb[oundx].retry < 3'd5) begin
+			oub[oundx].retry <= agb[oundx].retry + 2'd1;
 			oub[oundx].cause <= FLT_NONE;
 		end
 	end
@@ -1779,10 +1823,10 @@ begin
 		memreq.tid <= tid;
 		memreq.tag <= agb[oundx].ifb.tag;
 		// Skip masked memory operation when mask is zero
-		if (oub[oundx].dec.need_steps && oub[oundx].mask=='d0)
-			memreq.wr <= 1'b0;
+		if (agb[oundx].dec.need_steps && agb[oundx].mask=='d0)
+			memreq.wr <= FALSE;
 		else begin
-			memreq.wr <= 1'b1;
+			memreq.wr <= TRUE;
 			thread[oundx].sleep <= TRUE;
 		end
 		memreq.func <= MR_STORE;
@@ -1836,15 +1880,15 @@ begin
 					memreq.wr <= 1'b0;
 				memreq.res <= agb[oundx].t[agb[oundx].step];
 			end
-			if (oub[oundx].dec.storer) begin
-				if (oub[oundx].dec.Ra.vec && oub[oundx].step < NLANES-1)
-					oub[oundx].step <= oub[oundx].step + 5'd1;
+			if (agb[oundx].dec.storer) begin
+				if (agb[oundx].dec.Ra.vec && agb[oundx].step < NLANES-1)
+					oub[oundx].step <= agb[oundx].step + 5'd1;
 				else if (agb[oundx].step < NLANES-4)
 					oub[oundx].step <= agb[oundx].step + 5'd16;
 			end
 			// For scatter increment step
-			if (oub[oundx].step < NLANES-1 && oub[oundx].dec.storen)
-				oub[oundx].step <= oub[oundx].step + 2'd1;
+			if (agb[oundx].step < NLANES-1 && agb[oundx].dec.storen)
+				oub[oundx].step <= agb[oundx].step + 2'd1;
 		end
 	end
 end
@@ -1860,16 +1904,12 @@ begin
 		else begin
 			oub[n] <= agb[n];
 			oub[n].agen <= 1'b1;
-			oub[n].out <= (agb[n].dec.load|agb[agndx].dec.store) ? ~agb[agndx].agen : 1'b0;
-			oub[n].executed <= (agb[n].dec.load|agb[agndx].dec.store) ? agb[agndx].agen : 1'b1;
 			if ((agb[n].dec.Ra.vec | ((agb[n].dec.storen|agb[n].dec.loadn) & agb[n].dec.Rb.vec)) && agb[n].dec.memsz==vect) begin
 				if (agb[n].step < NLANES-1) begin
-					oub[n].out <= 1'b1;
 					oub[n].agen <= 1'b0;
-					oub[n].executed <= 1'b0;
 				end
 			end
-			if (agb[n].agen) begin
+			if (agb[n].agen & agb[n].v) begin
 				if (!memreq_full && !req_icload) begin
 					if (|ousel) begin
 						if (n==oundx) begin
@@ -1883,8 +1923,6 @@ begin
 				else begin
 					if (agb[n].dec.load|agb[n].dec.store) begin
 						oub[n].regfetched <= 1'b1;
-						oub[n].executed <= 1'b0;
-						oub[n].out <= 1'b0;
 						oub[n].agen <= 1'b0;
 					end
 				end
@@ -1893,8 +1931,6 @@ begin
 				if (exb[mc_rid].dec.is_vector ? mcv_done : mc_done) begin
 					mcrid_v <= 1'b0;
 					mca_busy[0] <= 1'b0;
-					oub[mc_rid].out <= 1'b0;
-					oub[mc_rid].executed <= 1'b1;
 		//			if (exb[mc_rid].dec.Tt)
 						oub[mc_rid].res <= mc_vres;
 		//			else
@@ -2077,11 +2113,11 @@ begin
 			sp_sel[wbndx] <= 3'd3;
 	end
 	if (wbb[oundx].dec.mem) begin
-		mem_rollback[wbndx] <= 1'b1;
-		ou_rollback[wbndx] <= 1'b1;
+		mem_rollback[wbndx] <= TRUE;
+		ou_rollback[wbndx] <= TRUE;
 	end
 	else begin
-		ou_rollback[wbndx] <= 1'b1;
+		ou_rollback[wbndx] <= TRUE;
 	end
 end
 endtask
@@ -2241,8 +2277,12 @@ task tRollback;
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1)
-		if (rollback[n])
-			exb[n] <= 'd0;
+		if (rollback[n]) begin
+			dcb[n].v <= INV;
+			rfb1[n].v <= INV;
+			rfb2[n].v <= INV;
+			exb[n].v <= INV;
+		end
 end
 endtask
 
@@ -2505,7 +2545,7 @@ begin
 				dc_ifb[n].insn.any.opcode.name()
 			);
 			$display("  2:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d", n[3:0],
-				dcb[n].v ? "v":"-",
+				dcb_v[n] ? "v":"-",
 				dcb[n].ifb.ip,
 				dcb[n].ifb.tag,
 				dcb[n].ifb.insn,
@@ -2515,34 +2555,52 @@ begin
 				ra2
 			);
 			$display("Regfetch %d,%d:", rfndx1,rfndx2);
-			$display("  1:%c ip=%h.%d %0s Ra%d Rb%d csro[%h]=%h",
-				rfb1[n].v?"v":"-",
-				rfb1[n].ifb.ip,
-				rfb1[n].ifb.tag,
-				rfb1[n].ifb.insn.any.opcode.name(),
-				rfb1[n].dec.Ra,
-				rfb1[n].dec.Rb,
-				rfb1[n].dec.imm[13:0],
-				csro
-			);
-			$display("  2:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h",
-				rfb2[n].v?"v":"-",
-				rfb2[n].ifb.ip,
-				rfb2[n].ifb.tag,
-				rfb2[n].ifb.insn.any.opcode.name(),
-				rfb2[n].dec.Ra,
+			if (REGFILE_LATENCY > 3) begin
+				$display("  1:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h csro[%h]=%h",
+					rfb1[n].v?"v":"-",
+					rfb1[n].ifb.ip,
+					rfb1[n].ifb.tag,
+					rfb1[n].ifb.insn.any.opcode.name(),
+					rfb1[n].dec.Ra,
+					opera,
+					rfb1[n].dec.Rb,
+					operb,
+					rfb1[n].dec.Rc,
+					operc,
+					rfb1[n].dec.imm[13:0],
+					csro
+				);
+			end
+			if (REGFILE_LATENCY > 2) begin
+				$display("  2:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h",
+					rfb2[n].v?"v":"-",
+					rfb2[n].ifb.ip,
+					rfb2[n].ifb.tag,
+					rfb2[n].ifb.insn.any.opcode.name(),
+					rfb2[n].dec.Ra,
+					opera,
+					rfb2[n].dec.Rb,
+					operb,
+					rfb2[n].dec.Rc,
+					operc
+				);
+			end
+			$display("  3:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h",
+				rfb3_v[n]?"v":"-",
+				rfb3[n].ifb.ip,
+				rfb3[n].ifb.tag,
+				rfb3[n].ifb.insn.any.opcode.name(),
+				rfb3[n].dec.Ra,
 				opera,
-				rfb2[n].dec.Rb,
+				rfb3[n].dec.Rb,
 				operb,
-				rfb2[n].dec.Rc,
+				rfb3[n].dec.Rc,
 				operc
 			);
 			$display("Execute:");
-			$display("  %d: %c%c%c%c ip=%h.%d ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
-				exb[n].v ? "v":"-",
+			$display("  %d: %c%c ip=%h.%d ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
+				exb_v[n] ? "v":"-",
 				exb[n].regfetched ? "r": "-",
-				exb[n].out ? "o" : "-",
-				exb[n].executed ? "x" : "-",
 				exb[n].ifb.ip,
 				exb[n].ifb.tag,
 				exb[n].ifb.insn,
@@ -2562,12 +2620,13 @@ begin
 				exbr.res
 			);
 			$display("Address Generation");
-			$display("  %c ip=%h oc=%0s tmpadr=%h res=%h",
+			$display("  %c ip=%h oc=%0s tmpadr=%h res=%h Rc=%h",
 				agb[n].v ? "v" : "-",
 				agb[n].ifb.ip,
 				agb[n].ifb.insn.any.opcode.name(),
 				tmpadr[n],
-				vres
+				vres,
+				agb[n].c
 			);
 			$display("Out");
 			$display("  res=%h",oub[n].res);

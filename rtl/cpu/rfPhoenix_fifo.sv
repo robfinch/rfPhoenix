@@ -68,7 +68,9 @@ always_ff @(posedge clk)
 		*/
 	end
 	else begin
-		if (empty)
+		if (rst)
+			dout <= 'd0;
+		else if (empty)
 			dout <= dout;
 		else
 			dout <= mem[rd_ptr];
