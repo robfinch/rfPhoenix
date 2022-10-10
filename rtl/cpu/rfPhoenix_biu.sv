@@ -59,14 +59,14 @@ input bounds_chk;
 input pe;									// protected mode enable
 input code_address_t ip;
 output code_address_t ip_o;
-output reg ihit;
-output reg ihite;
-output reg ihito;
+output ihit;
+output ihite;
+output ihito;
 input ifStall;
-output reg [$bits(ICacheLine)*2-1:0] ic_line;
-output reg ic_valid;
-output reg [$bits(Address)-1:7] ic_tage;
-output reg [$bits(Address)-1:7] ic_tago;
+output [$bits(ICacheLine)*2-1:0] ic_line;
+output ic_valid;
+output [$bits(Address)-1:6] ic_tage;
+output [$bits(Address)-1:6] ic_tago;
 // Fifo controls
 output fifoToCtrl_wack;
 input memory_arg_t fifoToCtrl_i;
@@ -402,241 +402,39 @@ rfPhoenix_mem_resp_fifo uofifo2
 // Instruction cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-ICacheLine ic_eline, ic_oline;
-reg wr_ic1, wr_ic2;
-reg [1:0] ic_rwaye,ic_rwayo,ic_wway;
-reg icache_wre, icache_wro;
-always_comb icache_wre = wr_ic2 && !upd_adr[5];
-always_comb icache_wro = wr_ic2 &&  upd_adr[5];
-reg ic_invline,ic_invall;
-code_address_t ipo,ip2,ip3,ip4,ip5;
-wire [$bits(code_address_t)-1:14] ictage [0:3];
-wire [$bits(code_address_t)-1:14] ictago [0:3];
-wire [1024/4-1:0] icvalide [0:3];
-wire [1024/4-1:0] icvalido [0:3];
+code_address_t ipo;
 wb_address_t upd_adr = 'd0;
-
+reg wr_ic1, wr_ic2;
 ICacheLine ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [2:0] ivcnt;
-reg [2:0] vcn;
 ICacheLine [4:0] ivcache;
 reg [$bits(code_address_t)-1:14] ivtag [0:4];
 reg [4:0] ivvalid;
-wire ihit2;
-reg ihit3;
-wire ic_valid2e, ic_valid2o;
-reg ic_valide, ic_valido;
-reg ic_valid3e, ic_valid3o;
-wire [$bits(code_address_t)-7:0] ic_tag2e, ic_tag2o;
-reg [$bits(code_address_t)-7:0] ic_tag3e, ic_tag3o;
+reg [1:0] ic_wway;
+reg [2:0] vcn;
+reg ic_invline,ic_invall;
+wire ihit2e, ihit2o;
 
-always_ff @(posedge clk)
-	ip2 <= ip;
-always_ff @(posedge clk)
-	ip3 <= ip2;
-always_ff @(posedge clk)
-	ip4 <= ip3;
-always_ff @(posedge clk)
-	ip5 <= ip4;
-// line up ihit output with cache line output.
-always_ff @(posedge clk)
-	ihit3 <= ihit2;
-always_comb
-	// *** The following causes the hit to tend to oscillate between hit
-	//     and miss.
-	// If cannot cross cache line can match on either odd or even.
-	if (FALSE && ip2[4:0] < 5'd22)
-		ihit <= ip2[5] ? ihit2o : ihit2e;
-	// Might span lines, need hit on both even and odd lines
-	else
-		ihit <= ihit2e&ihit2o;
-always_comb
-	// *** The following causes the hit to tend to oscillate between hit
-	//     and miss.
-	// If cannot cross cache line can match on either odd or even.
-	// If we do not need the even cache line, mark as a hit.
-	if (FALSE && ip2[4:0] < 6'd22)
-		ihite <= ip2[5] ? 1'b1 : ihit2e;
-	// Might span lines, need hit on both even and odd lines
-	else
-		ihite <= ihit2e;
-always_comb
-	// *** The following causes the hit to tend to oscillate between hit
-	//     and miss.
-	// If cannot cross cache line can match on either odd or even.
-	// If we do not need the odd cache line, mark as a hit.
-	if (FALSE && ip2[4:0] < 5'd22)
-		ihito <= ip2[5] ? ihit2o : 1'b1;
-	// Might span lines, need hit on both even and odd lines
-	else
-		ihito <= ihit2o;
-
-always_ff @(posedge clk)
-	ic_valid3e <= ic_valid2e;
-always_ff @(posedge clk)
-	ic_valid3o <= ic_valid2o;
-always_ff @(posedge clk)
-	ic_valide <= ic_valid2e;
-always_ff @(posedge clk)
-	ic_valido <= ic_valid2o;
-assign ip_o = ip3;
-always_ff @(posedge clk)
-	ic_tag3o <= ic_tag2o;
-always_ff @(posedge clk)
-	ic_tago <= ic_tag3o;
-always_ff @(posedge clk)
-	ic_tag3e <= ic_tag2e;
-always_ff @(posedge clk)
-	ic_tage <= ic_tag3e;
-
-always_ff @(posedge clk)
-	// If cannot cross cache line can match on either odd or even.
-	if (FALSE && ip2[4:0] < 5'd22)
-		ic_valid <= ip2[5] ? ic_valid2o : ic_valid2e;
-	else
-		ic_valid <= ic_valid2o & ic_valid2e;
-
-// 256 wide x 1024 deep, 1 cycle read latency.
-sram_256x1024_1r1w uicme
+rfPhoenix_icache uic1
 (
 	.rst(rst),
 	.clk(clk),
-	.wr(icache_wre),
-	.wadr({ic_wway,upd_adr[13:6]}),//+upd_adr[5]}),
-	.radr({ic_rwaye,ip2[13:6]+ip2[5]}),
-	.i(ici),
-	.o(ic_eline)
-);
-
-sram_256x1024_1r1w uicmo
-(
-	.rst(rst),
-	.clk(clk),
-	.wr(icache_wro),
-	.wadr({ic_wway,upd_adr[13:6]}),
-	.radr({ic_rwayo,ip2[13:6]}),
-	.i(ici),
-	.o(ic_oline)
-);
-
-always_comb
-	case(ip3[5])
-	1'b0:	ic_line = {ic_oline.data,ic_eline.data};
-	1'b1:	ic_line = {ic_eline.data,ic_oline.data};
-	endcase
-
-rfPhoenix_ictag 
-#(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
-)
-uictage
-(
-	.rst(rst),
-	.clk(clk),
-	.wr(icache_wre),
-	.ipo(upd_adr),
-	.way(ic_wway),
-	.rclk(clk),
-	.ndx(ip2[13:6]+ip2[5]),	// virtual index (same bits as physical address)
-	.tag(ictage)
-);
-
-rfPhoenix_ictag 
-#(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
-)
-uictago
-(
-	.rst(rst),
-	.clk(clk),
-	.wr(icache_wro),
-	.ipo(upd_adr),
-	.way(ic_wway),
-	.rclk(clk),
-	.ndx(ip2[13:6]),		// virtual index (same bits as physical address)
-	.tag(ictago)
-);
-
-rfPhoenix_ichit
-#(
-	.LINES(256),
-	.WAYS(4)
-)
-uichite
-(
-	.clk(clk),
+	.state(state),
 	.ip(ip),
-	.ndx(ip[13:6]+ip[5]),
-	.tag(ictage),
-	.valid(icvalide),
-	.ihit(ihit2e),
-	.rway(ic_rwaye),
-	.vtag(ic_tag2e),
-	.icv(ic_valid2e)
+	.ip_o(ip_o),
+	.ihit(ihit),
+	.ihite(ihite),
+	.ihito(ihito),
+	.ic_line(ic_line),
+	.ic_valid(ic_valid),
+	.ic_tage(ic_tage),
+	.ic_tago(ic_tago),
+	.upd_adr(upd_adr),
+	.ici(ici),
+	.ic_wway(ic_wway),
+	.wr_ic1(wr_ic1),
+	.wr_ic2(wr_ic2)
 );
-
-rfPhoenix_ichit
-#(
-	.LINES(256),
-	.WAYS(4)
-)
-uichito
-(
-	.clk(clk),
-	.ip(ip),
-	.ndx(ip[13:6]),
-	.tag(ictago),
-	.valid(icvalido),
-	.ihit(ihit2o),
-	.rway(ic_rwayo),
-	.vtag(ic_tag2o),
-	.icv(ic_valid2o)
-);
-
-rfPhoenix_icvalid 
-#(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
-)
-uicvale
-(
-	.rst(rst),
-	.clk(clk),
-	.invce(state==MEMORY4),
-	.ip(upd_adr),
-	.adr(upd_adr),
-	.wr(icache_wre),
-	.way(ic_wway),
-	.invline(ic_invline),
-	.invall(ic_invall),
-	.valid(icvalide)
-);
-
-rfPhoenix_icvalid 
-#(
-	.LINES(256),
-	.WAYS(4),
-	.LOBIT(6)
-)
-uicvalo
-(
-	.rst(rst),
-	.clk(clk),
-	.invce(state==MEMORY4),
-	.ip(upd_adr),
-	.adr(upd_adr),
-	.wr(icache_wro),
-	.way(ic_wway),
-	.invline(ic_invline),
-	.invall(ic_invall),
-	.valid(icvalido)
-);
-
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Key Cache

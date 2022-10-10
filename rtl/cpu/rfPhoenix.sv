@@ -1383,10 +1383,11 @@ endtask
 always_comb
 	for (n4 = 0; n4 < NTHREADS; n4 = n4 + 1) begin
 		dcb_v[n4] <= (dcb[n4].ifb.ip != dc_ifb[n4].ip) && dc_ifb[n4].v;
-		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb[n4].ifb.ip) &&
-			(dcb_v[n4] || (dcb[n4].ifb.ip == dc_ifb[n4].ip && dc_ifb[n4].v));
-		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip) &&
-			(rfb3_v[n4] || (rfb3[n4].ifb.ip == dcb[n4].ifb.ip && dcb_v[n4]));
+		
+		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb[n4].ifb.ip);// && dc_ifb[n4].v;
+			
+		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip);// && (dcb_v[n4]|dc_ifb[n4].v);
+//			(rfb3_v[n4] || (rfb3[n4].ifb.ip == dcb[n4].ifb.ip && dcb_v[n4]));
 	end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
