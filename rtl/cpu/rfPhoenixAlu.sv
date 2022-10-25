@@ -51,7 +51,7 @@ input trace_valid;
 input [10:0] trace_count;
 output value_t o;
 
-integer n;
+integer m,n;
 
 value_t fcmp_o, fcmpi_o;
 value_t fclass_o;
@@ -63,13 +63,13 @@ DoubleValue sllr, slli;
 DoubleValue srlr, srli;
 DoubleValue srar, srai;
 always_comb
-	sllr = {a,{$bits(value_t){ir[36]}}} << b[5:0];
+	sllr = {a,{$bits(value_t){ir[33]}}} << b[5:0];
 always_comb
-	slli = {a,{$bits(value_t){ir[36]}}} << imm[5:0];
+	slli = {a,{$bits(value_t){ir[33]}}} << imm[5:0];
 always_comb
-	srlr = {{$bits(value_t){ir[36]}},a} >> b[5:0];
+	srlr = {{$bits(value_t){ir[33]}},a} >> b[5:0];
 always_comb
-	srli = {{$bits(value_t){ir[36]}},a} >> imm[5:0];
+	srli = {{$bits(value_t){ir[33]}},a} >> imm[5:0];
 always_comb
 	srar = {{$bits(value_t){a[31]}},a} >> b[5:0];
 always_comb
@@ -147,6 +147,16 @@ OP_R2:
 		OP_CNTLZ:		o = {26'd0,cntlz_o};
 		OP_CNTPOP:		o = {26'd0,cntpop_o};
 		OP_PTGHASH:	o = {16'h0,hash};
+		OP_MCMPRSS:
+			begin
+				o = 'd0;
+				m = 0;
+				for (n = 0; n < 32; n = n + 1)
+					if (a[n]) begin
+						o[m] = 1'b1;
+						m = m + 1;
+					end
+			end
 		OP_FABS:			o = {1'b0,a[30:0]};
 		OP_FNABS:		o = {1'b1,a[30:0]};
 		OP_FNEG:			o = {~a[31],a[30:0]};
@@ -210,34 +220,29 @@ OP_XORI:			o = a ^ imm;
 OP_CMP:
 	begin
 		o2 = 'd0;
-		case(ir.cmp.sz)
-		2'd0:	o2 = 'd0;
-		2'd1:
-			begin
-				o2[0] = a == b;
-				o2[1] = $signed(a) < $signed(b);
-				o2[2] = $signed(a) <= $signed(b);
-				o2[4:3] = 2'b0;
-				o2[5] = a < b;
-				o2[6] = a <= b;
-				o2[7] = 1'b0;
-				o2[8] = a != b;
-				o2[9] = $signed(a) >= $signed(b);
-				o2[10] = $signed(a) > $signed(b);
-				o2[12:11] = 2'b0;
-				o2[13] = a >= b;
-				o2[14] = a > b;
-				o2[15] = 1'b0;
-			end
-		2'd2:	o2 = 'd0;
-		2'd3:	o2 = 'd0;
-		endcase
+		o2[0] = a == b;
+		o2[1] = $signed(a) < $signed(b);
+		o2[2] = $signed(a) <= $signed(b);
+		o2[4:3] = 2'b0;
+		o2[5] = a < b;
+		o2[6] = a <= b;
+		o2[7] = 1'b0;
+		o2[8] = a != b;
+		o2[9] = $signed(a) >= $signed(b);
+		o2[10] = $signed(a) > $signed(b);
+		o2[12:11] = 2'b0;
+		o2[13] = a >= b;
+		o2[14] = a > b;
+		o2[15] = 1'b0;
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
-OP_CMPI32:
+OP_CMPI:
 	begin
 		o2 = 'd0;
 		o2[0] = a == imm;
@@ -254,32 +259,36 @@ OP_CMPI32:
 		o2[13] = a >= imm;
 		o2[14] = a > imm;
 		o2[15] = 1'b0;
+		o = o2;
+		/*
 		case(ir.cmpi.N)
 		4'd15:	o = o2;
 		default:	o = {31'd0,o2[ir.cmpi.N]};
 		endcase
+		*/
 	end
 OP_FCMP:
 	begin
 		o2 = 'd0;
-		if (ir.cmp.sz==2'd1) begin
-			o2[0] = fcmp_o[0];	// ==
-			o2[1] = fcmp_o[1];	// <
-			o2[2] = fcmp_o[2];	// <=
-			o2[3] = fcmp_o[3];
-			o2[4] = fcmp_o[4];
-			o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
-			o2[9] = fcmp_o[9];	// >=
-			o2[10] = fcmp_o[10];	// >
-			o2[11] = fcmp_o[11];	// mag >=
-			o2[12] = fcmp_o[12];	// ordered
-		end
+		o2[0] = fcmp_o[0];	// ==
+		o2[1] = fcmp_o[1];	// <
+		o2[2] = fcmp_o[2];	// <=
+		o2[3] = fcmp_o[3];
+		o2[4] = fcmp_o[4];
+		o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
+		o2[9] = fcmp_o[9];	// >=
+		o2[10] = fcmp_o[10];	// >
+		o2[11] = fcmp_o[11];	// mag >=
+		o2[12] = fcmp_o[12];	// ordered
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
-OP_FCMPI32:
+OP_FCMPI:
 	begin
 		o2 = 'd0;
 		o2[0] = fcmpi_o[0];	// ==
@@ -292,10 +301,13 @@ OP_FCMPI32:
 		o2[10] = fcmpi_o[10];	// >
 		o2[11] = fcmpi_o[11];	// mag >=
 		o2[12] = fcmpi_o[12];	// ordered
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {31'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
 OP_CSR:			o = c;
 OP_RET:	

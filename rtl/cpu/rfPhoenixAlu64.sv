@@ -136,28 +136,29 @@ OP_XORI:		o = a ^ imm;
 OP_CMP:
 	begin
 		o2 = 'd0;
-		if (ir.cmp.sz==PRC64) begin
-			o2[0] = a == b;
-			o2[1] = $signed(a) < $signed(b);
-			o2[2] = $signed(a) <= $signed(b);
-			o2[4:3] = 2'b0;
-			o2[5] = a < b;
-			o2[6] = a <= b;
-			o2[7] = 1'b0;
-			o2[8] = a != b;
-			o2[9] = $signed(a) >= $signed(b);
-			o2[10] = $signed(a) > $signed(b);
-			o2[12:11] = 2'b0;
-			o2[13] = a >= b;
-			o2[14] = a > b;
-			o2[15] = 1'b0;
-		end
+		o2[0] = a == b;
+		o2[1] = $signed(a) < $signed(b);
+		o2[2] = $signed(a) <= $signed(b);
+		o2[4:3] = 2'b0;
+		o2[5] = a < b;
+		o2[6] = a <= b;
+		o2[7] = 1'b0;
+		o2[8] = a != b;
+		o2[9] = $signed(a) >= $signed(b);
+		o2[10] = $signed(a) > $signed(b);
+		o2[12:11] = 2'b0;
+		o2[13] = a >= b;
+		o2[14] = a > b;
+		o2[15] = 1'b0;
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
-OP_CMPI64:
+OP_CMPI:
 	begin
 		o2 = 'd0;
 		o2[0] = a == imm;
@@ -174,32 +175,36 @@ OP_CMPI64:
 		o2[13] = a >= imm;
 		o2[14] = a > imm;
 		o2[15] = 1'b0;
+		o = o2;
+		/*
 		case(ir.cmpi.N)
 		4'd15:	o = o2;
 		default:	o = {63'd0,o2[ir.cmpi.N]};
 		endcase
+		*/
 	end
 OP_FCMP:
 	begin
 		o2 = 'd0;
-		if (ir.cmp.sz==PRC64) begin
-			o2[0] = fcmp_o[0];	// ==
-			o2[1] = fcmp_o[1];	// <
-			o2[2] = fcmp_o[2];	// <=
-			o2[3] = fcmp_o[3];
-			o2[4] = fcmp_o[4];
-			o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
-			o2[9] = fcmp_o[9];	// >=
-			o2[10] = fcmp_o[10];	// >
-			o2[11] = fcmp_o[11];	// mag >=
-			o2[12] = fcmp_o[12];	// ordered
-		end
+		o2[0] = fcmp_o[0];	// ==
+		o2[1] = fcmp_o[1];	// <
+		o2[2] = fcmp_o[2];	// <=
+		o2[3] = fcmp_o[3];
+		o2[4] = fcmp_o[4];
+		o2[5] = fcmp_o[8]|fcmp_o[4];	// <>
+		o2[9] = fcmp_o[9];	// >=
+		o2[10] = fcmp_o[10];	// >
+		o2[11] = fcmp_o[11];	// mag >=
+		o2[12] = fcmp_o[12];	// ordered
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
-OP_FCMPI64:
+OP_FCMPI:
 	begin
 		o2 = 'd0;
 		o2[0] = fcmpi_o[0];	// ==
@@ -212,10 +217,13 @@ OP_FCMPI64:
 		o2[10] = fcmpi_o[10];	// >
 		o2[11] = fcmpi_o[11];	// mag >=
 		o2[12] = fcmpi_o[12];	// ordered
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {63'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
 default:	o = 'd0;
 endcase

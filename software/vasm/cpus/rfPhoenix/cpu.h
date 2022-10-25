@@ -42,7 +42,7 @@ typedef struct {
 
 /* operand-types */
 #define OP_REG						0x00000001L
-#define OP_IMM13					0x00000002L
+#define OP_VIMM						0x00000002L
 #define OP_IMM23					0x00000004L
 #define OP_IMM30					0x00000008L
 #define OP_IMM46					0x00000010L
@@ -75,7 +75,7 @@ typedef struct {
 #define OP_NEXTREG	-2
 
 /* supersets of other operands */
-#define OP_IMM			(OP_IMM7|OP_IMM13|OP_IMM23|OP_IMM30|OP_IMM46|OP_IMM64|OP_IMM78)
+#define OP_IMM			(OP_IMM7|OP_VIMM|OP_IMM23|OP_IMM30|OP_IMM46|OP_IMM64|OP_IMM78)
 #define OP_REGIND		(OP_REGIND13|OP_REGIND24|OP_REGIND30|OP_REGIND46|OP_REGIND64|OP_REGIND78)
 #define OP_MEM      (OP_REGIND|OP_SCNDX)
 #define OP_ALL      0x3fffffff
@@ -157,6 +157,8 @@ typedef struct {
 #define R3R			50
 #define RI48		51
 #define CMPI		52
+#define VRI			53
+#define VDIRECT	54
 
 #define OP(x)		(((x) & 0x3fLL) << 0LL)
 #define FN(x)		(((x) & 0x3fLL) << 30LL)
@@ -164,16 +166,20 @@ typedef struct {
 #define TT(x)		(((x) & 1LL) << 12LL)
 #define RA(x)		(((x) & 0x7fLL) << 13LL)
 #define TA(x)		(((x) & 1LL) << 19LL)
-#define MSK(x)	(((x) & 0x7) << 20LL)
-#define CND(x)	(((x) & 0x7) << 20LL)
-#define IMM(x)	(((x) & 0xffffLL) << 23LL)
-#define RB(x)		(((x) & 0x7fLL) << 23LL)
-#define TB(x)		(((x) & 1LL) << 29LL)
-#define RC(x)		(((x) & 0x7fLL) << 30LL)
-#define TC(x)		(((x) & 1LL) << 36LL)
-#define RM(x)		(((x) & 3LL) << 37LL)
-#define SZ(x)		(((x) & 3LL) << 37LL)
-#define M(x)		(((x) & 1LL) << 39LL)
+#define MSK(x)	(((x) & 0x7) << 37LL)
+#define CND(x)	(((x) & 0x7) << 37LL)
+#define IMM(x)	(((x) & 0x7ffffLL) << 20LL)
+#define VIMM(x)	(((x) & 0xffffLL) << 20LL)
+#define LSDISP(x)	(((x) & 0xfffffLL) << 20LL)
+#define VLSDISP(x)	(((x) & 0x1ffffLL) << 20LL)
+#define BDISP(x)	(((x) & 0x1ffffLL) << 20LL)
+#define RB(x)		(((x) & 0x7fLL) << 20LL)
+#define TB(x)		(((x) & 1LL) << 26LL)
+#define RC(x)		(((x) & 0x7fLL) << 37LL)
+#define TC(x)		(((x) & 1LL) << 33LL)
+#define RM(x)		(((x) & 3LL) << 34LL)
+#define SZ(x)		(((x) & 3LL) << 34LL)
+#define M(x)		(((x) & 1LL) << 36LL)
 
 /* special data operand types: */
 #define OP_D8  0x40001001

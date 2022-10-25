@@ -41,7 +41,7 @@ import rfPhoenixMmupkg::*;
 module rfPhoenix_active_region(clk, wr, rwa, i, o, adr, region_num, region, err);
 input clk;
 input wr;
-input [5:0] rwa;
+input [6:0] rwa;
 input value_t i;
 output value_t o;
 input physical_address_t adr;

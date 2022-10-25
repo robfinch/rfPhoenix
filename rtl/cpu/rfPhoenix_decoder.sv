@@ -50,7 +50,7 @@ always_comb
 begin
 
 	sp_sel = ifb.sp_sel;
-	pfx = ifb.pfx.opcode==OP_PFX;
+	pfx = ifb.pfx.opcode==3'b010;
 	ret = ifb.insn.any.opcode==OP_RET;
 	deco.v = ifb.v;
 
@@ -61,9 +61,19 @@ begin
 	deco.rex = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r2.Rb==OP_REX;
 	deco.Ra = ifb.insn.r2.Ra;
 	deco.Rb = ret ? 7'd59 : ifb.insn.r2.Rb;
-	deco.Rm = {3'b110,ifb.insn.r2.Rm};
 	deco.Ta = ifb.insn.r2.Ra.vec;
 	deco.Tb = ifb.insn.r2.Rb.vec;
+
+	// Rm
+	case(ifb.insn.any.opcode)
+	OP_R2:	deco.Rm = ifb.insn.r2.Rm;
+	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI,OP_RET:
+					deco.Rm = ifb.insn.imm.Rm;
+	OP_LOAD,OP_LOADU:	deco.Rm = ifb.insn.ls.Rm;
+	OP_STORE: deco.Rm = ifb.insn.ls.Rm;
+	OP_CSR:		deco.Rm = ifb.insn.csr.Rm;
+	default:	deco.Rm = 6'b110001;	// vm1
+	endcase
 
 	// Rt
 	case(ifb.insn.any.opcode)
@@ -77,9 +87,9 @@ begin
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	OP_CMP,OP_FCMP:
 		begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-	OP_CMPI16,OP_CMPI32,OP_CMPI64:
+	OP_CMPI:
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-	OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
+	OP_FCMPI:
 		begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec;end
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	begin deco.Rt = ifb.insn.f3.Rt; deco.Rt.vec = ifb.insn.f3.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	OP_NOP:
@@ -87,8 +97,8 @@ begin
 	OP_CALL:	begin deco.Rt = ifb.insn.call.Rt==2'b00 ? 7'd0 : {4'b1100,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	OP_BSR:	begin deco.Rt = ifb.insn.call.Rt==2'b00 ? 7'd0 : {4'b1100,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	OP_RET:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
-	OP_LDB,OP_LDBU,OP_LDW,OP_LDWU,OP_LDT:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
-	OP_STB,OP_STW,OP_STT:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
+	OP_LOAD,OP_LOADU:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
+	OP_STORE:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
 	OP_CSR:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.ri.Rt.vec; end
 	OP_Bcc,OP_FBcc:	begin deco.Rt = ifb.insn.r2.Rt; deco.Rt.vec = ifb.insn.r2.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	default:	begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
@@ -106,9 +116,9 @@ begin
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-	OP_CMP,OP_CMPI16,OP_CMPI32,OP_CMPI64:
+	OP_CMP,OP_CMPI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
-	OP_FCMP,OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
+	OP_FCMP,OP_FCMPI:
 		begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_NOP:
@@ -116,7 +126,7 @@ begin
 	OP_CALL:	begin deco.rfwr = ifb.insn.call.Rt!='d0; end
 	OP_BSR:	begin deco.rfwr = ifb.insn.call.Rt!='d0; end
 	OP_RET: 	begin deco.rfwr = ifb.insn.r2.Rt != 'd0; end
-	OP_LDB,OP_LDBU,OP_LDW,OP_LDWU,OP_LDT:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
+	OP_LOAD,OP_LOADU:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	OP_CSR:	begin deco.vrfwr = ifb.insn.r2.Rt.vec; deco.rfwr = ~ifb.insn.r2.Rt.vec; end
 	default:	begin deco.rfwr = 'd0; deco.vrfwr = 'd0; end
 	endcase
@@ -125,13 +135,9 @@ begin
 	case(ifb.insn.any.opcode)
 	OP_R2:
 		case(ifb.insn.r2.func)
-		OP_LDBX,OP_LDBUX,OP_LDWX,OP_LDWUX,OP_LDTX,
-		OP_STBX,OP_STWX,OP_STTX:	deco.multicycle = 1'b0;
 		default:	deco.multicycle = 'd0;
 		endcase
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	deco.multicycle = 1'b1;
-	OP_LDB,OP_LDBU,OP_LDW,OP_LDWU,OP_LDT,
-	OP_STB,OP_STW,OP_STT:	deco.multicycle = 1'b0;
 	default:	deco.multicycle = 'd0;
 	endcase
 
@@ -148,36 +154,23 @@ begin
 		default:	deco.imm = 'd0;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
-	OP_CMPI16,OP_CMPI32,OP_CMPI64:
-		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
-	OP_FCMPI16,OP_FCMPI32,OP_FCMPI64:
-		deco.imm = {{67{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
+		deco.imm = {{109{ifb.insn.ri.imm[18]}},ifb.insn.ri.imm};
+	OP_CMPI:
+		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
+	OP_FCMPI:
+		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
 	OP_CALL:	deco.imm = ifb.insn.call.target;
 	OP_BSR:	deco.imm = ifb.insn.call.target;
-	OP_Bcc,OP_FBcc:	deco.imm = {{64{ifb.insn.br.disp[15]}},ifb.insn.br.disp};
-	OP_RET:	deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
-	OP_LDB,OP_LDBU,OP_LDW,OP_LDWU,OP_LDT,
-	OP_STB,OP_STW,OP_STT:
-		deco.imm = {{64{ifb.insn.ls.disp[15]}},ifb.insn.ls.disp};
-	OP_CSR:	deco.imm = {{64{ifb.insn.ri.imm[15]}},ifb.insn.ri.imm};
+	OP_Bcc,OP_FBcc:	deco.imm = {{111{ifb.insn.br.disp[16]}},ifb.insn.br.disp};
+	OP_RET:	deco.imm = {{109{ifb.insn.ri.imm[18]}},ifb.insn.ri.imm};
+	OP_LOAD,OP_LOADU,OP_STORE:
+		deco.imm = {{109{ifb.insn.ls.disp[18]}},ifb.insn.ls.disp};
+	OP_CSR:	deco.imm = {112'd0,ifb.insn.csr.imm};
 	default:	deco.imm = 'd0;
 	endcase
 	// Handle postfixes	
 	if (pfx) begin
-		deco.imm[127:13] = {{83{ifb.pfx.imm[31]}},ifb.pfx.imm};
-`ifdef SUPPORT_64BIT_OPS		
-		if (ifb.pfx2.opcode==OP_PFX) begin
-			deco.imm[127:45] = {{51{ifb.pfx2.imm[31]}},ifb.pfx.imm};
-			/*
-			if (ifb.pfx3.opcode==OP_PFX) begin
-				deco.imm[127:80] = {{16{ifb.pfx3.imm[31]}},ifb.pfx.imm};
-				if (ifb.pfx4.opcode==OP_PFX) begin
-					deco.imm[127:112] = ifb.pfx4.imm[15:0];
-			end
-			*/
-		end
-`endif		
+		deco.imm[127:19] = {{64{ifb.pfx.imm[41]}},ifb.pfx.imm,ifb.pfx.immlo};
 	end
 
 	// Figure 16-bit ops
@@ -187,33 +180,33 @@ begin
 		case(ifb.insn.r2.func)
 		OP_R1:
 			case(ifb.insn.r1.func1)
-			OP_CNTLZ:		op16 = ifb.insn[38:37]==PRC16;
-			OP_FCLASS:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FFINITE:	op16 = ifb.insn[38:37]==PRC16;
-			OP_I2F:	op16 = ifb.insn[38:37]==PRC16;
-			OP_F2I:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FTRUNC:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FABS:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FNABS:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FNEG:	op16 = ifb.insn[38:37]==PRC16;
-			OP_FSIGN:	op16 = ifb.insn[38:37]==PRC16;
-			OP_SEXTB:	op16 = ifb.insn[38:37]==PRC16;
+			OP_CNTLZ:		op16 = ifb.insn[41:39]==PRC16;
+			OP_FCLASS:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FFINITE:	op16 = ifb.insn[41:39]==PRC16;
+			OP_I2F:	op16 = ifb.insn[41:39]==PRC16;
+			OP_F2I:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FTRUNC:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FABS:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FNABS:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FNEG:	op16 = ifb.insn[41:39]==PRC16;
+			OP_FSIGN:	op16 = ifb.insn[41:39]==PRC16;
+			OP_SEXTB:	op16 = ifb.insn[41:39]==PRC16;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
-			op16 = ifb.insn[38:37]==PRC16;
-		OP_FADD:		op16 = ifb.insn[36]==1'd0;
-		OP_FSUB:		op16 = ifb.insn[36]==1'd0;
+			op16 = ifb.insn[41:39]==PRC16;
+		OP_FADD:		op16 = ifb.insn[41:39]==PRC16;
+		OP_FSUB:		op16 = ifb.insn[41:39]==PRC16;
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		op16 = ifb.insn[39]==1'd0;
-	OP_CMP:	op16=ifb.insn.cmp.sz==2'b00;
-	OP_CMPI16:	op16 = TRUE;
-	OP_FCMP:	op16=ifb.insn.cmp.sz==2'b00;
-	OP_FCMPI16:	op16 = TRUE;
-	OP_FMA16,OP_FMS16,OP_FNMA16,OP_FNMS16:
-		op16 = TRUE;
+		op16 = ifb.insn[41:39]==PRC16;
+	OP_CMP:	op16=ifb.insn.cmp.sz==PRC16;
+	OP_CMPI:	op16 = ifb.insn.ri.sz==PRC16;
+	OP_FCMP:	op16=ifb.insn.cmp.sz==PRC16;
+	OP_FCMPI:	op16 = ifb.insn.ri.sz==PRC16;
+	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:
+		op16 = ifb.insn.f3.sz==PRC16;
 	default:	;
 	endcase
 
@@ -264,33 +257,33 @@ begin
 		case(ifb.insn.r2.func)
 		OP_R1:
 			case(ifb.insn.r1.func1)
-			OP_CNTLZ:		op64 = ifb.insn[38:37]==PRC64;
-			OP_FCLASS:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FFINITE:	op64 = ifb.insn[38:37]==PRC64;
-			OP_I2F:	op64 = ifb.insn[38:37]==PRC64;
-			OP_F2I:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FTRUNC:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FABS:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FNABS:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FNEG:	op64 = ifb.insn[38:37]==PRC64;
-			OP_FSIGN:	op64 = ifb.insn[38:37]==PRC64;
-			OP_SEXTB:	op64 = ifb.insn[38:37]==PRC64;
+			OP_CNTLZ:		op64 = ifb.insn[41:39]==PRC64;
+			OP_FCLASS:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FFINITE:	op64 = ifb.insn[41:39]==PRC64;
+			OP_I2F:	op64 = ifb.insn[41:39]==PRC64;
+			OP_F2I:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FTRUNC:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FABS:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FNABS:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FNEG:	op64 = ifb.insn[41:39]==PRC64;
+			OP_FSIGN:	op64 = ifb.insn[41:39]==PRC64;
+			OP_SEXTB:	op64 = ifb.insn[41:39]==PRC64;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
-			op64 = ifb.insn[38:37]==PRC64;
+			op64 = ifb.insn[41:39]==PRC64;
 	//	OP_FADD:		op64 = ifb.insn[36]==1'd0;
 //		OP_FSUB:		op64 = ifb.insn[36]==1'd0;
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		op64 = pfx && ifb.pfx.prc==PRC64;
+			op64 = ifb.insn[41:39]==PRC64;
 	OP_CMP:	op64=ifb.insn.cmp.sz==PRC64;
-	OP_CMPI64:	op64 = TRUE;
+	OP_CMPI:	op64 = ifb.insn.ri.sz==PRC64;
 	OP_FCMP:	op64=ifb.insn.cmp.sz==PRC64;
-	OP_FCMPI64:	op64 = TRUE;
-	OP_FMA64,OP_FMS64,OP_FNMA64,OP_FNMS64:
-		op64 = TRUE;
+	OP_FCMPI:	op64 = ifb.insn.ri.sz==PRC64;
+	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:
+		op64 = ifb.insn.f3.sz==PRC64;
 	default:	;
 	endcase
 
@@ -301,31 +294,31 @@ begin
 		case(ifb.insn.r2.func)
 		OP_R1:
 			case(ifb.insn.r1.func1)
-			OP_CNTLZ:		op128 = ifb.insn[38:37]==PRC128;
-			OP_FCLASS:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FFINITE:	op128 = ifb.insn[38:37]==PRC128;
-			OP_I2F:	op128 = ifb.insn[38:37]==PRC128;
-			OP_F2I:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FTRUNC:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FABS:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FNABS:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FNEG:	op128 = ifb.insn[38:37]==PRC128;
-			OP_FSIGN:	op128 = ifb.insn[38:37]==PRC128;
-			OP_SEXTB:	op128 = ifb.insn[38:37]==PRC128;
+			OP_CNTLZ:		op128 = ifb.insn[41:39]==PRC128;
+			OP_FCLASS:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FFINITE:	op128 = ifb.insn[41:39]==PRC128;
+			OP_I2F:	op128 = ifb.insn[41:39]==PRC128;
+			OP_F2I:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FTRUNC:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FABS:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FNABS:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FNEG:	op128 = ifb.insn[41:39]==PRC128;
+			OP_FSIGN:	op128 = ifb.insn[41:39]==PRC128;
+			OP_SEXTB:	op128 = ifb.insn[41:39]==PRC128;
 			default:	;
 			endcase
 		OP_ADD,OP_SUB,OP_AND,OP_OR,OP_XOR:
-			op128 = ifb.insn[38:37]==PRC128;
+			op128 = ifb.insn[41:39]==PRC128;
 //		OP_FADD:		op128 = ifb.insn[36]==1'd0;
 //		OP_FSUB:		op128 = ifb.insn[36]==1'd0;
 		default:	;
 		endcase
 	OP_ADDI,OP_SUBFI,OP_ANDI,OP_ORI,OP_XORI:
-		op128 = pfx && ifb.pfx.prc==PRC128;
+			op128 = ifb.insn[41:39]==PRC128;
 	OP_CMP:	op128=ifb.insn.cmp.sz==PRC128;
 	OP_FCMP:	op128=ifb.insn.cmp.sz==PRC128;
-	OP_FMA128,OP_FMS128,OP_FNMA128,OP_FNMS128:
-		op128 = TRUE;
+	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:
+		op128 = ifb.insn.f3.sz==PRC128;
 	default:	;
 	endcase
 
@@ -338,8 +331,6 @@ begin
 		deco.prc = PRC128;
 	else
 		deco.prc = PRC32;
-	if (pfx)
-		deco.prc = ifb.pfx.prc;
 
 	deco.storer = 'd0;
 	deco.storen = 'd0;
@@ -348,29 +339,29 @@ begin
 	case(ifb.insn.any.opcode)
 	OP_R2:
 		case(ifb.insn.r2.func)
-		OP_LDBX,OP_LDBUX,OP_LDWX,OP_LDWUX,OP_LDTX:	deco.loadn = 1'b1;
-		OP_STBX,OP_STWX,OP_STTX:	deco.storen = 1'b1;
+		OP_LOADX,OP_LOADUX:	deco.loadn = 1'b1;
+		OP_STOREX:	deco.storen = 1'b1;
 		default:	;
 		endcase
-	OP_LDB,OP_LDBU,OP_LDW,OP_LDWU,OP_LDT:	deco.loadr = 1'b1;
-	OP_STB,OP_STW,OP_STT:	deco.storer = 1'b1;
+	OP_LOAD,OP_LOADU:	deco.loadr = 1'b1;
+	OP_STORE:	deco.storer = 1'b1;
 	default:	;
 	endcase
 
 	deco.br = ifb.insn.any.opcode==OP_Bcc || ifb.insn.any.opcode==OP_FBcc;
 	deco.cjb = ifb.insn.any.opcode==OP_CALL || ifb.insn.any.opcode==OP_BSR;
 	deco.store = deco.storer|deco.storen;
-	deco.stcr = ifb.insn.any.opcode==OP_STCR || (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_STCRX);
-	deco.loadu = ifb.insn.any.opcode==OP_LDBU||ifb.insn.any.opcode==OP_LDWU || (ifb.insn.any.opcode==OP_R2 && (ifb.insn.r2.func==OP_LDBUX || ifb.insn.r2.func==OP_LDWUX));
+	deco.stcr = 1'b0;//ifb.insn.any.opcode==OP_STCR || (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_STCRX);
+	deco.loadu = ifb.insn.any.opcode==OP_LOADU || (ifb.insn.any.opcode==OP_R2 && (ifb.insn.r2.func==OP_LOADUX));
 	deco.load = deco.loadr|deco.loadn;
-	deco.ldsr = ifb.insn.any.opcode==OP_LDSR || (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_LDSRX);
+	deco.ldsr = 1'b0;//ifb.insn.any.opcode==OP_LDSR || (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_LDSRX);
 	deco.mem = deco.store|deco.load|deco.stcr|deco.ldsr;
 	deco.popq = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r1.func1==OP_POPQ;
 
 	deco.Rc = ifb.insn.f3.Rc;
 
 	// Stack pointer spec mux
-	if (deco.Ra==7'd31)
+	if (deco.Ra==7'd47)
 		case(sp_sel)
 		3'd1:	deco.Ra = 7'd60;
 		3'd2:	deco.Ra = 7'd61;
@@ -379,7 +370,7 @@ begin
 		default:	;
 		endcase
 
-	if (deco.Rb==7'd31)
+	if (deco.Rb==7'd47)
 		case(sp_sel)
 		3'd1:	deco.Rb = 7'd60;
 		3'd2:	deco.Rb = 7'd61;
@@ -388,7 +379,7 @@ begin
 		default:	;
 		endcase
 
-	if (deco.Rc==7'd31)
+	if (deco.Rc==7'd47)
 		case(sp_sel)
 		3'd1:	deco.Rc = 7'd60;
 		3'd2:	deco.Rc = 7'd61;
@@ -397,7 +388,7 @@ begin
 		default:	;
 		endcase
 	
-	if (deco.Rt==7'd31)
+	if (deco.Rt==7'd47)
 		case(sp_sel)
 		3'd1:	deco.Rt = 7'd60;
 		3'd2:	deco.Rt = 7'd61;
@@ -411,14 +402,26 @@ begin
 
 	// Memory operation sizes
 	case(ifb.insn.any.opcode)
-	OP_LDB,OP_LDBU,OP_STB:	deco.memsz = byt;
-	OP_LDW,OP_LDWU,OP_STW:	deco.memsz = wyde;
-	OP_LDT,OP_STT:	deco.memsz = tetra;
+	OP_LOAD,OP_LOADU,OP_STORE:
+		case(ifb.insn.ls.sz)
+		PRC8:		deco.memsz = byt;
+		PRC16:	deco.memsz = wyde;
+		PRC32:	deco.memsz = tetra;
+		PRC64:	deco.memsz = octa;
+		PRC128:	deco.memsz = hexi;
+		default:	deco.memsz = tetra;
+		endcase
 	OP_R2:
 		case (ifb.insn.r2.func)
-		OP_LDBX,OP_LDBUX,OP_STBX:	deco.memsz = byt;
-		OP_LDWX,OP_LDWUX,OP_STWX:	deco.memsz = wyde;
-		OP_LDTX,OP_STTX:	deco.memsz = tetra;
+		OP_LOADX,OP_LOADUX,OP_STOREX:
+			case(ifb.insn.ls.sz)
+			PRC8:		deco.memsz = byt;
+			PRC16:	deco.memsz = wyde;
+			PRC32:	deco.memsz = tetra;
+			PRC64:	deco.memsz = octa;
+			PRC128:	deco.memsz = hexi;
+			default:	deco.memsz = tetra;
+			endcase
 		default:	deco.memsz = tetra;
 		endcase
 	default:	deco.memsz = tetra;
@@ -426,10 +429,8 @@ begin
 	case(ifb.insn.any.opcode)
 	OP_R2:
 		case (ifb.insn.r2.func)
-		OP_LDCX,OP_STCX:	deco.compress = 1'b1;
 		default:	deco.compress = 1'b0;
 		endcase
-	OP_LDC,OP_STC:	deco.compress = 1'b1;
 	default:	deco.compress = 1'b0;
 	endcase
 
@@ -443,36 +444,12 @@ begin
 
 	deco.hasRa = ifb.insn.any.opcode!=OP_PFX && !deco.cjb;
 	deco.hasRb = (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func!=OP_R1) ||
-								ifb.insn.any.opcode==OP_FMA16 ||
-								ifb.insn.any.opcode==OP_FMS16 ||
-								ifb.insn.any.opcode==OP_FNMA16 ||
-								ifb.insn.any.opcode==OP_FNMS16 ||
-								ifb.insn.any.opcode==OP_FMA64 ||
-								ifb.insn.any.opcode==OP_FMS64 ||
-								ifb.insn.any.opcode==OP_FNMA64 ||
-								ifb.insn.any.opcode==OP_FNMS64 ||
-								ifb.insn.any.opcode==OP_FMA128 ||
-								ifb.insn.any.opcode==OP_FMS128 ||
-								ifb.insn.any.opcode==OP_FNMA128 ||
-								ifb.insn.any.opcode==OP_FNMS128 ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS
 								;
 	deco.hasRc = 	deco.br || deco.store ||
-								ifb.insn.any.opcode==OP_FMA16 ||
-								ifb.insn.any.opcode==OP_FMS16 ||
-								ifb.insn.any.opcode==OP_FNMA16 ||
-								ifb.insn.any.opcode==OP_FNMS16 ||
-								ifb.insn.any.opcode==OP_FMA64 ||
-								ifb.insn.any.opcode==OP_FMS64 ||
-								ifb.insn.any.opcode==OP_FNMA64 ||
-								ifb.insn.any.opcode==OP_FNMS64 ||
-								ifb.insn.any.opcode==OP_FMA128 ||
-								ifb.insn.any.opcode==OP_FMS128 ||
-								ifb.insn.any.opcode==OP_FNMA128 ||
-								ifb.insn.any.opcode==OP_FNMS128 ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
 								ifb.insn.any.opcode==OP_FNMA ||

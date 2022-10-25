@@ -55,10 +55,10 @@ output value_t o;
 //`ifdef IS_SIM
 
 integer k;
-/*
+
    // xpm_memory_sdpram: Simple Dual Port RAM
    // Xilinx Parameterized Macro, version 2020.2
-
+/*
    xpm_memory_sdpram #(
       .ADDR_WIDTH_A(5+TidMSB+2),
       .ADDR_WIDTH_B(5+TidMSB+2),

@@ -36,7 +36,7 @@
 
 import rfPhoenixPkg::*;
 
-module rfPhoenixVecAlu(ir, prc, a, b, c, t, Ta, Tb, Tt, imm, asid, hmask, 
+module rfPhoenixVecAlu(ir, prc, a, b, c, t, Ta, Tb, Tt, mask, imm, asid, hmask, 
 	trace_dout, trace_empty, trace_valid, trace_count,
 	o);
 input instruction_t ir;
@@ -48,6 +48,7 @@ input vector_value_t t;
 input Ta;
 input Tb;
 input Tt;
+input value_t mask;
 input value_t imm;
 input ASID asid;
 input value_t hmask;
@@ -73,7 +74,7 @@ assign ad = a;
 assign bd = b;
 assign cd = c;
 
-integer n;
+integer m,n;
 genvar g;
 generate begin
 	for (g = 0; g < NLANES; g = g + 1)
@@ -169,7 +170,7 @@ always_comb
 		end
 		else
 			ob4 = ob3;
-	OP_FCMPI16,OP_CMPI16:
+	OP_FCMPI,OP_CMPI:
 		if (Tt)
 			ob4 = ob3;
 		else if (Ta) begin
@@ -187,13 +188,27 @@ always_comb
 `ifdef SUPPORT_64BIT_OPS
 always_comb
 	case(ir.any.opcode)
+	OP_R1:
+		case(ir.r1.func)
+		OP_VCMPRSS:
+			begin
+				ob6 = 'd0;
+				m = 0;
+				for (n = 0; n < NLANES/2; n = n + 1)
+					if (mask[n]) begin
+						ob6[m] = ac[n];
+						m = m + 1;
+					end
+			end
+		default:	ob6 = ob5;
+		endcase
 	OP_R2:
 		case (ir.r2.func)
 		OP_VEX:	
 			ob6 = {NLANES{ac[imm[4:0]]}};
 //		VEINS:
 		OP_VSHUF:
-			for (n = 0; n < NLANES*2; n = n + 1)
+			for (n = 0; n < NLANES/2; n = n + 1)
 				ob6[n] = ac[bc[n][4:0]];
 		OP_VSLLV:
 			ob6 = ac << {bc[0][4:0],2'd0};
@@ -205,12 +220,12 @@ always_comb
 			ob6 = ac >> {imm[4:0],2'd0};
 		default:	ob6 = ob5;
 		endcase
-	OP_FCMPI64,OP_CMPI64:
+	OP_FCMPI,OP_CMPI:
 		if (Tt)
 			ob6 = ob5;
 		else if (Ta) begin
 			ob6 = 'd0;
-			for (n = 0; n < NLANES/4; n = n + 1)
+			for (n = 0; n < NLANES/2; n = n + 1)
 				ob6[0][n] = ob5[n[3:0]];
 		end
 		else
@@ -220,7 +235,7 @@ always_comb
 			ob6 = ob5;
 		else if (Ta|Tb) begin
 			ob6 = 'd0;
-			for (n = 0; n < NLANES*2; n = n + 1)
+			for (n = 0; n < NLANES/2; n = n + 1)
 				ob6[0][n] = ob5[n[4:0]];
 		end
 		else
@@ -261,7 +276,7 @@ always_comb
 		end
 		else
 			ob2 = ob1;
-	OP_FCMPI128,OP_CMPI128:
+	OP_FCMPI,OP_CMPI:
 		if (Tt)
 			ob2 = ob1;
 		else if (Ta) begin
@@ -307,7 +322,7 @@ always_comb
 		end
 		else
 			o2 = o1;
-	OP_FCMPI32,OP_CMPI32:
+	OP_FCMPI,OP_CMPI:
 		if (Tt)
 			o2 = o1;
 		else if (Ta) begin

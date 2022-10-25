@@ -36,7 +36,7 @@ static char *regnames[64] = {
 	"t8", "t9", "t10", "t11", "s10", "s11", "s12", "s13",
 	"r40", "r41", "r42", "r43", "r44", "r45", "r46", "r47",
 	"vm0", "vm1", "vm2", "vm3", "vm4", "vm5", "vm6", "vm7",
-	"lc", "lr1", "lr2", "r59", "ssp", "hsp", "msp", "isp"
+	"lc", "lr1", "lr2", "ip", "ssp", "hsp", "msp", "isp"
 };
 
 static int regop[64] = {
@@ -1255,7 +1255,7 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
       	case J:
       	case JL:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                           23,16,0,0xffffLL);
+                           20,17,0,0xffffLL);
           break;
       	/* Unconditional jump */
       	case B2:
@@ -1266,17 +1266,30 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
           break;
         case RI:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         23,16,0,0xffffLL);
+                         20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
                          48,16,0,0xffff0000LL);
+        	break;
+        case VRI:
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         20,16,0,0xffffLL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         48,19,0,0xffffE000LL);
         	break;
         case DIRECT:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         23,16,0,0xffffLL);
+                         20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         48,16,0,0xffff0000LL);
+                         48,19,0,0xffffe000LL);
+        	break;
+        case VDIRECT:
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         20,16,0,0xffffLL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         48,19,0,0xffffe000LL);
         	break;
         case REGIND:
+        	// ToDo: vector VREGIND
         	if (op->basereg==sdreg) {
         		reloctype = REL_SD;
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
@@ -1289,9 +1302,9 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
         		sdreg = sd2reg;
         		reloctype = REL_SD;
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         23,16,0,0xffffLL);
+	                         20,19,0,0x7ffffLL);
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,16,0,0xffff0000LL);
+	                         48,19,0,0xffffe000LL);
 						sdreg = org_sdr;        		
         	}
         	else if (op->basereg==sd3reg) {
@@ -1299,16 +1312,16 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
         		sdreg = sd3reg;
         		reloctype = REL_SD;
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         23,16,0,0xffffLL);
+	                         20,19,0,0x7ffffLL);
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,16,0,0xffff0000LL);
+	                         48,19,0,0xffffe000LL);
 						sdreg = org_sdr;        		
         	}
         	else {
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         23,16,0,0xffffLL);
+	                         20,19,0,0x7ffffLL);
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,16,0,0xffff0000LL);
+	                         48,19,0,0xffffe000LL);
         	}
         	break;
         default:
@@ -1422,6 +1435,7 @@ static void encode_reg(uint64_t* insn, operand *op, mnemonic* mnemo, int i)
 			else if (i==2)
 				*insn = *insn| (RB(op->basereg ));
 			break;
+		case VRI:
 		case RI:
 		case RIL:
 			if (i==0)
@@ -1430,11 +1444,269 @@ static void encode_reg(uint64_t* insn, operand *op, mnemonic* mnemo, int i)
 				*insn = *insn| (RA(op->basereg ));
 			break;
 		case DIRECT:
+		case VDIRECT:
 			if (i==0)
 				*insn = *insn| (RT(op->basereg ));
 			break;
 		}				
 	}
+}
+
+/* Encode a direct addresss */
+static size_t encode_direct (
+	uint64_t *postfix,
+	uint64_t *postfix2,
+	uint64_t *insn,
+	mnemonic* mnemo,
+	taddr hval, int constexpr)
+{
+	size_t isize;
+
+	if (constexpr) {
+		isize = 5;
+		if (!is_nbit(hval,20LL)) {
+			if (postfix)
+				*postfix = OP(1) | ((val >> 13LL) << 8LL);
+			isize = (5<<4)|5;
+		}
+		if (!is_nbit(hval,45LL)) {
+			if (postfix2)
+				*postfix2 = OP(1) | ((val >> 45LL) << 8LL);
+			isize = (5<<8)|(5<<4)|5;
+		}
+		if (insn) {
+			*insn = *insn | ((val & 0xfffffLL) << 20LL);
+		}
+	}
+	/* If not a constant expression then the value may be unknown. Allow for the
+		 largest value given the number of address bits in use.
+	*/
+	else {
+		isize = 5;
+		if (abits <= 20LL)
+			return (isize);
+		// One postfix
+		if (postfix)
+			*postfix = OP(1);
+		if (abits <= 45LL)
+			return ((5<<4)|5);
+		// Two postfixes
+		if (postfix2)
+			*postfix2 = OP(1);
+		return ((5<<8)|(5<<4)|5);
+	}
+}
+
+/* Encode a vector direct addresss */
+static size_t encode_vdirect (
+	uint64_t *postfix,
+	uint64_t *postfix2,
+	uint64_t *insn,
+	mnemonic* mnemo,
+	taddr hval, int constexpr)
+{
+	size_t isize;
+
+	if (constexpr) {
+		isize = 5;
+		if (!is_nbit(hval,17LL)) {
+			if (postfix)
+				*postfix = OP(1) | ((val >> 13LL) << 8);
+			isize = (5<<4)|5;
+		}
+		if (!is_nbit(hval,45LL)) {
+			if (postfix2)
+				*postfix2 = OP(1) | ((val >> 45LL) << 8);
+			isize = (5<<8)|(5<<4)|5;
+		}
+		if (insn) {
+			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
+		}
+	}
+	/* If not a constant expression then the value may be unknown. Allow for the
+		 largest value given the number of address bits in use.
+	*/
+	else {
+		isize = 5;
+		if (abits <= 20LL)
+			return (isize);
+		// One postfix
+		if (postfix)
+			*postfix = OP(1);
+		if (abits <= 45LL)
+			return ((5<<4)|5);
+		// Two postfixes
+		if (postfix2)
+			*postfix2 = OP(1);
+		return ((5<<8)|(5<<4)|5);
+	}
+}
+
+static size_t encode_r2 (
+	uint64_t *insn,
+	int i,
+	taddr val,
+	int constexpr)
+{
+	size_t isize;
+
+	isize = 5;
+	if (constexpr) {
+		switch(i) {
+		case 2:
+			if (insn) {
+				*insn = *insn | RB(val);
+			}
+			break;
+		case 3:
+			if (insn) {
+				*insn = *insn | ((val & 1LL) << 33LL);
+			}
+			break;
+		}
+		return (isize);
+	}
+	isize = 5;
+	if (insn)
+		*insn = *insn | RB(val);
+	return (isize);
+}
+
+static size_t encode_r3 (
+	uint64_t *insn,
+	int i,
+	taddr val)
+{
+	size_t isize;
+
+	isize = 5;
+	if (i==2) {
+		if (insn)
+			*insn = *insn | RB(val);
+	}
+	else if (i==3)
+		if (insn)
+			*insn = *insn | RC(val);
+	return (isize);
+}
+
+static size_t encode_shifti (
+	uint64_t *insn,
+	int i,
+	taddr val)
+{
+	size_t isize;
+
+	isize = 5;
+	if (insn)
+		*insn = *insn | RB(val);
+	return (isize);
+}
+
+static size_t encode_ri6 (
+	uint64_t *insn,
+	int i,
+	taddr val)
+{
+	size_t isize;
+
+	isize = 5;
+	switch(i) {
+	case 2:
+		if (insn)
+			*insn = *insn | RB(val);
+		break;
+	case 3:
+		if (insn)
+			*insn = *insn | ((val & 0x1LL) << 33);
+		break;
+	}
+	return (isize);
+}
+
+static size_t encode_vri (
+	uint64_t *postfix,
+	uint64_t *postfix2,
+	uint64_t *insn,
+	mnemonic* mnemo,
+	taddr hval,
+	int constexpr)
+{
+	size_t isize;
+
+	isize = 5;
+	if (constexpr) {
+		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13LL : 17LL)) {
+			if (postfix)
+				*postfix = OP(1) | ((val >> 13LL) << 8LL);
+			isize = (5<<4)|5;
+		}
+		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45LL : 49LL)) {
+			if (postfix2)
+				*postfix2 = OP(1) | ((val >> 45LL) << 8);
+			isize = (5<<8)|(5<<4)|5;
+		}
+		if (insn) {
+			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
+		}
+		return (isize);
+	}
+	if (!is_nbit(val,mnemo->ext.format==CMPI ? 13LL : 17LL))
+		return (isize);
+	if (insn) {
+		if (mnemo->ext.format==CMPI)
+			*insn = *insn | ((val & 0x1fffLL) << 20LL);
+		else
+			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
+	}
+	return (isize);
+}
+
+static size_t encode_default (
+	uint64_t *postfix,
+	uint64_t *postfix2,
+	uint64_t *insn,
+	mnemonic* mnemo,
+	operand* op,
+	taddr hval,
+	int constexpr)
+{
+	size_t isize;
+
+	isize = 5;
+	if (constexpr) {
+		if (op->type & OP_IMM)
+			isize = 5;
+		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 16LL : 20LL)) {
+			if (postfix)
+				*postfix = OP(1) | ((val >> 13LL) << 8LL);
+			isize = (5<<4)|5;
+		}
+		if (!is_nbit(hval,45LL)) {
+			if (postfix2)
+				*postfix2 = OP(1) | ((val >> 45LL) << 8);
+			isize = (5<<8)|(5<<4)|5;
+		}
+		if (insn) {
+			if (mnemo->ext.format==CMPI)
+				*insn = *insn | ((val & 0xffffLL) << 20LL);
+			else
+				*insn = *insn | ((val & 0xfffffLL) << 20LL);
+		}
+		return (isize);
+	}
+	if (op->type & OP_IMM) {
+		isize = 5;
+		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 16LL : 20LL)) {
+			return (isize);
+		if (insn) {
+			if (mnemo->ext.format==CMPI)
+				*insn = *insn | ((val & 0xffffLL) << 20LL);
+			else
+				*insn = *insn | ((val & 0xfffffLL) << 20LL);
+		}
+	}
+	return (isize);
 }
 
 static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn, mnemonic* mnemo,
@@ -1446,121 +1718,25 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 	if (mnemo->ext.flags & FLG_NEGIMM)
 		hval = -hval;	/* ToDo: check here for value overflow */
 	val = hval;
-	if (constexpr) {
-		if (mnemo->ext.format==DIRECT) {
-			isize = 5;
-			/*if (mnemo->ext.short_opcode) {
-				if (is_nbit(val,8)) {
-					isize = 4;
-				}
-			} */
-			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13 : 16)) {
-				if (postfix)
-					*postfix = OP(1) | ((val >> 13LL) << 8);
-				isize = (5<<8)|5;
-			}
-			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45 : 48)) {
-				if (postfix2)
-					*postfix2 = OP(1) | ((val >> 45LL) << 8);
-				isize = (5<<16)|(5<<8)|5;
-			}
-			if (insn) {
-				*insn = *insn | ((val & 0xffffLL) << 23LL);
-			}
-		}
-		else if (mnemo->ext.format==R2) {
-			isize = 5;
-			switch(i) {
-			case 2:
-				if (insn) {
-					*insn = *insn | RB(val);
-				}
-				break;
-			case 3:
-				if (insn) {
-					*insn = *insn | ((val & 1LL) << 36LL);
-				}
-				break;
-			}
-		}
-		else if (mnemo->ext.format==R3) {
-			isize = 5;
-			if (i==2) {
-				if (insn)
-					*insn = *insn | RB(val);
-			}
-			else if (i==3)
-				if (insn)
-					*insn = *insn | RC(val);
-		}
-		else if (mnemo->ext.format==SHIFTI) {
-			isize = 5;
-			if (insn)
-				*insn = *insn | RB(val);
-		}
-		else if (mnemo->ext.format==RI6) {
-			isize = 5;
-			switch(i) {
-			case 2:
-				if (insn)
-					*insn = *insn | RB(val & 0x3fLL);
-				break;
-			case 3:
-				if (insn)
-					*insn = *insn | ((val & 0x1LL) << 36);
-				break;
-			}
-		}
-
-		else {
-			if (op->type & OP_IMM)
-			isize = 5;
-			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13 : 16)) {
-				if (postfix)
-					*postfix = OP(1) | ((val >> 13LL) << 8LL);
-				isize = (5<<8)|5;
-			}
-			if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45 : 48)) {
-				if (postfix2)
-					*postfix2 = OP(1) | ((val >> 45LL) << 8);
-				isize = (5<<16)|(5<<8)|5;
-			}
-			if (insn) {
-				*insn = *insn | ((val & 0xffffLL) << 23LL);
-			}
-		}
+	switch(mnemo->ext.format) {
+	case R2:
+		return (encode_r2(insn,i,val,constexpr));
+	case R3:
+		return (encode_r3(insn,i,val));
+	case DIRECT:
+		return (encode_direct(postfix,postfix2,insn,mnemo,hval,constexpr));
+	case VDIRECT:
+		return (encode_vdirect(postfix,postfix2,insn,mnemo,hval,constexpr));
+	case SHIFTI:
+		return (encode_shifti(insn,i,val));
+	case RI6:
+		return (encode_ri6(insn,i,val));
+	case VRI:
+		return (encode_vri(postfix,postfix2,insn,mnemo,hval,constexpr));
+	default:
+		return (encode_default(postfix,postfix2,insn,mnemo,op,hval,constexpr));
 	}
-	else {
-		if (mnemo->ext.format==DIRECT) {
-			isize = 5;
-			goto j2;
-j1:
-				if (insn) {
-					*insn = *insn | ((val & 0xffffLL) << 23LL);
-				}
-				return (isize);
-		}
-		if (mnemo->ext.format==SHIFTI) {
-			isize = 5;
-			if (insn)
-				*insn = *insn | RB(val);
-		}
-		else if (mnemo->ext.format==R2) {
-			isize = 5;
-				if (insn)
-					*insn = *insn | RB(val);
-		}
-		else {
-			if (op->type & OP_IMM) {
-				isize = 5;
-				if (!is_nbit(val,16))
-					goto j2;
-				goto j1;
-			}
-j2:	;
-		}
-	}
-	return (isize);
+	return (0);	/* Cannot get here */
 }
 
 /* Evaluate branch operands excepting GPRs which are handled earlier.
@@ -1583,7 +1759,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0xffffLL) << 23LL);
+		  		tgt = ((val & 0x1ffffLL) << 20LL);
 		  		*insn |= tgt;
 			  	break;
 				}
@@ -1602,7 +1778,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 				case 3:
 			  	if (insn) {
 			  		uint64_t tgt;
-			  		tgt = ((val & 0x1ffffLL) << 23LL);
+			  		tgt = ((val & 0x1ffffLL) << 20LL);
 			  		*insn |= tgt;
 			  	}
 			  	break;
@@ -1621,7 +1797,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 23LL);
+		  		tgt = ((val & 0x1ffffLL) << 20LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1632,7 +1808,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		uint64_t tgt;
 	  		*insn |= RC(op->basereg & 0x1f);
-	  		tgt = (((val >> 1LL) & 0x7ffffLL) << 29LL);
+	  		tgt = (((val >> 1LL) & 0x7ffffLL) << 26LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1648,7 +1824,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 3:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 23LL);
+		  		tgt = ((val & 0x1ffffLL) << 20LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1659,7 +1835,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		uint64_t tgt;
 	  		*insn |= RC(op->basereg & 0x1f);
-		  		tgt = ((val & 0x1ffffLL) << 23LL);
+		  		tgt = ((val & 0x1ffffLL) << 20LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1691,7 +1867,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		uint64_t tgt;
 	  		*insn |= RC(op->basereg & 0x1f);
-	    		tgt = (((val >> 1LL) & 0x1fffLL) << 11LL) | (((val >> 14LL) & 0x7ffffLL) << 29LL);
+	    		tgt = (((val >> 1LL) & 0x1fffLL) << 11LL) | (((val >> 14LL) & 0x7ffffLL) << 26LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1978,7 +2154,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	    		if (!is_nbit(val,16) && abits > 16) {
 	    			if (postfix)
 							*postfix = OP(1) | ((val >> 16LL) << 8LL);
-						isize = (5<<8)|5;
+						isize = (5<<4)|5;
 					}
   		}
   		else {
@@ -1993,7 +2169,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
     		if (!is_nbit(val,16) && abits > 16) {
     			if (postfix)
 						*postfix = OP(1) | ((val >> 16LL) << 8LL);
-					isize = (5<<8)|5;
+					isize = (5<<4)|5;
 				}
   		}
     }
@@ -2088,7 +2264,7 @@ size_t instruction_size(instruction *ip,section *sec,taddr pc)
 
 	TRACE("+instruction_size\n");
 	size_t sz = encode_rfPhoenix_operands(ip,sec,pc,NULL,NULL,NULL,NULL);
-	sz = (sz & 0xff) + ((sz >> 8) & 0xff) + (sz >> 16);
+	sz = (sz & 0xf) + ((sz >> 4) & 0xf) + (sz >> 8);
 	bc = (pc & 0x3fLL) + sz;
 	if (bc > 63LL && !span_cache_lines)
 		sz = sz + (64LL-(pc & 0x3fLL));
@@ -2121,7 +2297,7 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 	postfix = 0;
 	postfix2 = 0;
 	sz = encode_rfPhoenix_operands(ip,sec,pc,&postfix,&postfix2,&insn,db);
-	db->size = (sz & 0xff) + ((sz >> 8) & 0xff) + (sz >> 16);
+	db->size = (sz & 0xf) + ((sz >> 4) & 0xf) + (sz >> 8);
 	/* Is anything being added to the instruction stream? */
 	if (db->size) {
 		/* Include padding space if instruction plus postfixes will not fit on
@@ -2154,19 +2330,19 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 			}
 		}
 		insn_sizes2[sz2ndx++] = db->size;
-		if ((sz >> 16LL) & 0xffLL) {
-	    d = setval(0,d,(sz >> 16LL) & 0xffLL,insn);
-	    d = setval(0,d,(sz >>8LL) & 0xffLL,postfix);
-	    d = setval(0,d,sz & 0xffLL,postfix2);
+		if ((sz >> 8LL) & 0xfLL) {
+	    d = setval(0,d,(sz >> 8LL) & 0xfLL,insn);
+	    d = setval(0,d,(sz >> 4LL) & 0xfLL,postfix);
+	    d = setval(0,d,sz & 0xfLL,postfix2);
 	    insn_count+=3;
 		}
-		else if ((sz >> 8LL) & 0xffLL) {
-	    d = setval(0,d,(sz >> 8LL) & 0xffLL,insn);
-	    d = setval(0,d,sz & 0xffLL,postfix);
+		else if ((sz >> 4LL) & 0xfLL) {
+	    d = setval(0,d,(sz >> 4LL) & 0xfLL,insn);
+	    d = setval(0,d,sz & 0xfLL,postfix);
 	    insn_count+=2;
 	  }
 	  else {
-    	d = setval(0,d,sz & 0xffLL,insn);
+    	d = setval(0,d,sz & 0xfLL,insn);
     	insn_count++;
     }
     byte_count += db->size;

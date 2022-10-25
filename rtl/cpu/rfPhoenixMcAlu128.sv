@@ -52,10 +52,10 @@ output tid_t rido;
 
 integer n;
 
-wire fms = ir.any.opcode==OP_FMS128 || ir.any.opcode==OP_FNMS128;
-wire fnm = ir.any.opcode==OP_FNMA128 || ir.any.opcode==OP_FNMS128;
-wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD128;
-wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB128;
+wire fms = ir.any.opcode==OP_FMS || ir.any.opcode==OP_FNMS;
+wire fnm = ir.any.opcode==OP_FNMA || ir.any.opcode==OP_FNMS;
+wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD;
+wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB;
 wire mul = ir.any.opcode==OP_R2 && ir.r2.func==OP_MUL;
 
 quad_value_t fma_o, fma_o1;
@@ -171,11 +171,11 @@ OP_R2:
 		default:	o = 'd0;
 		endcase
 	OP_MUL:		o = mul_pipe[0];
-	OP_FADD128,OP_FSUB128:	o = fma_o;
+	OP_FADD,OP_FSUB:	o = fma_o;
 	default:	o = 'd0;
 	endcase
 OP_MULI:	o = mul_pipe[0];
-OP_FMA128,OP_FMS128,OP_FNMA128,OP_FNMS128:	o = fma_o;
+OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	o = fma_o;
 default:	o = 'd0;
 endcase
 

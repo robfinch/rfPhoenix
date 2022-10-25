@@ -60,7 +60,7 @@ parameter IC_LATENCY = 2;
 integer n2,n3,n4,n10;
 
 wire clk_g = clk_i;
-pipeline_reg_t [NTHREADS-1:0] dcb, rfb1, rfb2, rfb3, exb, agb, oub, wbb, wbb2;
+pipeline_reg_t [NTHREADS-1:0] dcb, dcb2, dcbb, rfb1, rfb2, rfb3, exb, agb, oub, wbb, wbb2;
 
 wire [1:0] bte_o;
 wire [2:0] cti_o;
@@ -120,11 +120,11 @@ reg [7:0] vl = 8'd8;
 tid_t xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 order_tag_t [NTHREADS-1:0] insn_otag;
 reg exndx_v,exndx1_v;
-reg dcndx_v, wbndx_v;
+reg dcndx_v, dcndx2_v, wbndx_v;
 reg agndx_v,oundx_v;
 reg itndx_v;
 reg rfndx1_v, rfndx2_v, rfndx3_v;
-tid_t dcndx,itndx,exndx,exndx1,exndx2,oundx,wbndx,wbndx2,rfndx1,rfndx2,rfndx3,agndx;
+tid_t dcndx,dcndx2,itndx,exndx,exndx1,exndx2,oundx,wbndx,wbndx2,rfndx1,rfndx2,rfndx3,agndx;
 reg xrid_v,mcrid_v;
 reg [NTHREADS-1:0] dcb_v, rfb3_v, exb_v;
 tid_t mcv_ridi, mcv_rido;
@@ -366,7 +366,7 @@ function [6:0] fnSpSel;
 input tid_t thread;
 input [6:0] i;
 begin
-	if (i==7'd31)
+	if (i==7'd47)
 		case(sp_sel[thread])
 		3'd1:	fnSpSel = 7'd60;
 		3'd2:	fnSpSel = 7'd61;
@@ -935,7 +935,7 @@ generate begin : gItsel
 end
 endgenerate
 
-roundRobin rr1
+roundRobin2 rr1
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -974,7 +974,7 @@ end
 endgenerate
 
 tid_t dcndx1;
-roundRobin rr2
+roundRobin2 rr2
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -991,7 +991,7 @@ always_comb
 generate begin : gIssue
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			sb_will_issue[g] = dcndx_v && dcndx==g;//g==dcndx && dcndx_v;// &&	!sb_issue[g];
+			sb_will_issue[g] = dcndx_v && dcndx==g && !stall_pipe;//g==dcndx && dcndx_v;// &&	!sb_issue[g];
 end
 endgenerate
 
@@ -1005,7 +1005,7 @@ end
 endgenerate
 
 wire tid_t mcndx;
-roundRobin rr3
+roundRobin2 rr3
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1034,7 +1034,7 @@ generate begin : gExsel
 end
 endgenerate
 
-roundRobin rr4
+roundRobin2 rr4
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1067,7 +1067,7 @@ generate begin : gAgsel
 end
 endgenerate
 
-roundRobin rr4
+roundRobin2 rr4
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1103,7 +1103,7 @@ generate begin : gOusel
 end
 endgenerate
 
-roundRobin rr5
+roundRobin2 rr5
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1135,7 +1135,7 @@ generate begin : gOubfin
 end
 endgenerate
 
-roundRobin rr6
+roundRobin2 rr6
 (
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1158,7 +1158,7 @@ task tIfIp;
 begin
 	if (itndx_v) begin
 		if (ihit) begin
-			thread_ip[itndx] <= thread_ip[itndx] + 4'd5;
+			thread_ip[itndx] <= thread_ip[itndx] + 4'd6;
 		/* The following for when instructions do not cross cache lines.
 			if (thread_ip[itndx][5:0] < 6'd55)
 				thread_ip[itndx][5:0] <= thread_ip[itndx][5:0] + 4'd5;
@@ -1354,6 +1354,11 @@ endtask
 // pipeline bubble results.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+wire pe_stall_pipe, ne_stall_pipe;
+edge_det upse1 (.rst(rst), .clk(clk_g), .ce(1'b1), .i(stall_pipe), .pe(pe_stall_pipe), .ne(ne_stall_pipe), .ee());
+
+
+
 task tDecode;
 integer n;
 begin
@@ -1362,13 +1367,20 @@ begin
 			dcb[n] <= dcb[n];
 		else begin
 			dcb[n].thread <= n;
-//				dcb[n].v <= dc_ifb[n].v;
+//			dcb[n].v <= dc_ifb[n].v;
 			dcb[n].ifb <= dc_ifb[n];
 			dcb[n].dec <= dco[n];
 			// Needed for virtualization
 			if (dco[n].csr && omode[n]!=OM_MACHINE)
 				dcb[n].cause <= FLT_CSR;
-			if (n==dcndx) begin
+			dcbb[n].thread <= n;
+//			dcbb[n].v <= dc_ifb[n].v;
+			dcbb[n].ifb <= dc_ifb[n];
+			dcbb[n].dec <= dco[n];
+			// Needed for virtualization
+			if (dco[n].csr && omode[n]!=OM_MACHINE)
+				dcbb[n].cause <= FLT_CSR;
+			if (n==dcndx && dcndx_v) begin
 				ra0 <= {dcndx,fnSpSel(n,dco[n].Ra)};
 				ra1 <= {dcndx,fnSpSel(n,dco[n].Rb)};
 				ra2 <= {dcndx,fnSpSel(n,dco[n].Rc)};
@@ -1376,6 +1388,10 @@ begin
 //				ra4 <= {dcndx,fnSpSel(n,dco[n].Rt)};
 			end
 		end
+//		if (ne_stall_pipe)
+//			dcb <= dcbb;
+		dcb2[n] <= dcb[n];
+		dcndx2 <= dcndx;
 	end
 end
 endtask
@@ -1384,9 +1400,9 @@ always_comb
 	for (n4 = 0; n4 < NTHREADS; n4 = n4 + 1) begin
 		dcb_v[n4] <= (dcb[n4].ifb.ip != dc_ifb[n4].ip) && dc_ifb[n4].v;
 		
-		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb[n4].ifb.ip);// && dc_ifb[n4].v;
+		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb2[n4].ifb.ip);// && dc_ifb[n4].v;
 			
-		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip);// && (dcb_v[n4]|dc_ifb[n4].v);
+		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip) && !rolledback1;// && (dcb_v[n4]|dc_ifb[n4].v);
 //			(rfb3_v[n4] || (rfb3[n4].ifb.ip == dcb[n4].ifb.ip && dcb_v[n4]));
 	end
 
@@ -1398,24 +1414,26 @@ always_comb
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 always_ff @(posedge clk_g)
-	ra0d <= stall_pipe ? ra0d : ra0;
+	ra0d <= ra0;
 always_ff @(posedge clk_g)
-	ra1d <= stall_pipe ? ra1d : ra1;
+	ra1d <= ra1;
 always_ff @(posedge clk_g)
-	ra2d <= stall_pipe ? ra2d : ra2;
+	ra2d <= ra2;
 always_ff @(posedge clk_g)
-	ra3d <= stall_pipe ? ra3d : ra3;
+	ra3d <= ra3;
 
 value_t csro;
 always_comb
-	tReadCSR(csro,rfndx1,rfb1[rfndx1].dec.imm[13:0]);
+	tReadCSR(csro,rfndx3,rfb3[rfndx3].dec.imm[13:0]);
 	
 vector_value_t opera,operb,operc;
+value_t operm;
+
 always_comb
 	if (ra0d==7'd0 && !ra0d[6])
 		opera = 'd0;
 	else if (ra0d==7'd59 && !ra0d[6])
-		opera = {NLANES{dcb[n].ifb.ip}};
+		opera = {NLANES{dcb2[n].ifb.ip}};
 //	else if (dcb[n].dec.Ra == exb[n].dec.Rt)
 //		opera = vres;
 	else if (ra0d[6])
@@ -1427,7 +1445,7 @@ always_comb
 	if (ra1d==7'd0 && !ra1d[6])
 		operb = 'd0;
 	else if (ra1d==7'd59 && !ra1d[6])
-		operb = {NLANES{dcb[n].ifb.ip}};
+		operb = {NLANES{dcb2[n].ifb.ip}};
 //	else if (dcb[n].dec.Rb == exb[n].dec.Rt)
 //		operb = vres;
 	else if (ra1d[6])
@@ -1439,7 +1457,7 @@ always_comb
 	if (ra2d==7'd0 && !ra2d[6])
 		operc = 'd0;
 	else if (ra2d==7'd59 && !ra2d[6])
-		operc = {NLANES{dcb[n].ifb.ip}};
+		operc = {NLANES{dcb2[n].ifb.ip}};
 	else if (dcb[n].dec.csr)
 		operc = {NLANES{csro}};
 //	else if (dcb[n].dec.Rc == exb[n].dec.Rt)
@@ -1449,16 +1467,22 @@ always_comb
 	else
 		operc = {NLANES{rfo2}};
 
+always_comb
+	if (ra3d==7'd0)
+		operm <= 32'hFFFFFFFF;
+	else
+		operm <= rfo3;
+
 task tRegf;
 input tid_t n;
 begin
 	rfb3[n].a <= opera;
 	rfb3[n].b <= operb;
 	rfb3[n].c <= operc;
-	rfb3[n].mask <= rfo3;
+	rfb3[n].mask <= operm;
 	if (REGFILE_LATENCY==2) begin
-		if ((dcb[n].dec.rfwr & ~dcb[n].dec.Rt.vec) | (dcb[n].dec.vrfwr & dcb[n].dec.Rt.vec))
-			ou_rollback_bitmaps[n][dcb[n].dec.Rt] <= 1'b1;
+		if ((dcb2[n].dec.rfwr & ~dcb2[n].dec.Rt.vec) | (dcb2[n].dec.vrfwr & dcb2[n].dec.Rt.vec))
+			ou_rollback_bitmaps[n][dcb2[n].dec.Rt] <= 1'b1;
 	end
 	// ToDo: update for more latencies.
 	else if (REGFILE_LATENCY==3) begin
@@ -1478,19 +1502,19 @@ begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 
 		if (REGFILE_LATENCY==2) begin
-			rfndx3 <= dcndx;
-			rfb3[n] <= dcb[n];
-			if (rollback[n] && rollback_ipv[n] && dcb[n].ifb.ip == rollback_ip[n]) begin
+			rfndx3 <= dcndx2;
+			rfb3[n] <= dcb2[n];
+			if (rollback[n] && rollback_ipv[n] && dcb2[n].ifb.ip == rollback_ip[n]) begin
 				rollback_ipv[n] <= INV;
-				if (n==rfndx3)
+				if (n==dcndx2)
 					tRegf(n);
 			end
 			else begin
-				if (n==rfndx3)
+				if (n==dcndx2)
 					tRegf(n);
 			end
 		end
-	
+
 		else if (REGFILE_LATENCY==3) begin
 			rfndx2 <= dcndx;
 			rfndx3 <= rfndx2;
@@ -1547,7 +1571,7 @@ begin
 			rollback_ip[exndx] <= rfb3[exndx].dec.imm;
 			rollback_ipv[exndx] <= 1'b1;
 			exb[exndx].res <= 'd0;
-			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd5;
+			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd6;
 			ou_rollback[exndx] <= 1'b1;
 			ou_rollback_bitmaps[exndx][rfb3[exndx].dec.Rt] <= 1'b1;
 		end
@@ -1557,7 +1581,7 @@ begin
 			rollback_ip[exndx] <= rfb3[exndx].dec.imm + rfb3[exndx].ifb.ip;
 			rollback_ipv[exndx] <= 1'b1;
 			exb[exndx].res <= 'd0;
-			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd5;
+			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd6;
 			ou_rollback[exndx] <= 1'b1;
 			ou_rollback_bitmaps[exndx][rfb3[exndx].dec.Rt] <= 1'b1;
 		end
@@ -1599,6 +1623,19 @@ always_comb
 		end
 	end
 
+vector_value_t hopera, hoperb, hoperc;
+value_t hoperm;
+
+reg load_exbr;
+reg ld_exbr1;
+reg ld_exbr0;
+always_comb
+	ld_exbr0 <= exb_v[exndx1];
+always_comb
+	ld_exbr1 <= ~exb[exndx1].dec.mem;
+always_comb
+	load_exbr <= !stall_pipe[exndx1] & ld_exbr1 & ld_exbr0;
+
 task tExecute;
 integer n;
 begin
@@ -1610,10 +1647,22 @@ begin
 
 		if (stall_pipe[n])
 			exb[n] <= exb[n];
-		else
+		else begin
 			exb[n] <= rfb3[n];
+			/*
+			exb[n].a <= opera;
+			exb[n].b <= operb;
+			exb[n].c <= operc;
+			exb[n].mask <= operm;
+			*/
+		end
 
 		if (!stall_pipe[n]) begin
+			hopera <= opera;
+			hoperb <= operb;
+			hoperc <= operc;
+			hoperm <= operm;
+
 			exb[n].regfetched <= 1'b0;
 			exb[n].retry <= 'd0;
 
@@ -1635,9 +1684,9 @@ begin
 				if (n==exndx && exndx_v) begin
 					xir <= rfb3[n].ifb.insn;
 					xprc <= rfb3[n].dec.prc;
-					xa <= rfb3[n].a;
-					xb <= rfb3[n].b;
-					xc <= rfb3[n].c;
+					xa <= rfb3[n].a;//opera;
+					xb <= rfb3[n].b;//operb;
+					xc <= rfb3[n].c;//operc;
 					xt <= rfb3[n].t;
 					xta <= rfb3[n].dec.Ta;
 					xtb <= rfb3[n].dec.Tb;
@@ -1646,15 +1695,29 @@ begin
 					ximm <= rfb3[n].dec.imm;
 					xasid <= asid[n];
 					xhmask <= hmask;
+					//exb[n].a <= opera;//rfb3[n].a;
+					//exb[n].b <= operb;//rfb3[n].b;
+					//exb[n].c <= operc;//rfb3[n].c;
+					//exb[n].mask <= operm;//rfb3[n].mask;
 				end
 			end
 			tExCall(n);
 			tExBranch(n);
 		end
+		/*
+		if (ne_stall_pipe) begin
+			xa <= hopera;
+			xb <= hoperb;
+			xc <= hoperc;
+			exb[n].a <= hopera;
+			exb[n].b <= hoperb;
+			exb[n].c <= hoperc;
+		end
+		*/
 	end
 
 	if (exndx1_v)
-		if (!stall_pipe[exndx1] & exb_v[exndx1] & ~exb[exndx1].dec.mem) begin
+		if (load_exbr) begin
 			exbr <= exb[exndx1];
 			exbr.v <= exb_v[exndx1];
 			exbr.res <= vres;
@@ -2435,43 +2498,43 @@ begin
 	6'd8:	fnRegName = "t5";
 	6'd9:	fnRegName = "t6";
 	6'd10:	fnRegName = "t7";
-	6'd11:	fnRegName = "s0";
-	6'd12:	fnRegName = "s1";
-	6'd13:	fnRegName = "s2";
-	6'd14:	fnRegName = "s3";
-	6'd15:	fnRegName = "s4";
-	6'd16:	fnRegName = "s5";
-	6'd17:	fnRegName = "s6";
-	6'd18:	fnRegName = "s7";
-	6'd19:	fnRegName = "s8";
-	6'd20:	fnRegName = "s9";
-	6'd21:	fnRegName = "a2";
-	6'd22:	fnRegName = "a3";
-	6'd23:	fnRegName = "a4";
-	6'd24:	fnRegName = "a5";
-	6'd25:	fnRegName = "a6";
-	6'd26:	fnRegName = "a7";
-	6'd27:	fnRegName = "gp3";
-	6'd28:	fnRegName = "gp2";
-	6'd29:	fnRegName = "gp";
-	6'd30:	fnRegName = "fp";
-	6'd31:	fnRegName = "sp";
-	6'd32:	fnRegName = "t8";
-	6'd33:	fnRegName = "t9";
-	6'd34:	fnRegName = "t10";
-	6'd35:	fnRegName = "t11";
-	6'd36:	fnRegName = "s10";
-	6'd37:	fnRegName = "s11";
-	6'd38:	fnRegName = "s12";
-	6'd39:	fnRegName = "s13";
+	6'd11:	fnRegName = "t8";
+	6'd12:	fnRegName = "t9";
+	6'd13:	fnRegName = "t10";
+	6'd14:	fnRegName = "t11";
+	6'd15:	fnRegName = "s0";
+	6'd16:	fnRegName = "s1";
+	6'd17:	fnRegName = "s2";
+	6'd18:	fnRegName = "s3";
+	6'd19:	fnRegName = "s4";
+	6'd20:	fnRegName = "s5";
+	6'd21:	fnRegName = "s6";
+	6'd22:	fnRegName = "s7";
+	6'd23:	fnRegName = "s8";
+	6'd24:	fnRegName = "s9";
+	6'd25:	fnRegName = "s10";
+	6'd26:	fnRegName = "s11";
+	6'd27:	fnRegName = "s12";
+	6'd28:	fnRegName = "s13";
+	6'd29:	fnRegName = "a2";
+	6'd30:	fnRegName = "a3";
+	6'd31:	fnRegName = "a4";
+	6'd32:	fnRegName = "a5";
+	6'd33:	fnRegName = "a6";
+	6'd34:	fnRegName = "a7";
+	6'd35:	fnRegName = "a8";
+	6'd36:	fnRegName = "a9";
+	6'd37:	fnRegName = "a10";
+	6'd38:	fnRegName = "a11";
+	6'd39:	fnRegName = "r39";
 	6'd40:	fnRegName = "r40";
 	6'd41:	fnRegName = "r41";
 	6'd42:	fnRegName = "r42";
-	6'd43:	fnRegName = "r43";
-	6'd44:	fnRegName = "r44";
-	6'd45:	fnRegName = "r45";
-	6'd46:	fnRegName = "r46";
-	6'd47:	fnRegName = "r47";
+	6'd43:	fnRegName = "gp2";
+	6'd44:	fnRegName = "gp1";
+	6'd45:	fnRegName = "gp";
+	6'd46:	fnRegName = "fp";
+	6'd47:	fnRegName = "sp";
 	6'd48:	fnRegName = "vm0";
 	6'd49:	fnRegName = "vm1";
 	6'd50:	fnRegName = "vm2";
@@ -2483,7 +2546,7 @@ begin
 	6'd56:	fnRegName = "lc";
 	6'd57:	fnRegName = "lk1";
 	6'd58:	fnRegName = "lk2";
-	6'd59:	fnRegName = "ip";
+	6'd59:	fnRegName = "pc";
 	6'd60:	fnRegName = "ssp";
 	6'd61:	fnRegName = "hsp";
 	6'd62:	fnRegName = "msp";
@@ -2555,6 +2618,14 @@ begin
 				ra1,
 				ra2
 			);
+			$display("  3:%d: %c ip=%h.%d ir=%h oc=%0s c=%h", n[3:0],
+				dcb_v[n] ? "v":"-",
+				dcb2[n].ifb.ip,
+				dcb2[n].ifb.tag,
+				dcb2[n].ifb.insn,
+				dcb2[n].ifb.insn.any.opcode.name(),
+				operc
+			);
 			$display("Regfetch %d,%d:", rfndx1,rfndx2);
 			if (REGFILE_LATENCY > 3) begin
 				$display("  1:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h csro[%h]=%h",
@@ -2573,11 +2644,12 @@ begin
 				);
 			end
 			if (REGFILE_LATENCY > 2) begin
-				$display("  2:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h",
+				$display("  2:%c ip=%h.%d %0s Rt=%d Ra%d=%h Rb%d=%h Rc%d=%h",
 					rfb2[n].v?"v":"-",
 					rfb2[n].ifb.ip,
 					rfb2[n].ifb.tag,
 					rfb2[n].ifb.insn.any.opcode.name(),
+					rfb2[n].dec.Rt,
 					rfb2[n].dec.Ra,
 					opera,
 					rfb2[n].dec.Rb,
@@ -2586,17 +2658,18 @@ begin
 					operc
 				);
 			end
-			$display("  3:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h",
+			$display("  3:%c ip=%h.%d %0s Rt=%d Ra%d=%h Rb%d=%h Rc%d=%h",
 				rfb3_v[n]?"v":"-",
 				rfb3[n].ifb.ip,
 				rfb3[n].ifb.tag,
 				rfb3[n].ifb.insn.any.opcode.name(),
+				rfb3[n].dec.Rt,
 				rfb3[n].dec.Ra,
-				opera,
+				rfb3[n].a,
 				rfb3[n].dec.Rb,
-				operb,
+				rfb3[n].b,
 				rfb3[n].dec.Rc,
-				operc
+				rfb3[n].c
 			);
 			$display("Execute:");
 			$display("  %d: %c%c ip=%h.%d ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],

@@ -93,7 +93,7 @@ input err_i;
 input wb_tranid_t tid_i;
 output reg we_o;
 output reg [15:0] sel_o;
-output Address adr_o;
+output wb_address_t adr_o;
 input [127:0] dat_i;
 output reg [127:0] dat_o;
 output reg csr_o;
@@ -1131,9 +1131,6 @@ assign req = reqtbl[tid_i];
 
 always_ff @(posedge clk)
 if (rst) begin
-	ici.data <= 'd0;
-	dci[0].data <= 'd0;
-	req_done <= 'd1;
 	count <= 'd0;
 	prev_tid <= 'd0;
 end
@@ -1141,31 +1138,61 @@ else begin
 	if (ack_i) begin
 		if (tid_i[7:3]!=prev_tid[7:3]) begin
 			count <= 'd0;
-			if (req.blen>3'd0)
-				req_done <= 1'b0;
 			prev_tid <= tid_i;
 		end
 		else
 			count <= count + 2'd1;
 	end
+end
 
-	if (state==IFETCH4)
-		ici.data <= ivcache[vcn];
+always_ff @(posedge clk)
+if (rst) begin
+	req_done <= 'd1;
+	upd_adr <= 'd0;
+end
+else begin
+	if (ack_i) begin
+		if (tid_i[7:3]!=prev_tid[7:3]) begin
+			if (req.blen>3'd0)
+				req_done <= 1'b0;
+		end
+	end
 
-	else if (ack_i && req.seg==wishbone_pkg::CODE) begin
+	if (ack_i && req.seg==wishbone_pkg::CODE) begin
 		if (req.blen==count)
 			req_done <= 1'b1;
-		case(tid_i[0])
-		1'd0:	ici.data[127:  0] <= dat_i;
-		1'd1: ici.data[255:128] <= dat_i;
-		default:	;
-		endcase
 		if (count=='d0)
 			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
 	end
 	else if (ack_i && req.seg==wishbone_pkg::DATA && !req.we) begin
 		if (req.blen==count)
 			req_done <= 1'b1;
+		if (count=='d0)
+			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
+	end
+end
+
+always_ff @(posedge clk)
+if (rst)
+	ici.data <= 'd0;
+else begin
+	if (state==IFETCH4)
+		ici.data <= ivcache[vcn];
+	else if (ack_i && req.seg==wishbone_pkg::CODE) begin
+		case(tid_i[0])
+		1'd0:	ici.data[127:  0] <= dat_i;
+		1'd1: ici.data[255:128] <= dat_i;
+		default:	;
+		endcase
+	end
+end
+
+always_ff @(posedge clk)
+if (rst)
+	dci[0].data <= 'd0;
+else begin
+	// Data cache load cycle.
+	if (ack_i && req.seg==wishbone_pkg::DATA && !req.we) begin
   	case(tid_i[2:0])
   	3'd0:	begin dci[0].data[127:  0] <= dat_i; dci[0].m <= 1'b0; end
   	3'd1: dci[0].data[255:128] <= dat_i;
@@ -1178,9 +1205,50 @@ else begin
 		default:	;
 		endcase
 		*/
-		if (count=='d0)
-			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
 	end
+	case(state)
+	// In case of a write cycle which needs to update the cache, copy the
+	// incoming data for later reference.
+	MEMORY1:
+		begin
+			if (rd_memq1) begin
+				if (memq_o.tid != last_tid) begin
+					dci[0].data <= memq_o.res[255:0];
+					dci[1].data <= memq_o.res[511:256];
+					dci[0].m <= 1'b1;
+					dci[1].m <= 1'b1;
+				end
+			end
+		end
+	MEMORY_NACK:
+		if (~ack_i) begin
+			case(memr.func)
+			MR_STORE,MR_MOVST:
+				if (~|memr_sel[31:16]) begin
+					if (memr_sel[127:16]=='d0) begin
+						if (memr.func2 != MR_STPTR) begin
+							if (!memresp_full) begin
+								if (|memr.hit[1:0])
+									// Write odd then even if request line was odd.
+									if (memr.adr[5])
+										dci <= {dci[0],dci[1]};
+							end
+						end
+					end
+				end
+			endcase
+		end
+	// For a write hit on the data cache.
+	// Only dci[0] is written to the data cache. Transfer the buffer in case a 
+	// write of dci[1] is needed. It will be written in a second update cycle.
+	MEMORY_UPD1:
+		begin
+			dci[0].data <= dci[1].data;
+			dci[0].m <= 1'b1;
+		end
+	MEMORY_UPD2:
+		;
+	endcase
 end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1214,8 +1282,6 @@ begin
 	dwait <= 3'd0;
 	iaccess <= FALSE;
 	daccess <= FALSE;
-	dci[0] <= 'd0;
-	dci[1] <= 'd0;
 //	memreq_rd <= FALSE;
 	memresp <= 'd0;
 	memresp2 <= 'd0;
@@ -1328,10 +1394,10 @@ else begin
 					memr_sel <= memq_o.sel;
 					memr_res <= memq_o.res;
 					memreq <= memq_o;
-					dci[0].data <= memq_o.res[255:0];
-					dci[1].data <= memq_o.res[511:256];
-					dci[0].m <= 1'b0;
-					dci[1].m <= 1'b0;
+					//dci[0].data <= memq_o.res[255:0];
+					//dci[1].data <= memq_o.res[511:256];
+					//dci[0].m <= 1'b0;
+					//dci[1].m <= 1'b0;
 					gosub (MEMORY_ACTIVATE);
 				end
 			end
@@ -1384,10 +1450,10 @@ else begin
 		
 	MEMORY_UPD1:
 		begin
-			dci[0] <= dci[1].data;
-			dci[1] <= dci[0].data;
-			dci[0].m <= 1'b1;
-			dci[1].m <= 1'b1;
+			//dci[0] <= dci[1].data;
+			//dci[1] <= dci[0].data;
+			//dci[0].m <= 1'b1;
+			//dci[1].m <= 1'b1;
 			if (memr.hit==2'b11)
 				goto (MEMORY_UPD2);
 			else
@@ -2773,7 +2839,7 @@ begin
 			  end
 			  else begin
 			  	if (memr_sel[127:16]=='d0) begin
-		    		if (memreq.func2==MR_STPTR) begin	// STPTR
+		    		if (memr.func2==MR_STPTR) begin	// STPTR
 				    	if (~|ea[AWID-5:0] || shr_ma[5:3] >= region.at[18:16]) begin
 		  					memresp.cause <= FLT_NONE;
 				  			memresp.step <= memreq.step;
@@ -2805,8 +2871,8 @@ begin
 							memresp.res <= {127'd0,rb_i};
 							if (!memresp_full) begin
 								if (|memr.hit[1:0]) begin
-									if (memr.adr[5])
-										dci <= {dci[0],dci[1]};
+									//if (memr.adr[5])
+									//	dci <= {dci[0],dci[1]};
 									goto (MEMORY_UPD1);
 								end
 								else

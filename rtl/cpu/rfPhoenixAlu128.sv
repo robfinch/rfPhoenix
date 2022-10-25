@@ -128,10 +128,13 @@ OP_CMP:
 		o2[13] = a >= b;
 		o2[14] = a > b;
 		o2[15] = 1'b0;
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {127'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
 OP_FCMP:
 	begin
@@ -146,10 +149,13 @@ OP_FCMP:
 		o2[10] = fcmp_o[10];	// >
 		o2[11] = fcmp_o[11];	// mag >=
 		o2[12] = fcmp_o[12];	// ordered
+		o = o2;
+		/*
 		case(ir.r2.func[3:0])
 		4'd15:	o = o2;
 		default:	o = {127'd0,o2[ir.r2.func[3:0]]};
 		endcase
+		*/
 	end
 default:	o = 'd0;
 endcase

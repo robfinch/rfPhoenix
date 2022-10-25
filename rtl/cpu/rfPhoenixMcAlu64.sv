@@ -50,12 +50,12 @@ output reg done;
 input tid_t ridi;
 output tid_t rido;
 
-integer n;
+integer m,n;
 
-wire fms = ir.any.opcode==OP_FMS64 || ir.any.opcode==OP_FNMS64;
-wire fnm = ir.any.opcode==OP_FNMA64 || ir.any.opcode==OP_FNMS64;
-wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD64;
-wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB64;
+wire fms = ir.any.opcode==OP_FMS || ir.any.opcode==OP_FNMS;
+wire fnm = ir.any.opcode==OP_FNMA || ir.any.opcode==OP_FNMS;
+wire fadd = ir.any.opcode==OP_R2 && ir.r2.func==OP_FADD;
+wire fsub = ir.any.opcode==OP_R2 && ir.r2.func==OP_FSUB;
 wire mul = ir.any.opcode==OP_R2 && ir.r2.func==OP_MUL;
 
 double_value_t fma_o, fma_o1;
@@ -168,14 +168,24 @@ OP_R2:
 		OP_I2F:	o = i2f_o;
 		OP_F2I:	o = f2i_o;
 		OP_FTRUNC:	o = ftrunc_o;
+		OP_MCMPRSS:
+			begin
+				o = 'd0;
+				m = 0;
+				for (n = 0; n < 64; n = n + 1)
+					if (ac[n]) begin
+						o[m] = 1'b1;
+						m = m + 1;
+					end
+			end
 		default:	o = 'd0;
 		endcase
 	OP_MUL:		o = mul_pipe[0];
-	OP_FADD64,OP_FSUB64:	o = fma_o;
+	OP_FADD,OP_FSUB:	o = fma_o;
 	default:	o = 'd0;
 	endcase
 OP_MULI:	o = mul_pipe[0];
-OP_FMA64,OP_FMS64,OP_FNMA64,OP_FNMS64:	o = fma_o;
+OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	o = fma_o;
 default:	o = 'd0;
 endcase
 
