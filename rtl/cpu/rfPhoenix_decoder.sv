@@ -94,8 +94,8 @@ begin
 	OP_FMA,OP_FMS,OP_FNMA,OP_FNMS:	begin deco.Rt = ifb.insn.f3.Rt; deco.Rt.vec = ifb.insn.f3.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	OP_NOP:
 		begin deco.Rt = 'd0; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
-	OP_CALL:	begin deco.Rt = ifb.insn.call.Rt==2'b00 ? 7'd0 : {4'b1100,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
-	OP_BSR:	begin deco.Rt = ifb.insn.call.Rt==2'b00 ? 7'd0 : {4'b1100,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
+	OP_CALL:	begin deco.Rt = {1'b0,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
+	OP_BSR:	begin deco.Rt = {1'b0,ifb.insn.call.Rt}; deco.Rt.vec = 1'b0; deco.Tt = 1'b0; end
 	OP_RET:	begin deco.Rt = ifb.insn.ri.Rt; deco.Rt.vec = ifb.insn.ri.Rt.vec; deco.Tt = ifb.insn.r2.Rt.vec; end
 	OP_LOAD,OP_LOADU:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
 	OP_STORE:	begin deco.Rt = ifb.insn.ls.Rt; deco.Rt.vec = ifb.insn.ls.Rt.vec; deco.Tt = ifb.insn.ls.Rt.vec; end
@@ -159,8 +159,8 @@ begin
 		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
 	OP_FCMPI:
 		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
-	OP_CALL:	deco.imm = ifb.insn.call.target;
-	OP_BSR:	deco.imm = ifb.insn.call.target;
+	OP_CALL:	deco.imm = {{92{ifb.insn.call.target[35]}},ifb.insn.call.target};
+	OP_BSR:	deco.imm = {{92{ifb.insn.call.target[35]}},ifb.insn.call.target};
 	OP_Bcc,OP_FBcc:	deco.imm = {{111{ifb.insn.br.disp[16]}},ifb.insn.br.disp};
 	OP_RET:	deco.imm = {{109{ifb.insn.ri.imm[18]}},ifb.insn.ri.imm};
 	OP_LOAD,OP_LOADU,OP_STORE:
@@ -434,7 +434,7 @@ begin
 	default:	deco.compress = 1'b0;
 	endcase
 
-	deco.pfx = ifb.insn.any.opcode==OP_PFX;
+	deco.pfx = ifb.insn.pfx.opcode==3'd2;
 
 	deco.csr = ifb.insn.any.opcode==OP_CSR;
 	deco.csrrd = ifb.insn.any.opcode==OP_CSR && ifb.insn.csr.func==2'd0;
@@ -442,7 +442,7 @@ begin
 	deco.csrrc = ifb.insn.any.opcode==OP_CSR && ifb.insn.csr.func==2'd2;
 	deco.csrrs = ifb.insn.any.opcode==OP_CSR && ifb.insn.csr.func==2'd3;
 
-	deco.hasRa = ifb.insn.any.opcode!=OP_PFX && !deco.cjb;
+	deco.hasRa = ifb.insn.pfx.opcode!=3'd2 && !deco.cjb;
 	deco.hasRb = (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func!=OP_R1) ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||

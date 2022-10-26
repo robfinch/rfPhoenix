@@ -126,7 +126,7 @@ reg itndx_v;
 reg rfndx1_v, rfndx2_v, rfndx3_v;
 tid_t dcndx,dcndx2,itndx,exndx,exndx1,exndx2,oundx,wbndx,wbndx2,rfndx1,rfndx2,rfndx3,agndx;
 reg xrid_v,mcrid_v;
-reg [NTHREADS-1:0] dcb_v, rfb3_v, exb_v;
+reg [NTHREADS-1:0] dcb_v, rfb2_v, rfb3_v, exb_v;
 tid_t mcv_ridi, mcv_rido;
 tid_t ithread, dthread, xthread, commit_thread;
 reg dthread_v;
@@ -187,6 +187,7 @@ operating_mode_t omode [0:NTHREADS-1];
 reg [NTHREADS-1:0] Usermode;
 reg [NTHREADS-1:0] MUsermode;
 wire takb;
+reg takbd1;
 wire [NTHREADS-1:0] ififo_almost_full;
 reg [2:0] sp_sel [0:NTHREADS-1];
 reg [2:0] sp_sel2;
@@ -216,6 +217,7 @@ instruction_fetchbuf_t ic_ifb;
 instruction_fetchbuf_t [NTHREADS-1:0] dc_ifb, dc1_ifb;
 reg [5:0] imiss_count;
 reg [NTHREADS-1:0] ou_stall, ex_stall, mc_stall, stall_pipe;
+reg stall_pipe_n;
 // pipeline fifo signals
 reg exbrf_wr, memf_wr, mcbf_wr;
 reg exbrf_rd, memf_rd, mcbf_rd;
@@ -372,7 +374,7 @@ begin
 		3'd2:	fnSpSel = 7'd61;
 		3'd3:	fnSpSel = 7'd62;
 		3'd4:	fnSpSel = 7'd63;
-		default:	fnSpSel = 7'd31;
+		default:	fnSpSel = 7'd47;
 		endcase
 	else
 		fnSpSel = i;
@@ -554,16 +556,19 @@ rfPhoenix_branch_eval ube1
 	.b(bxc),
 	.o(takb)
 );
+always_ff @(posedge clk_g)
+	takbd1 <= takb;
 
 rfPhoenix_gp_regfile ugprs1
 (
 	.rst(rst_i),
 	.clk(clk_g),
+	.ce(!stall_pipe_n),
 	.wr(commit_wr),
 	.wthread(commit_thread),
 	.wa(commit_tgt),
 	.i(commit_bus[0]),
-	.rthread(dcndx),
+	.rthread(dcndx2),
 	.ra0(ra0),
 	.ra1(ra1),
 	.ra2(ra2),
@@ -580,12 +585,13 @@ rfPhoenix_vec_regfile ugprs2
 (
 	.rst(rst_i),
 	.clk(clk_g),
+	.ce(!stall_pipe_n),
 	.wr(commit_wrv),
 	.wthread(commit_thread),
 	.wmask(commit_mask),
 	.wa(commit_tgt),
 	.i(commit_bus),
-	.rthread(dcndx),
+	.rthread(dcndx2),
 	.ra0(ra0),
 	.ra1(ra1),
 	.ra2(ra2),
@@ -717,11 +723,11 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 	else
 		sb_issue[g] <= sb_will_issue[g];
 	always_comb
-		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX && ic_ifb.ip != last_ip[g];
+		wr_ififo[g] <= ic_ifb.thread==g && ic_ifb.v;// && ic_ifb.insn.pfx.opcode!=3'd2;// && ic_ifb.ip != last_ip[g];
 	always_ff @(posedge clk_g)
 	if (rst_i)
 		last_ip[g] <= 'd0;
-	else if (ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.any.opcode!=OP_PFX)
+	else if (ic_ifb.thread==g && ic_ifb.v && ic_ifb.insn.pfx.opcode!=3'd2)
 		last_ip[g] <= ic_ifb.ip;
 
 	rfPhoenix_fifo #(.WID($bits({deco,ic_ifb})), .DEP(16)) ufifo1
@@ -843,8 +849,10 @@ begin
 	thread_busy <= 'd0;
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 		dcb[n] <= 'd0;
+		dcb2[n] <= 'd0;
 		rfb1[n] <= 'd0;
 		rfb2[n] <= 'd0;
+		rfb3[n] <= 'd0;
 		exb[n] <= 'd0;
 		agb[n] <= 'd0;
 		oub[n] <= 'd0;
@@ -962,11 +970,12 @@ reg [NTHREADS-1:0] dcsel;
 generate begin : gDcsel
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			dcsel[g] = //!dcsel2[g] &&
+			dcsel[g] = 
+				//!dcsel2[g] &&
 				sb_can_issue[g] &&							// There are no dependencies
-				(!dcb[g].v || !stall_pipe[g]) &&	// The buffer is empty or is going to be empty.
-				cr0[g] &&	// The thread is enabled
-				!ififo_empty[g];// &&	// There is something in the fifo
+				(!dcb_v[g] || !stall_pipe[g]) &&	// The buffer is empty or is going to be empty.
+				cr0[g];// &&	// The thread is enabled
+				//!ififo_empty[g];// &&	// There is something in the fifo
 				//!stall_pipe[g];// &&				// No stall at end of pipe
 				//!stall_dec && !stall_dec1 && 
 				//sb_will_issue[g];
@@ -991,7 +1000,8 @@ always_comb
 generate begin : gIssue
 	for (g = 0; g < NTHREADS; g = g + 1)
 		always_comb
-			sb_will_issue[g] = dcndx_v && dcndx==g && !stall_pipe;//g==dcndx && dcndx_v;// &&	!sb_issue[g];
+			sb_will_issue[g] = dcndx_v && dcndx==g && !stall_pipe[g] && !ififo_empty[g];
+			;//g==dcndx && dcndx_v;// &&	!sb_issue[g];
 end
 endgenerate
 
@@ -1030,7 +1040,8 @@ generate begin : gExsel
 		always_comb
 			exsel[g] = 	!rfb3[g].dec.mem &&	// not memory
 									!rfb3[g].dec.multicycle &&	// not multi-cycle
-									 rfb3_v[g];						// and it is valid
+									cr0[g];
+//									 rfb3_v[g];						// and it is valid
 end
 endgenerate
 
@@ -1191,12 +1202,12 @@ begin
 		else
 			thread_ip[exndx] <= exb[exndx].a[0];
 	OP_Bcc:
-		if (takb) 
+		if (takbd1) 
 			thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
 		else
 			tIfIp();
 	OP_FBcc:
-		if (takb)
+		if (takbd1)
 			thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
 		else
 			tIfIp();
@@ -1358,14 +1369,15 @@ wire pe_stall_pipe, ne_stall_pipe;
 edge_det upse1 (.rst(rst), .clk(clk_g), .ce(1'b1), .i(stall_pipe), .pe(pe_stall_pipe), .ne(ne_stall_pipe), .ee());
 
 
+always_comb
+	stall_pipe_n = stall_pipe[dcndx];
 
 task tDecode;
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		if (stall_pipe[n])
-			dcb[n] <= dcb[n];
-		else begin
+		if (!stall_pipe[n]) begin
+			dcndx2 <= dcndx;
 			dcb[n].thread <= n;
 //			dcb[n].v <= dc_ifb[n].v;
 			dcb[n].ifb <= dc_ifb[n];
@@ -1373,25 +1385,14 @@ begin
 			// Needed for virtualization
 			if (dco[n].csr && omode[n]!=OM_MACHINE)
 				dcb[n].cause <= FLT_CSR;
-			dcbb[n].thread <= n;
-//			dcbb[n].v <= dc_ifb[n].v;
-			dcbb[n].ifb <= dc_ifb[n];
-			dcbb[n].dec <= dco[n];
-			// Needed for virtualization
-			if (dco[n].csr && omode[n]!=OM_MACHINE)
-				dcbb[n].cause <= FLT_CSR;
-			if (n==dcndx && dcndx_v) begin
-				ra0 <= {dcndx,fnSpSel(n,dco[n].Ra)};
-				ra1 <= {dcndx,fnSpSel(n,dco[n].Rb)};
-				ra2 <= {dcndx,fnSpSel(n,dco[n].Rc)};
-				ra3 <= {dcndx,dco[n].Rm.num};
+			if (n==dcndx2) begin
+				ra0 <= {dcndx2,fnSpSel(n,dco[n].Ra)};
+				ra1 <= {dcndx2,fnSpSel(n,dco[n].Rb)};
+				ra2 <= {dcndx2,fnSpSel(n,dco[n].Rc)};
+				ra3 <= {dcndx2,dco[n].Rm.num};
 //				ra4 <= {dcndx,fnSpSel(n,dco[n].Rt)};
 			end
 		end
-//		if (ne_stall_pipe)
-//			dcb <= dcbb;
-		dcb2[n] <= dcb[n];
-		dcndx2 <= dcndx;
 	end
 end
 endtask
@@ -1399,8 +1400,14 @@ endtask
 always_comb
 	for (n4 = 0; n4 < NTHREADS; n4 = n4 + 1) begin
 		dcb_v[n4] <= (dcb[n4].ifb.ip != dc_ifb[n4].ip) && dc_ifb[n4].v;
-		
-		rfb3_v[n4] <= (rfb3[n4].ifb.ip != dcb2[n4].ifb.ip);// && dc_ifb[n4].v;
+
+		rfb2_v[n4] <= (rfb2[n4].ifb.ip != dcb[n4].ifb.ip);
+		if (REGFILE_LATENCY==1)	
+			rfb3_v[n4] <= (rfb3[n4].ifb.ip != dc_ifb[n4].ip);// && dc_ifb[n4].v;	
+		else if (REGFILE_LATENCY==2)
+			rfb3_v[n4] <= (rfb3[n4].ifb.ip != rfb2[n4].ifb.ip);// && dc_ifb[n4].v;	
+		else	
+			rfb3_v[n4] <= (rfb3[n4].ifb.ip != rfb2[n4].ifb.ip);// && dc_ifb[n4].v;	
 			
 		exb_v[n4] <= (exb[n4].ifb.ip != rfb3[n4].ifb.ip) && !rolledback1;// && (dcb_v[n4]|dc_ifb[n4].v);
 //			(rfb3_v[n4] || (rfb3[n4].ifb.ip == dcb[n4].ifb.ip && dcb_v[n4]));
@@ -1414,12 +1421,16 @@ always_comb
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 always_ff @(posedge clk_g)
+if (!stall_pipe_n)
 	ra0d <= ra0;
 always_ff @(posedge clk_g)
+if (!stall_pipe_n)
 	ra1d <= ra1;
 always_ff @(posedge clk_g)
+if (!stall_pipe_n)
 	ra2d <= ra2;
 always_ff @(posedge clk_g)
+if (!stall_pipe_n)
 	ra3d <= ra3;
 
 value_t csro;
@@ -1430,10 +1441,10 @@ vector_value_t opera,operb,operc;
 value_t operm;
 
 always_comb
-	if (ra0d==7'd0 && !ra0d[6])
+	if (ra0d[6:0]==7'd0 && !ra0d[6])
 		opera = 'd0;
-	else if (ra0d==7'd59 && !ra0d[6])
-		opera = {NLANES{dcb2[n].ifb.ip}};
+	else if (ra0d[6:0]==7'd59 && !ra0d[6])
+		opera = {NLANES{rfb2[n].ifb.ip}};
 //	else if (dcb[n].dec.Ra == exb[n].dec.Rt)
 //		opera = vres;
 	else if (ra0d[6])
@@ -1442,10 +1453,10 @@ always_comb
 		opera = {NLANES{rfo0}};
 
 always_comb
-	if (ra1d==7'd0 && !ra1d[6])
+	if (ra1d[6:0]==7'd0 && !ra1d[6])
 		operb = 'd0;
-	else if (ra1d==7'd59 && !ra1d[6])
-		operb = {NLANES{dcb2[n].ifb.ip}};
+	else if (ra1d[6:0]==7'd59 && !ra1d[6])
+		operb = {NLANES{rfb2[n].ifb.ip}};
 //	else if (dcb[n].dec.Rb == exb[n].dec.Rt)
 //		operb = vres;
 	else if (ra1d[6])
@@ -1454,12 +1465,12 @@ always_comb
 		operb = {NLANES{rfo1}};
 
 always_comb
-	if (ra2d==7'd0 && !ra2d[6])
+	if (ra2d[6:0]==7'd0 && !ra2d[6])
 		operc = 'd0;
-	else if (ra2d==7'd59 && !ra2d[6])
-		operc = {NLANES{dcb2[n].ifb.ip}};
-	else if (dcb[n].dec.csr)
-		operc = {NLANES{csro}};
+	else if (ra2d[6:0]==7'd59 && !ra2d[6])
+		operc = {NLANES{rfb2[n].ifb.ip}};
+//	else if (rfb2[n].dec.csr)
+//		operc = {NLANES{csro}};
 //	else if (dcb[n].dec.Rc == exb[n].dec.Rt)
 //		operc = vres;
 	else if (ra2d[6])
@@ -1468,7 +1479,7 @@ always_comb
 		operc = {NLANES{rfo2}};
 
 always_comb
-	if (ra3d==7'd0)
+	if (ra3d[6:0]==7'd0)
 		operm <= 32'hFFFFFFFF;
 	else
 		operm <= rfo3;
@@ -1480,12 +1491,14 @@ begin
 	rfb3[n].b <= operb;
 	rfb3[n].c <= operc;
 	rfb3[n].mask <= operm;
-	if (REGFILE_LATENCY==2) begin
-		if ((dcb2[n].dec.rfwr & ~dcb2[n].dec.Rt.vec) | (dcb2[n].dec.vrfwr & dcb2[n].dec.Rt.vec))
-			ou_rollback_bitmaps[n][dcb2[n].dec.Rt] <= 1'b1;
+	if (REGFILE_LATENCY==1) begin
+		if ((dcb[n].dec.rfwr & ~dcb[n].dec.Rt.vec) | (dcb[n].dec.vrfwr & dcb[n].dec.Rt.vec))
+			ou_rollback_bitmaps[n][dcb[n].dec.Rt] <= 1'b1;
 	end
 	// ToDo: update for more latencies.
-	else if (REGFILE_LATENCY==3) begin
+	else if (REGFILE_LATENCY==2) begin
+		if ((rfb2[n].dec.rfwr & ~rfb2[n].dec.Rt.vec) | (rfb2[n].dec.vrfwr & rfb2[n].dec.Rt.vec))
+			ou_rollback_bitmaps[n][rfb2[n].dec.Rt] <= 1'b1;
 	end
 	else if (REGFILE_LATENCY==4) begin
 	end
@@ -1501,53 +1514,59 @@ integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 
-		if (REGFILE_LATENCY==2) begin
-			rfndx3 <= dcndx2;
-			rfb3[n] <= dcb2[n];
-			if (rollback[n] && rollback_ipv[n] && dcb2[n].ifb.ip == rollback_ip[n]) begin
-				rollback_ipv[n] <= INV;
-				if (n==dcndx2)
-					tRegf(n);
+		if (REGFILE_LATENCY==1) begin
+			if (!stall_pipe[n]) begin
+				rfndx3 <= dcndx2;
+				rfb3[n] <= dcb[n];
+				if (rollback[n] && rollback_ipv[n] && dcb[n].ifb.ip == rollback_ip[n]) begin
+					rollback_ipv[n] <= INV;
+					if (n==dcndx2)
+						tRegf(n);
+				end
+				else begin
+					if (n==dcndx2)
+						tRegf(n);
+				end
 			end
-			else begin
-				if (n==dcndx2)
-					tRegf(n);
+		end
+
+		else if (REGFILE_LATENCY==2) begin
+			if (!stall_pipe[n]) begin
+				rfndx2 <= dcndx2;
+				rfndx3 <= rfndx2;
+				rfb2[n] <= dcb[n];
+				rfb2[n].v <= dcb_v[n];
+				rfb3[n] <= rfb2[n];
+				if (rollback[n] && rollback_ipv[n] && rfb2[n].ifb.ip == rollback_ip[n]) begin
+					rollback_ipv[n] <= INV;
+					if (n==rfndx2)
+						tRegf(n);
+				end
+				else begin
+					if (n==rfndx2)
+						tRegf(n);
+				end
 			end
 		end
 
 		else if (REGFILE_LATENCY==3) begin
-			rfndx2 <= dcndx;
-			rfndx3 <= rfndx2;
-			rfb2[n] <= dcb[n];
-			rfb2[n].v <= dcb_v[n];
-			rfb3[n] <= rfb2[n];
-			if (rollback[n] && rollback_ipv[n] && rfb2[n].ifb.ip == rollback_ip[n]) begin
-				rollback_ipv[n] <= INV;
-				if (n==rfndx3)
-					tRegf(n);
-			end
-			else begin
-				if (n==rfndx3)
-					tRegf(n);
-			end
-		end
-
-		else if (REGFILE_LATENCY==4) begin
-			rfndx1 <= dcndx;
-			rfndx2 <= rfndx1;
-			rfndx3 <= rfndx2;
-			rfb1[n] <= dcb;
-			rfb1[n].v <= dcb_v[n];
-			rfb2[n] <= rfb1[n];
-			rfb3[n] <= rfb2[n];
-			if (rollback[n] && rollback_ipv[n] && rfb3[n].ifb.ip == rollback_ip[n]) begin
-				rollback_ipv[n] <= INV;
-				if (n==rfndx3)
-					tRegf(n);
-			end
-			else begin
-				if (n==rfndx3)
-					tRegf(n);
+			if (!stall_pipe[n]) begin
+				rfndx1 <= dcndx;
+				rfndx2 <= rfndx1;
+				rfndx3 <= rfndx2;
+				rfb1[n] <= dcb;
+				rfb1[n].v <= dcb_v[n];
+				rfb2[n] <= rfb1[n];
+				rfb3[n] <= rfb2[n];
+				if (rollback[n] && rollback_ipv[n] && rfb3[n].ifb.ip == rollback_ip[n]) begin
+					rollback_ipv[n] <= INV;
+					if (n==rfndx2)
+						tRegf(n);
+				end
+				else begin
+					if (n==rfndx2)
+						tRegf(n);
+				end
 			end
 		end
 	end
@@ -1562,8 +1581,8 @@ task tExCall;
 input tid_t exndx;
 begin
 	if (rfb3_v[exndx])
-	case(rfb3[exndx].ifb.insn.any.opcode)
-	OP_PFX:	;
+	casez(rfb3[exndx].ifb.insn.any.opcode)
+	6'b010???:	;	// PFX
 	OP_NOP:	;
 	OP_CALL:
 		begin
@@ -1601,10 +1620,10 @@ endtask
 task tExBranch;
 input tid_t exndx;
 begin
-	if (rfb3[exndx].dec.br & rfb3_v[exndx]) begin
-		if (takb) begin
-			thread[exndx].ip <= rfb3[exndx].ifb.ip + rfb3[exndx].dec.imm;
-			rollback_ip[exndx] <= rfb3[exndx].ifb.ip + rfb3[exndx].dec.imm;
+	if (exb[exndx].dec.br & exb_v[exndx]) begin
+		if (takbd1) begin
+			thread[exndx].ip <= exb[exndx].ifb.ip + exb[exndx].dec.imm;
+			rollback_ip[exndx] <= exb[exndx].ifb.ip + exb[exndx].dec.imm;
 			rollback_ipv[exndx] <= TRUE;
 			ou_rollback[exndx] <= TRUE;
 		end
@@ -2321,7 +2340,7 @@ begin
 			// Writing to machine stack pointer globally enables interrupts.
 			if (wbb[wbndx].dec.Rt==7'd47 && wbb[wbndx].dec.rfwr)
 				gie[wbndx] <= 1'b1;
-			if (ic_ifb.v && ic_ifb.insn.any.opcode==OP_PFX)
+			if (ic_ifb.v && ic_ifb.insn.pfx.opcode==3'd2)
 				retired <= retired + 2'd2;
 			else if (wbb[wbndx].v)
 				retired <= retired + 2'd1;
@@ -2601,12 +2620,15 @@ begin
 			for (n1 = 0; n1 < NTHREADS; n1 = n1 + 1)
 				$display("  thread[%d].ip=%h", n1[3:0], thread_ip[n1]);
 			$display("DecodeBuffer:");
-			$display("  1:%d: %c ip=%h.%d ir=%h oc=%0s", n[3:0],
+			$display("  1:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d", n[3:0],
 				dc_ifb[n].v ? "v":"-",
 				dc_ifb[n].ip,
 				dc_ifb[n].tag,
 				dc_ifb[n].insn,
-				dc_ifb[n].insn.any.opcode.name()
+				dc_ifb[n].insn.any.opcode.name(),
+				dco[n].Ra,
+				dco[n].Rb,
+				dco[n].Rc
 			);
 			$display("  2:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d", n[3:0],
 				dcb_v[n] ? "v":"-",
@@ -2618,32 +2640,24 @@ begin
 				ra1,
 				ra2
 			);
-			$display("  3:%d: %c ip=%h.%d ir=%h oc=%0s c=%h", n[3:0],
-				dcb_v[n] ? "v":"-",
-				dcb2[n].ifb.ip,
-				dcb2[n].ifb.tag,
-				dcb2[n].ifb.insn,
-				dcb2[n].ifb.insn.any.opcode.name(),
-				operc
-			);
 			$display("Regfetch %d,%d:", rfndx1,rfndx2);
-			if (REGFILE_LATENCY > 3) begin
+			if (REGFILE_LATENCY > 2) begin
 				$display("  1:%c ip=%h.%d %0s Ra%d=%h Rb%d=%h Rc%d=%h csro[%h]=%h",
 					rfb1[n].v?"v":"-",
 					rfb1[n].ifb.ip,
 					rfb1[n].ifb.tag,
 					rfb1[n].ifb.insn.any.opcode.name(),
 					rfb1[n].dec.Ra,
-					opera,
+					rfb1[n].a,
 					rfb1[n].dec.Rb,
-					operb,
+					rfb1[n].b,
 					rfb1[n].dec.Rc,
-					operc,
+					rfb1[n].c,
 					rfb1[n].dec.imm[13:0],
 					csro
 				);
 			end
-			if (REGFILE_LATENCY > 2) begin
+			if (REGFILE_LATENCY > 1) begin
 				$display("  2:%c ip=%h.%d %0s Rt=%d Ra%d=%h Rb%d=%h Rc%d=%h",
 					rfb2[n].v?"v":"-",
 					rfb2[n].ifb.ip,
@@ -2651,11 +2665,11 @@ begin
 					rfb2[n].ifb.insn.any.opcode.name(),
 					rfb2[n].dec.Rt,
 					rfb2[n].dec.Ra,
-					opera,
+					rfb2[n].a,
 					rfb2[n].dec.Rb,
-					operb,
+					rfb2[n].b,
 					rfb2[n].dec.Rc,
-					operc
+					rfb2[n].c,
 				);
 			end
 			$display("  3:%c ip=%h.%d %0s Rt=%d Ra%d=%h Rb%d=%h Rc%d=%h",

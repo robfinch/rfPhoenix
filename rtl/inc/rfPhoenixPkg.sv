@@ -6,7 +6,7 @@ package rfPhoenixPkg;
 // Comment out to remove the sigmoid approximate function
 //`define SIGMOID	1
 
-`define SUPPORT_16BIT_OPS		1
+//`define SUPPORT_16BIT_OPS		1
 //`define SUPPORT_64BIT_OPS		1
 //`define SUPPORT_128BIT_OPS	1
 `define NLANES	4
@@ -45,7 +45,6 @@ parameter RAS_DEPTH	= 4;
 
 typedef enum logic [5:0] {
 	OP_BRK			= 6'h00,
-	OP_PFX			= 6'h01,
 	OP_R2				= 6'h02,
 	OP_ADDI			= 6'h04,
 	OP_SUBFI		= 6'h05,
@@ -55,47 +54,23 @@ typedef enum logic [5:0] {
 	OP_ORI			= 6'h09,
 	OP_XORI			= 6'h0A,
 	OP_NOP			= 6'h0B,
-	OP_CMPI32		= 6'h0E,
+	OP_CMPI			= 6'h0E,
 	OP_CMP			= 6'h0F,
-	OP_FCMPI16	= 6'h14,
-	OP_FCMPI64  = 6'h15,
-	OP_CMPI16		= 6'h16,
-	OP_CMPI64		= 6'h17,
+	/* 10 to 17h = PFX */
 	OP_CALL			= 6'h18,
 	OP_BSR			= 6'h19,
 	OP_RET			= 6'h1A,
 	OP_Bcc			= 6'h1C,
 	OP_FBcc			= 6'h1D,
-	OP_FCMPI32	= 6'h1E,
+	OP_FCMPI		= 6'h1E,
 	OP_FCMP			= 6'h1F,
-	OP_FMA16		= 6'h20,
-	OP_FMS16		= 6'h21,
-	OP_FNMA16		= 6'h22,
-	OP_FNMS16		= 6'h23,
-	OP_FMA64		= 6'h24,
-	OP_FMS64		= 6'h25,
-	OP_FNMA64		= 6'h26,
-	OP_FNMS64		= 6'h27,
-	OP_FMA128		= 6'h28,
-	OP_FMS128		= 6'h29,
-	OP_FNMA128	= 6'h2A,
-	OP_FNMS128	= 6'h2B,
-	OP_FMA 			= 6'h2C,
-	OP_FMS 			= 6'h2D,
-	OP_FNMA			= 6'h2E,
-	OP_FNMS 		= 6'h2F,
-	OP_LDB			= 6'h30,
-	OP_LDBU			= 6'h31,
-	OP_LDW			= 6'h32,
-	OP_LDWU			= 6'h33,
-	OP_LDT			= 6'h34,
-	OP_LDC			= 6'h35,
-	OP_LDSR			= 6'h36,
-	OP_STB			= 6'h38,
-	OP_STW			= 6'h39,
-	OP_STT			= 6'h3A,
-	OP_STC			= 6'h3B,
-	OP_STCR			= 6'h3D
+	OP_FMA			= 6'h24,
+	OP_FMS			= 6'h25,
+	OP_FNMA			= 6'h26,
+	OP_FNMS			= 6'h27,
+	OP_STORE		= 6'h28,
+	OP_LOAD			= 6'h2C,
+	OP_LOADU		= 6'h2D
 } opcode_t;
 
 typedef enum logic [3:0] {
@@ -148,29 +123,18 @@ typedef enum logic [5:0] {
 	OP_SLL			= 6'h1B,
 	OP_SRL			= 6'h1C,
 	OP_SRA			= 6'h1D,
+	OP_REMASK		= 6'h1E,
+	OP_PUSHQ		= 6'h1F,
 	OP_VSLLVI		= 6'h20,
 	OP_VSRLVI		= 6'h21,
 	OP_VSLLV		= 6'h22,
 	OP_VSRLV		= 6'h23,
-	OP_FADD128	= 6'h28,
-	OP_FSUB128	= 6'h29,
-	OP_SHPTENDX	= 6'h2A,
-	OP_FADD			= 6'h2C,
-	OP_FSUB			= 6'h2D,
-	OP_REMASK		= 6'h2E,
-	OP_PUSHQ		= 6'h2F,
-	OP_LDBX			= 6'h30,
-	OP_LDBUX		= 6'h31,
-	OP_LDWX			= 6'h32,
-	OP_LDWUX		= 6'h33,
-	OP_LDTX			= 6'h34,
-	OP_LDCX			= 6'h35,
-	OP_LDSRX		= 6'h36,
-	OP_STBX			= 6'h38,
-	OP_STWX			= 6'h39,
-	OP_STTX			= 6'h3A,
-	OP_STCX			= 6'h3B,
-	OP_STCRX		= 6'h3D
+	OP_FADD			= 6'h24,
+	OP_FSUB			= 6'h25,
+	OP_STOREX		= 6'h28,
+	OP_LOADX		= 6'h2C,
+	OP_LOADUX		= 6'h2D,
+	OP_SHPTENDX	= 6'h2A
 } r2func_t;
 
 // R1 ops
@@ -182,6 +146,8 @@ typedef enum logic [5:0] {
 	OP_POPQ			= 6'h09,
 	OP_STATQ		= 6'h0B,
 	OP_RESETQ 	= 6'h0C,
+	OP_MCMPRSS	= 6'h11,
+	OP_VCMPRSS	= 6'h14,
 	OP_RTI			= 6'h19,
 	OP_REX			= 6'h1A,
 	OP_FFINITE 	= 6'h20,
@@ -201,11 +167,12 @@ typedef enum logic [5:0] {
 	OP_SEXTW		= 6'h39
 } r1func_t;
 
-typedef enum logic [1:0] {
-	PRC16 = 2'd0,
-	PRC32 = 2'd1,
-	PRC64 = 2'd2,
-	PRC128 = 2'd3
+typedef enum logic [2:0] {
+	PRC8 = 3'd0,
+	PRC16 = 3'd1,
+	PRC32 = 3'd2,
+	PRC64 = 3'd3,
+	PRC128 = 3'd4
 } prec_t;
 
 parameter NOP_INSN	= {34'd0,OP_NOP};
@@ -375,23 +342,25 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [31:0] imm;
-	prec_t prc;
-	opcode_t opcode;
+	logic [41:0] imm;
+	logic [2:0] opcode;
+	logic [2:0] immlo;
 } postfix_t;
 
 typedef struct packed
 {
-	logic [33:0] payload;
+	logic [41:0] payload;
 	opcode_t opcode;
 } anyinst_t;
 
 typedef struct packed
 {
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [1:0] resv;
 	logic [2:0] rm;
 	regspec_t Rc;
 	regspec_t Rb;
-	logic [2:0] Rm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -399,11 +368,13 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [1:0] resv2;
 	logic [2:0] rm;
-	logic resv;
+	logic resv1;
 	r2func_t func;
 	regspec_t Rb;
-	logic [2:0] Rm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -411,12 +382,13 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic resv2;
-	logic [1:0] sz;
-	logic resv;
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [1:0] resv2;
+	logic [2:0] rm;
+	logic resv1;
 	r2func_t func;
 	regspec_t Rb;
-	logic [2:0] Rm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -424,12 +396,14 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [1:0] resv2;
 	logic [2:0] rm;
-	logic resv;
+	logic resv1;
 	r2func_t func;
 	logic Tb;
 	r1func_t func1;
-	logic [2:0] Rm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -437,9 +411,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic resv;
-	logic [15:0] imm;
-	logic [2:0] Rm;
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [18:0] imm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -447,9 +421,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [3:0] N;
-	logic [12:0] imm;
-	logic [2:0] Rm;
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [18:0] imm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -457,10 +431,11 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [5:0] Rm;
+	prec_t sz;
 	logic resv;
 	logic [1:0] func;
-	logic [13:0] imm;
-	logic [2:0] Rm;
+	logic [15:0] imm;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -468,9 +443,19 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic resv;
-	logic [15:0] disp;
-	logic [2:0] Rm;
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [18:0] disp;
+	regspec_t Ra;
+	regspec_t Rt;
+	opcode_t opcode;
+} lsvinst_t;
+
+typedef struct packed
+{
+	logic [5:0] Rm;
+	prec_t sz;
+	logic [18:0] disp;
 	regspec_t Ra;
 	regspec_t Rt;
 	opcode_t opcode;
@@ -478,9 +463,12 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic resv;
-	logic [15:0] disp;
 	branch_cnd_t cnd;	
+	logic resv;
+	logic [1:0] B;
+	prec_t sz;
+	logic [16:0] disp;
+	logic [1:0] A;
 	regspec_t	Ra;
 	regspec_t Rb;
 	opcode_t opcode;
@@ -488,15 +476,16 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [31:0] target;
-	logic [1:0] Rt;
+	logic [35:0] target;
+	logic [5:0] Rt;
 	opcode_t opcode;
 } callinst_t;
 
 typedef struct packed
 {
-	logic [33:0] cnst;
-	opcode_t opcode;
+	logic [41:0] imm;
+	logic [2:0] opcode;
+	logic [2:0] immlo;
 } pfxinst_t;
 
 typedef union packed
@@ -513,6 +502,7 @@ typedef union packed
 	cmpiinst_t cmpi;
 	csrinst_t	csr;
 	lsinst_t	ls;
+	lsvinst_t	lsv;
 	r2inst_t	lsn;
 	pfxinst_t	pfx;
 	anyinst_t any;

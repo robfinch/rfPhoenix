@@ -39,9 +39,10 @@
 //import const_pkg::*;
 import rfPhoenixPkg::*;
 
-module gpr_regfile(clk, wr, wa, i, ra, o);
+module gpr_regfile(clk, ce, wr, wa, i, ra, o);
 parameter ZERO_BYPASS = 1'b0;
 input clk;
+input ce;
 input [3:0] wr;
 input [5+TidMSB+1:0] wa;
 input value_t i;
@@ -103,10 +104,10 @@ integer k;
                                // "common_clock".
 
       .dina(i),                // WRITE_DATA_WIDTH_A-bit input: Data input for port A write operations.
-      .ena(wr),                // 1-bit input: Memory enable signal for port A. Must be high on clock
+      .ena(wr & ce),           // 1-bit input: Memory enable signal for port A. Must be high on clock
                                // cycles when write operations are initiated. Pipelined internally.
 
-      .enb(1'b1),              // 1-bit input: Memory enable signal for port B. Must be high on clock
+      .enb(ce),              // 1-bit input: Memory enable signal for port B. Must be high on clock
                                        // cycles when read operations are initiated. Pipelined internally.
 
       .injectdbiterra(1'b0), 	// 1-bit input: Controls double bit error injection on input data when
@@ -117,7 +118,7 @@ integer k;
                               // ECC enabled (Error injection capability is not available in
                               // "decode_only" mode).
 
-      .regceb(1'b1),	        // 1-bit input: Clock Enable for the last register stage on the output
+      .regceb(ce),	        // 1-bit input: Clock Enable for the last register stage on the output
                       	      // data path.
 
       .rstb(1'b0),             // 1-bit input: Reset signal for the final port B output register stage.
@@ -144,9 +145,10 @@ initial begin
 end
 reg [5+TidMSB+1:0] rar;
 always_ff @(posedge clk)
+if (ce)
 	rar <= ra;
 always_ff @(posedge clk)
-begin
+if (ce) begin
 	if (wr[0]) mem[wa][ 7: 0] <= i[ 7: 0];
 	if (wr[1]) mem[wa][15: 8] <= i[15: 8];
 	if (wr[2]) mem[wa][23:16] <= i[23:16];

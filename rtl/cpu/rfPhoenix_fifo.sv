@@ -98,7 +98,7 @@ always_comb
 	else
 		cnt = wr_ptr + (DEP - rd_ptr);
 always_comb
-	almost_full = cnt > DEP - 5;
+	almost_full = cnt > DEP - 6;
 always_comb
 	full = cnt==DEP-1;
 always_comb

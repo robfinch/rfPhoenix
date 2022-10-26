@@ -1,7 +1,7 @@
 #include "vasm.h"
 
-#define TRACE(x)		printf(x)
-#define TRACE2(x,y)	printf((x),(y))
+#define TRACE(x)		/* printf(x) */
+#define TRACE2(x,y)	/* printf((x),(y)) */
 
 char *cpu_copyright="vasm rfPhoenix cpu backend (c) in 2022 Robert Finch";
 
@@ -12,9 +12,9 @@ int abits=32;
 /* The following indicates if instructions including postfixes can span cache
    lines. */
 int span_cache_lines = 1;
-static taddr sdreg = 29;
-static taddr sd2reg = 28;
-static taddr sd3reg = 27;
+static taddr sdreg = 45;
+static taddr sd2reg = 44;
+static taddr sd3reg = 43;
 static __int64 regmask = 0x3fLL;
 
 static insn_count = 0;
@@ -24,19 +24,19 @@ static insn_sizes1[20000];
 static insn_sizes2[20000];
 static int sz1ndx = 0;
 static int sz2ndx = 0;
-static short int argregs[14] = {1,2,21,22,23,24,25,26,48,49,50,51,-1,-1};
-static short int tmpregs[14] = {3,4,5,6,7,8,9,10,-1,-1,-1,-1,-1,-1};
-static short int saved_regs[14] = {11,12,13,14,15,16,17,18,19,20,52,53,54,55};
+static short int argregs[14] = {1,2,29,30,31,32,33,34,35,36,37,38,-1,-1};
+static short int tmpregs[14] = {3,4,5,6,7,8,9,10,11,12,13,14,-1,-1};
+static short int saved_regs[14] = {15,16,17,18,19,20,21,22,23,24,25,26,27,28};
 
 static char *regnames[64] = {
 	"0", "a0", "a1", "t0", "t1", "t2", "t3", "t4",
-	"t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4",
-	"s5", "s6", "s7", "s8", "s9", "a2", "a3", "a4",
-	"a5", "a6", "a7", "gp2", "gp1", "gp0", "fp", "sp",
-	"t8", "t9", "t10", "t11", "s10", "s11", "s12", "s13",
-	"r40", "r41", "r42", "r43", "r44", "r45", "r46", "r47",
+	"t5", "t6", "t7", "t8", "t9", "t10", "t11", "s0",
+	"s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8",
+	"s9", "s10", "s11", "s12", "s13", "a2", "a3", "a4",
+	"a5", "a6", "a7", "a8", "a9", "a10", "a11", "r39",
+	"r40", "r41", "r42", "gp2", "gp1", "gp0", "fp", "sp",
 	"vm0", "vm1", "vm2", "vm3", "vm4", "vm5", "vm6", "vm7",
-	"lc", "lr1", "lr2", "ip", "ssp", "hsp", "msp", "isp"
+	"lc", "lr1", "lr2", "pc", "ssp", "hsp", "msp", "isp"
 };
 
 static int regop[64] = {
@@ -51,286 +51,127 @@ static int regop[64] = {
 };
 
 mnemonic mnemonics[]={
-	"abs",	{OP_REG,OP_REG,0,0,0}, {R3RR,CPU_ALL,0,0x0C000001LL,4},
+	"abs",	{OP_REG,OP_REG,0,0,0}, {R3RR,CPU_ALL,0,0x0C000001LL,6},
 
-	"add", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|OP(2),5},	
-	"add", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TA(1)|OP(2),5},	
-	"add", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TA(1)|OP(2),5},	
-	"add", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TA(1)|TT(1)|OP(2),5},	
-	"add", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(4)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"add", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(4)|OP(2),5},	
+	"add", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TB(1LL)|OP(2),6},	
+	"add", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TA(1LL)|OP(2),6},	
+	"add", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TB(1LL)|TA(1)|OP(2),6},	
+	"add", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TT(1LL)|OP(2),6},	
+	"add", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"add", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"add", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"add", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(4LL)|OP(2LL),6},	
 	
-	"add", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(4),5},	
-	"add", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(4),5},	
-	"add", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(4),5},	
-	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(4),5},	
+	"add", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(4),6},	
+	"add", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(4),6},	
+	"add", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1)|OP(4),6},	
+	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(4),6},	
 
-	"and", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|OP(2),5},	
-	"and", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TA(1)|OP(2),5},	
-	"and", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TA(1)|OP(2),5},	
-	"and", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TA(1)|TT(1)|OP(2),5},	
-	"and", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(8)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"and", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(8)|OP(2),5},	
+	"and", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TB(1LL)|OP(2),6},	
+	"and", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TA(1LL)|OP(2),6},	
+	"and", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TB(1LL)|TA(1)|OP(2),6},	
+	"and", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TT(1LL)|OP(2),6},	
+	"and", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"and", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"and", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"and", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|OP(2),6},	
 	
-	"and", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(8),5},	
-	"and", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(8),5},	
-	"and", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(8),5},	
-	"and", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(8),5},	
+	"and", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(8),6},	
+	"and", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(8),6},	
+	"and", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1LL)|OP(8),6},	
+	"and", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(8LL),6},	
 
 //	"bbs",	{OP_LK,OP_REG,OP_IMM,OP_IMM,0}, {BL,CPU_ALL,0,0x00001F000822LL,6},
-	"bbs",	{OP_REG,OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(5)|OP(28),5},
+	"bbs",	{OP_REG,OP_IMM,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(5LL)|OP(28),6},
 
-	"beq",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(6)|OP(28),5},
-	"bge",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(1)|OP(28),5},
-	"bgeu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(3)|OP(28),5},
-	"blt",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(0)|OP(28),5},
-	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(2)|OP(28),5},
-	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,M(1)|CND(7)|OP(28),5},
+	"beq",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(6LL)|OP(28),6},
+	"bge",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(1LL)|OP(28),6},
+	"bgeu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(3LL)|OP(28),6},
+	"blt",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(0LL)|OP(28),6},
+	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(2LL)|OP(28),6},
+	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(7LL)|OP(28),6},
 	
-	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25),5},
+	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25),6},
 
-	"brk",	{0,0,0,0,0}, {R2,CPU_ALL,0,RM(1)|TB(0)|RB(1)|TA(1)|RA(63)|TT(1)|RT(63)|OP(32),5},
-	"bsr",	{OP_LK,OP_IMM,0,0,0}, {BL2,CPU_ALL,0,OP(25),5},
-	"bsr",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,RT(1)|OP(25),5},
+	"brk",	{0,0,0,0,0}, {R2,CPU_ALL,0,RM(1LL)|TB(0LL)|RB(1LL)|TA(1LL)|RA(63LL)|TT(1LL)|RT(63LL)|OP(32),6},
+	"bsr",	{OP_LK,OP_IMM,0,0,0}, {BL2,CPU_ALL,0,OP(25LL),6},
+	"bsr",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,RT(1LL)|OP(25LL),6},
 
-	"cmp", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TA(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TA(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TA(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(13)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(13)|OP(2),5},	
+	"call",	{OP_LK,OP_IMM,0,0,0}, {JL2,CPU_ALL,0,OP(24LL),6},
+	"call",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24LL),6},
+
+	"cmp", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TB(1LL)|OP(2),6},	
+	"cmp", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TA(1LL)|OP(2),6},	
+	"cmp", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TB(1LL)|TA(1LL)|OP(2),6},	
+	"cmp", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TT(1LL)|OP(2),6},	
+	"cmp", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"cmp", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"cmp", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"cmp", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(13LL)|OP(2),6},	
 	
-	"cmp", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(13),5},	
-	"cmp", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(13),5},	
-	"cmp", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(13),5},	
-	"cmp", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(13),5},	
+	"cmp", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(13),6},	
+	"cmp", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(13),6},	
+	"cmp", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1LL)|OP(13),6},	
+	"cmp", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(13LL),6},	
 
-	"cmp_eq", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TA(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(14)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_eq", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(14)|OP(2),5},	
+	"cntlz", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(0LL)|TA(1LL)|TT(1LL)|OP(2),6},
+	"cntlz", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(0LL)|TA(1LL)|TT(0LL)|OP(2),6},
+	"cntlz", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(0LL)|TA(0LL)|TT(1LL)|OP(2),6},
+	"cntlz", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(0LL)|TA(0LL)|TT(0LL)|OP(2),6},
+
+	"cntpop", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(2LL)|TA(1LL)|TT(1LL)|OP(2),6},
+	"cntpop", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(2LL)|TA(1LL)|TT(0LL)|OP(2),6},
+	"cntpop", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(2LL)|TA(0LL)|TT(1LL)|OP(2),6},
+	"cntpop", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|FN(1LL)|RB(2LL)|TA(0LL)|TT(0LL)|OP(2),6},
+
+	"com", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|IMM(0x7ffffLL)|TA(1LL)|OP(9),6},
+	"com", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|IMM(0x7ffffLL)|TT(1LL)|OP(9),6},
+	"com", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|IMM(0x7ffffLL)|TA(1LL)|TT(1LL)|OP(9),6},
+	"com", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(2LL)|IMM(0x7ffffLL)|OP(9LL),6},
+
+	"csrrc", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|IMM(0x8000LL)|OP(7LL),6},
+	"csrrd", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(7LL),6},
+	"csrrs", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|IMM(0x30000LL)|OP(7LL),6},
+	"csrrw", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|IMM(0x10000LL)|OP(7LL),6},
+
+	"eor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|OP(2),6},	
+	"eor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TA(1LL)|OP(2),6},	
+	"eor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TA(1)|OP(2),6},	
+	"eor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TT(1LL)|OP(2),6},	
+	"eor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"eor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"eor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"eor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|OP(2),6},	
 	
-	"cmp_eq", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(14),5},	
-	"cmp_eq", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(14),5},	
-	"cmp_eq", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(14),5},	
-	"cmp_eq", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(14),5},	
+	"eor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(10),6},	
+	"eor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(10),6},	
+	"eor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1LL)|OP(10),6},	
+	"eor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(10LL),6},	
 
-	"cmp_ge", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TA(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(17)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ge", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(17)|OP(2),5},	
-	
-	"cmp_ge", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(17),5},	
-	"cmp_ge", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(17),5},	
-	"cmp_ge", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(17),5},	
-	"cmp_ge", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(17),5},	
+	"jmp",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),6},
+	"jsr",	{OP_LK,OP_IMM,0,0,0}, {JL2,CPU_ALL,0,OP(24),6},
+	"jsr",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),6},
 
-	"cmp_geu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TA(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(21)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_geu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(21)|OP(2),5},	
-	
-	"cmp_geu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(21),5},	
-	"cmp_geu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(21),5},	
-	"cmp_geu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(21),5},	
-	"cmp_geu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(21),5},	
+	"load",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(52),6},	
+	"load",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(52),6},	
+	"load",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(52)|OP(2),6},	
+	"load",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(52)|OP(2),6},	
 
-	"cmp_gt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TA(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(19)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(19)|OP(2),5},	
-	
-	"cmp_gt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(19),5},	
-	"cmp_gt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(19),5},	
-	"cmp_gt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(19),5},	
-	"cmp_gt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(19),5},	
-
-	"cmp_gtu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TA(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(23)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_gtu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(23)|OP(2),5},	
-	
-	"cmp_gtu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(23),5},	
-	"cmp_gtu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(23),5},	
-	"cmp_gtu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(23),5},	
-	"cmp_gtu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(23),5},	
-
-	"cmp_le", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TA(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(18)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_le", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(18)|OP(2),5},	
-	
-	"cmp_le", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(18),5},	
-	"cmp_le", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(18),5},	
-	"cmp_le", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(18),5},	
-	"cmp_le", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(18),5},	
-
-	"cmp_leu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TA(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(22)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_leu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(22)|OP(2),5},	
-	
-	"cmp_leu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(22),5},	
-	"cmp_leu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(22),5},	
-	"cmp_leu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(22),5},	
-	"cmp_leu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(22),5},	
-
-	"cmp_lt", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TA(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(16)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_lt", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(16)|OP(2),5},	
-	
-	"cmp_lt", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(16),5},	
-	"cmp_lt", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(16),5},	
-	"cmp_lt", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(16),5},	
-	"cmp_lt", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(16),5},	
-
-	"cmp_ltu", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TA(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(20)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ltu", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(20)|OP(2),5},	
-	
-	"cmp_ltu", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(20),5},	
-	"cmp_ltu", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(20),5},	
-	"cmp_ltu", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(20),5},	
-	"cmp_ltu", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(20),5},	
-
-	"cmp_ne", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TA(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TA(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(15)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"cmp_ne", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(15)|OP(2),5},	
-	
-	"cmp_ne", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(15),5},	
-	"cmp_ne", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(15),5},	
-	"cmp_ne", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(15),5},	
-	"cmp_ne", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(15),5},	
-
-	"cntlz", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(1)|TT(1)|OP(2),5},
-	"cntlz", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(1)|TT(0)|OP(2),5},
-	"cntlz", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(0)|TT(1)|OP(2),5},
-	"cntlz", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(0)|TA(0)|TT(0)|OP(2),5},
-
-	"cntpop", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(1)|TT(1)|OP(2),5},
-	"cntpop", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(1)|TT(0)|OP(2),5},
-	"cntpop", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(0)|TT(1)|OP(2),5},
-	"cntpop", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,SZ(1)|FN(1)|RB(2)|TA(0)|TT(0)|OP(2),5},
-
-	"com", {OP_REG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TA(1)|OP(9),5},
-	"com", {OP_VREG,OP_REG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TT(1)|OP(9),5},
-	"com", {OP_VREG,OP_VREG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|TA(1)|TT(1)|OP(9),5},
-	"com", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,M(1)|IMM(0xffffLL)|OP(9),5},
-
-	"csrrc", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0x8000LL)|OP(7),5},
-	"csrrd", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(7),5},
-	"csrrs", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0xC000LL)|OP(7),5},
-	"csrrw", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|IMM(0x4000LL)|OP(7),5},
-
-	"eor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|OP(2),5},	
-	"eor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|OP(2),5},	
-	"eor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|TT(1)|OP(2),5},	
-	"eor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"eor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(10)|OP(2),5},	
-	
-	"eor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(10),5},	
-	"eor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(10),5},	
-	"eor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(10),5},	
-	"eor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(10),5},	
-
-	"jmp",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),5},
-	"jsr",	{OP_LK,OP_IMM,0,0,0}, {JL2,CPU_ALL,0,OP(24),5},
-	"jsr",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),5},
-
-	"ldb",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,OP(48),5},	
-	"ldb",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,OP(48),5},	
-	"ldb",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(48)|OP(2),5},	
-	"ldb",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,CPU_ALL,0,FN(48)|OP(2),5},	
+	"loadu",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(53),6},	
+	"loadu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(53),6},	
+	"loadu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(53)|OP(2),6},	
+	"loadu",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(53)|OP(2),6},	
 
 /*****************************************/
 
-	"ldbu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x81LL,6,0x79,4},	
-	"ldbu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xB1LL,4},	
-	"ldbu",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,CPU_ALL,0,0x1B1LL,4},	
-
 //	"ldo",	{OP_REG,OP_SEL|OP_REGIND8,0,0,0}, {REGIND,CPU_ALL,0,0x87LL,4},	
 	
-	"ldi",  {OP_VMREG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},
-	"ldi",  {OP_REG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},
+	"ldi",  {OP_VMREG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(9LL),6},
+	"ldi",  {OP_REG,OP_NEXTREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(9LL),6},
 
-	"ldo",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,OP(55),5},
-	"ldo",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x86LL,5},	
-	"ldo",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xB6LL,5},
-
-	"ldos",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x7ELL,4,0x7ELL,4},
-	"ldos",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x7ELL,4,0x7ELL,4},	
-	"ldou",	{OP_REG,OP_SEL|OP_IMM,0,0}, {DIRECT,CPU_ALL,0,0x87LL},
-	"ldou",	{OP_REG,OP_SEL|OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x87LL,6},	
-	"ldou",	{OP_REG,OP_SEL|OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xB7LL,4},	
-	
-	"ldt",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,OP(52),5},	
-	"ldt",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,OP(52),5},	
-	"ldt",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(52)|OP(2),5},	
-
-	"ldtu",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,OP(53),5},	
-	"ldtu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,OP(53),5},	
-	"ldtu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(53)|OP(2),5},	
-
-	"ldw",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x82LL,6,0x7A,4},	
-	"ldw",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xB2LL,4},	
-	"ldwu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0x83LL,6,0x7B,4},	
-	"ldwu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xB3LL,4},	
-
-	"lea",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,0xD4LL,6,0x04,4},
-	"lea",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0xD4LL,6,0x04,4},
-	"lea",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0x19LL,4},	
+	"lea",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,0xD4LL,6,0x04,6},
+	"lea",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,0xD4LL,6,0x04,6},
+	"lea",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0x19LL,6},	
 
 	"max",	{OP_REG,OP_REG,OP_REG,OP_REG,0}, {R3RR,CPU_ALL,0,0x520000000002LL,6},	
 	"memdb",	{0,0,0,0,0}, {BITS16,CPU_ALL,0,0xF9,2},
@@ -372,26 +213,26 @@ mnemonic mnemonics[]={
 	"neg", {OP_REG,OP_NEXTREG,OP_REG,0,0}, {R2,CPU_ALL,0,0x0000000DLL,4},	
 //	"neg",	{OP_REG,OP_REG,0,0,0}, {R3,CPU_ALL,0,0x0A000001LL,4},
 
-	"nop",	{0,0,0,0,0}, {BITS16,CPU_ALL,0,0x0B,5},
+	"nop",	{0,0,0,0,0}, {BITS16,CPU_ALL,0,0x0B,6},
 
 	"nor", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x020000000102LL,6},	
 	"nor", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x020000000102LL,6},	
 	"nor", {OP_REG,OP_REG,OP_REG,OP_REG,0}, {R3,CPU_ALL,0,0x020000000002LL,6},	
 	"not", {OP_REG,OP_REG,0,0,0}, {R1,CPU_ALL,0,0x08000001LL,4},
 
-	"or", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|OP(2),5},	
-	"or", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TA(1)|OP(2),5},	
-	"or", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TA(1)|OP(2),5},	
-	"or", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TA(1)|TT(1)|OP(2),5},	
-	"or", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(9)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"or", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(9)|OP(2),5},	
+	"or", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TB(1LL)|OP(2),6},	
+	"or", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TA(1LL)|OP(2),6},	
+	"or", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TB(1LL)|TA(1)|OP(2),6},	
+	"or", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TT(1LL)|OP(2),6},	
+	"or", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"or", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"or", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"or", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(9LL)|OP(2),6},	
 	
-	"or", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(9),5},	
-	"or", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(9),5},	
-	"or", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(9),5},	
-	"or", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(9),5},	
+	"or", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(9),6},	
+	"or", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(9),6},	
+	"or", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1LL)|OP(9),6},	
+	"or", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(9LL),6},	
 
 	"orc", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x060000000102LL,6},	
 	"orc", {OP_VREG,OP_VREG,OP_VREG|OP_REG|OP_IMM7,OP_VREG|OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x060000000102LL,6},	
@@ -437,8 +278,8 @@ mnemonic mnemonics[]={
 
 	"ret",	{OP_LK,OP_IMM,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
 	"ret",	{OP_LK,0,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
-	"ret",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26),5},
-	"ret",	{0,0,0,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26), 5},
+	"ret",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,SZ(2LL)|RA(57)|RT(47)|OP(26),6},
+	"ret",	{0,0,0,0,0}, {RTS,CPU_ALL,0,SZ(2LL)|RA(57)|RT(47)|OP(26), 6},
 
 	"rex",	{OP_IMM,OP_REG,0,0,0},{REX,CPU_ALL,0,0x200000000007LL,6},	
 
@@ -461,16 +302,16 @@ mnemonic mnemonics[]={
 	"rti",	{0,0,0,0,0}, {RTS,CPU_ALL,0,0x00F0LL, 2},
 
 	"rts",	{OP_LK,OP_IMM,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
-	"rts",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26),5},
-	"rts",	{0,0,0,0,0}, {RTS,CPU_ALL,0,RA(57)|RT(31)|OP(26), 5},
+	"rts",  {OP_NEXTREG,OP_NEXTREG,OP_IMM,0,0}, {RTS,CPU_ALL,0,SZ(2LL)|RA(57)|RT(47)|OP(26),6},
+	"rts",	{0,0,0,0,0}, {RTS,CPU_ALL,0,SZ(2LL)|RA(57)|RT(47)|OP(26), 6},
 //	"rts",	{OP_LK,0,0,0,0}, {RTS,CPU_ALL,0,0x00F2LL, 2},
 
 	"sei",	{OP_REG,OP_NEXTREG,OP_REG,0,0},{R3RR,CPU_ALL,0,0x2E0000000007LL,6},	
 
-	"sll",	{OP_REG,OP_REG,OP_IMM,OP_IMM,0}, {RI6,CPU_ALL,0,SZ(1)|0x0600000002,5},
-	"sll",	{OP_REG,OP_REG,OP_IMM,0,0}, {RI6,CPU_ALL,0,SZ(1)|0x0600000002,5},
-	"sll",	{OP_REG,OP_REG,OP_REG,OP_IMM,0}, {R2,CPU_ALL,0,SZ(1)|0x0780000002,5},
-	"sll",	{OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|0x0780000002,5},
+	"sll",	{OP_REG,OP_REG,OP_IMM,OP_IMM,0}, {RI6,CPU_ALL,0,SZ(2LL)|0x0600000002,5},
+	"sll",	{OP_REG,OP_REG,OP_IMM,0,0}, {RI6,CPU_ALL,0,SZ(2LL)|0x0600000002,5},
+	"sll",	{OP_REG,OP_REG,OP_REG,OP_IMM,0}, {R2,CPU_ALL,0,SZ(2LL)|0x0780000002,5},
+	"sll",	{OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|0x0780000002,5},
 
 	"sra",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,OP_VMREG}, {R3,CPU_ALL,0,0x840000000002LL,6},	
 	"sra",	{OP_REG,OP_REG,OP_REG|OP_IMM7,OP_REG|OP_IMM7,0}, {R3,CPU_ALL,0,0x840000000002LL,6},	
@@ -489,43 +330,23 @@ mnemonic mnemonics[]={
 	"statq",	{OP_REG,OP_NEXTREG,OP_IMM,0,0},{R3RR,CPU_ALL,0,0x160000000007LL,6},	
 	"statq",	{OP_REG,OP_NEXTREG,OP_REG,0,0},{R3RR,CPU_ALL,0,0x160000000007LL,6},	
 
-	"stb",	{OP_REG,OP_SEL|OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x90LL,6},	
-	"stb",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x90LL,6,0xCALL,4},	
-	"stb",	{OP_REG,OP_SEL|OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xC0LL,4},	
-	"sth",	{OP_REG,OP_SEL|OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x94LL,6,0x95LL,4},	
-	"sth",	{OP_REG,OP_SEL|OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x94LL,6,0x95LL,4},	
-	"sth",	{OP_REG,OP_SEL|OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xC4LL,4},	
-	"sthp",	{OP_REG,OP_SEL|OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x97LL,6},	
-	"sthp",	{OP_REG,OP_SEL|OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x97LL,6},	
-	"sthp",	{OP_REG,OP_SEL|OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xC7LL,4},	
-	"sths",	{OP_REG,OP_SEL|OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x95LL,4,0x95LL,4},
-	"sths",	{OP_REG,OP_SEL|OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x95LL,4,0x95LL,4},	
-	"sto",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0x93LL,6,0x95LL,4},	
-	"sto",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0x93LL,6,0xCDLL,4},	
-	"sto",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,0xC3LL,4},	
-	"stos",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,0xCDLL,4,0xCDLL,4},
-	"stos",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,0xCDLL,4,0xCDLL,4},	
+	"store",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(40LL),6},	
+	"store",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(40LL),6},	
+	"store",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(40LL)|OP(2LL),6},	
+
 	"stptg",	{OP_REG,OP_REG,OP_REG,OP_REG,0},{R3RR,CPU_ALL,0,0x4A0000000007LL,6},	
 
-	"stt",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,OP(58),5},	
-	"stt",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,OP(58),5},	
-	"stt",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(58)|OP(2),5},	
+	"sub", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TB(1LL)|OP(2LL),6},	
+	"sub", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TA(1LL)|OP(2),6},	
+	"sub", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TB(1LL)|TA(1LL)|OP(2),6},	
+	"sub", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TT(1LL)|OP(2),6},	
+	"sub", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"sub", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"sub", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|TB(1LL)|TA(1LL)|TT(1)|OP(2),6},	
+	"sub", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(5LL)|OP(2LL),6},	
 
-	"stw",	{OP_REG,OP_IMM,0,0,0}, {DIRECT,CPU_ALL,0,OP(57),5},	
-	"stw",	{OP_REG,OP_REGIND,0,0,0}, {REGIND,CPU_ALL,0,OP(57),5},	
-	"stw",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,FN(57)|OP(2),5},	
-
-	"sub", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|OP(2),5},	
-	"sub", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TA(1)|OP(2),5},	
-	"sub", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TA(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TA(1)|TT(1)|OP(2),5},	
-	"sub", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(5)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"sub", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(5)|OP(2),5},	
-
-	"subf", {OP_VREG,OP_VREG,OP_IMM,OP_VMREG,0}, {RIL,CPU_ALL,0,0x1D5LL,6},
-	"subf", {OP_REG,OP_REG,OP_IMM,0,0}, {RIL,CPU_ALL,0,0xD5LL,6},
+	"subf", {OP_VREG,OP_VREG,OP_IMM,OP_VMREG,0}, {RIL,CPU_ALL,0,SZ(2LL)|OP(5LL),6},
+	"subf", {OP_REG,OP_REG,OP_IMM,0,0}, {RIL,CPU_ALL,0,SZ(2LL)|OP(5LL),6},
 /* 0000_1010_0001_0001_1111_0000_0000_0000_0000_0000_AALL */
 
 	"sxb",	{OP_REG,OP_REG,0,0,0}, {R3,CPU_ALL,0,0x0A120E0000AALL,6},	
@@ -538,20 +359,19 @@ mnemonic mnemonics[]={
 	"sys",	{OP_IMM,0,0,0,0}, {BITS32,CPU_ALL,0,0xA5,4},
 
 	/* Alternate mnemonic for eor */
-	"xor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|OP(2),5},	
-	"xor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|OP(2),5},	
-	"xor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TA(1)|TT(1)|OP(2),5},	
-	"xor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(1)|FN(10)|TB(1)|TA(1)|TT(1)|OP(2),5},	
-	"xor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(1)|FN(10)|OP(2),5},	
+	"xor", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|OP(2),6},	
+	"xor", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TA(1LL)|OP(2),6},	
+	"xor", {OP_REG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TA(1)|OP(2),6},	
+	"xor", {OP_VREG,OP_REG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TT(1LL)|OP(2),6},	
+	"xor", {OP_VREG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TT(1LL)|OP(2),6},	
+	"xor", {OP_VREG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"xor", {OP_VREG,OP_VREG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|TB(1LL)|TA(1LL)|TT(1LL)|OP(2),6},	
+	"xor", {OP_REG,OP_REG,OP_REG,0,0}, {R2,CPU_ALL,0,SZ(2LL)|FN(10LL)|OP(2),6},	
 	
-	"xor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|OP(10),5},	
-	"xor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TT(1)|OP(10),5},	
-	"xor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|TA(1)|TT(1)|OP(10),5},	
-	"xor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,M(1)|OP(10),5}	
-
+	"xor", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(10),6},	
+	"xor", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(10),6},	
+	"xor", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1LL)|OP(10),6},	
+	"xor", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(10LL),6}
 };
 
 int mnemonic_cnt=sizeof(mnemonics)/sizeof(mnemonics[0]);
@@ -619,6 +439,25 @@ static int is_reg(char *p, char **ep, int* typ)
 	TRACE("+is_reg");	
 	if (ep)
 		*ep = p;
+	if (*p == 'r' || *p == 'R') {
+		if (isdigit((unsigned char)p[1]) && isdigit((unsigned char)p[2]) && !ISIDCHAR((unsigned char)p[3])) {
+			rg = (p[1]-'0')*10 + p[2]-'0';
+			if (rg < 64) {
+				if (ep)
+					*ep = &p[3];
+				*typ = regop[rg];
+				return (rg);
+			}
+			return (-1);
+		}
+		if (isdigit((unsigned char)p[1]) && !ISIDCHAR((unsigned char)p[2])) {
+			rg = p[1]-'0';
+			if (ep)
+				*ep = &p[2];
+			*typ = regop[rg];
+			return (rg);
+		}
+	}
 	for (nn = 0; nn < 64; nn++) {
 		if (p[0] == regnames[nn][0] && p[1]== regnames[nn][1]) {
 			if (!ISIDCHAR((unsigned char)p[2])) {
@@ -655,26 +494,6 @@ static int is_reg(char *p, char **ep, int* typ)
 				}
 			}
 		}
-	}
-	if (*p != 'r' && *p != 'R') {
-		return (-1);
-	}
-	if (isdigit((unsigned char)p[1]) && isdigit((unsigned char)p[2]) && !ISIDCHAR((unsigned char)p[3])) {
-		rg = (p[1]-'0')*10 + p[2]-'0';
-		if (rg < 64) {
-			if (ep)
-				*ep = &p[3];
-			*typ = regop[rg];
-			return (rg);
-		}
-		return (-1);
-	}
-	if (isdigit((unsigned char)p[1]) && !ISIDCHAR((unsigned char)p[2])) {
-		rg = p[1]-'0';
-		if (ep)
-			*ep = &p[2];
-		*typ = regop[rg];
-		return (rg);
 	}
 	return (-1);	
 }
@@ -1255,47 +1074,57 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
       	case J:
       	case JL:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                           20,17,0,0xffffLL);
+                           22,17,0,0x1ffffLL);
           break;
       	/* Unconditional jump */
       	case B2:
         case J2:
         case JL2:
 		      add_extnreloc_masked(reloclist,base,val,reloctype,
-                           8,32,0,0xffffffffLL);
+                           12,36,0,0xfffffffffLL);
           break;
         case RI:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
                          20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         48,16,0,0xffff0000LL);
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
         	break;
         case VRI:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         20,16,0,0xffffLL);
+                         20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         48,19,0,0xffffE000LL);
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
         	break;
         case DIRECT:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
                          20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         48,19,0,0xffffe000LL);
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
         	break;
         case VDIRECT:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         20,16,0,0xffffLL);
+                         20,19,0,0x7ffffLL);
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                         48,19,0,0xffffe000LL);
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
         	break;
         case REGIND:
         	// ToDo: vector VREGIND
         	if (op->basereg==sdreg) {
         		reloctype = REL_SD;
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         23,16,0,0xffffLL);
-			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,16,0,0xffff0000LL);
+	                         20,19,0,0x7ffffLL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
 	        }
         	else if (op->basereg==sd2reg) {
         		int org_sdr = sdreg;
@@ -1303,8 +1132,10 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
         		reloctype = REL_SD;
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
 	                         20,19,0,0x7ffffLL);
-			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,19,0,0xffffe000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         48,3,0,0x00380000LL);
+		      add_extnreloc_masked(reloclist,base,addend,reloctype,
+                         54,10,0,0xffc00000LL);
 						sdreg = org_sdr;        		
         	}
         	else if (op->basereg==sd3reg) {
@@ -1314,14 +1145,18 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
 	                         20,19,0,0x7ffffLL);
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,19,0,0xffffe000LL);
+	                         48,3,0,0x00380000LL);
+			      add_extnreloc_masked(reloclist,base,addend,reloctype,
+	                         54,10,0,0xffc00000LL);
 						sdreg = org_sdr;        		
         	}
         	else {
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
 	                         20,19,0,0x7ffffLL);
 			      add_extnreloc_masked(reloclist,base,addend,reloctype,
-	                         48,19,0,0xffffe000LL);
+	                         48,3,0,0x00380000LL);
+			      add_extnreloc_masked(reloclist,base,addend,reloctype,
+	                         54,10,0,0xffc00000LL);
         	}
         	break;
         default:
@@ -1455,91 +1290,45 @@ static void encode_reg(uint64_t* insn, operand *op, mnemonic* mnemo, int i)
 /* Encode a direct addresss */
 static size_t encode_direct (
 	uint64_t *postfix,
-	uint64_t *postfix2,
 	uint64_t *insn,
 	mnemonic* mnemo,
-	taddr hval, int constexpr)
+	taddr val, int constexpr)
 {
 	size_t isize;
 
+	isize = 6;
 	if (constexpr) {
-		isize = 5;
-		if (!is_nbit(hval,20LL)) {
+		if (!is_nbit(val,19LL)) {
 			if (postfix)
-				*postfix = OP(1) | ((val >> 13LL) << 8LL);
-			isize = (5<<4)|5;
-		}
-		if (!is_nbit(hval,45LL)) {
-			if (postfix2)
-				*postfix2 = OP(1) | ((val >> 45LL) << 8LL);
-			isize = (5<<8)|(5<<4)|5;
+				*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+			isize = (6<<4)|6;
 		}
 		if (insn) {
-			*insn = *insn | ((val & 0xfffffLL) << 20LL);
+			*insn = *insn | ((val & 0x7ffffLL) << 20LL);
 		}
 	}
 	/* If not a constant expression then the value may be unknown. Allow for the
 		 largest value given the number of address bits in use.
 	*/
 	else {
-		isize = 5;
-		if (abits <= 20LL)
+		if (abits <= 19LL)
 			return (isize);
 		// One postfix
 		if (postfix)
-			*postfix = OP(1);
-		if (abits <= 45LL)
-			return ((5<<4)|5);
-		// Two postfixes
-		if (postfix2)
-			*postfix2 = OP(1);
-		return ((5<<8)|(5<<4)|5);
+			*postfix = OP(0x10);
+		return ((6<<4)|6);
 	}
+	return (isize);
 }
 
 /* Encode a vector direct addresss */
 static size_t encode_vdirect (
 	uint64_t *postfix,
-	uint64_t *postfix2,
 	uint64_t *insn,
 	mnemonic* mnemo,
-	taddr hval, int constexpr)
+	taddr val, int constexpr)
 {
-	size_t isize;
-
-	if (constexpr) {
-		isize = 5;
-		if (!is_nbit(hval,17LL)) {
-			if (postfix)
-				*postfix = OP(1) | ((val >> 13LL) << 8);
-			isize = (5<<4)|5;
-		}
-		if (!is_nbit(hval,45LL)) {
-			if (postfix2)
-				*postfix2 = OP(1) | ((val >> 45LL) << 8);
-			isize = (5<<8)|(5<<4)|5;
-		}
-		if (insn) {
-			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
-		}
-	}
-	/* If not a constant expression then the value may be unknown. Allow for the
-		 largest value given the number of address bits in use.
-	*/
-	else {
-		isize = 5;
-		if (abits <= 20LL)
-			return (isize);
-		// One postfix
-		if (postfix)
-			*postfix = OP(1);
-		if (abits <= 45LL)
-			return ((5<<4)|5);
-		// Two postfixes
-		if (postfix2)
-			*postfix2 = OP(1);
-		return ((5<<8)|(5<<4)|5);
-	}
+	return (encode_direct(postfix,insn,mnemo,val,constexpr));
 }
 
 static size_t encode_r2 (
@@ -1550,7 +1339,7 @@ static size_t encode_r2 (
 {
 	size_t isize;
 
-	isize = 5;
+	isize = 6;
 	if (constexpr) {
 		switch(i) {
 		case 2:
@@ -1566,7 +1355,6 @@ static size_t encode_r2 (
 		}
 		return (isize);
 	}
-	isize = 5;
 	if (insn)
 		*insn = *insn | RB(val);
 	return (isize);
@@ -1579,7 +1367,7 @@ static size_t encode_r3 (
 {
 	size_t isize;
 
-	isize = 5;
+	isize = 6;
 	if (i==2) {
 		if (insn)
 			*insn = *insn | RB(val);
@@ -1597,7 +1385,7 @@ static size_t encode_shifti (
 {
 	size_t isize;
 
-	isize = 5;
+	isize = 6;
 	if (insn)
 		*insn = *insn | RB(val);
 	return (isize);
@@ -1610,7 +1398,7 @@ static size_t encode_ri6 (
 {
 	size_t isize;
 
-	isize = 5;
+	isize = 6;
 	switch(i) {
 	case 2:
 		if (insn)
@@ -1626,93 +1414,76 @@ static size_t encode_ri6 (
 
 static size_t encode_vri (
 	uint64_t *postfix,
-	uint64_t *postfix2,
 	uint64_t *insn,
 	mnemonic* mnemo,
-	taddr hval,
+	taddr val,
 	int constexpr)
 {
 	size_t isize;
 
 	isize = 5;
 	if (constexpr) {
-		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 13LL : 17LL)) {
+		if (!is_nbit(val,19LL)) {
 			if (postfix)
-				*postfix = OP(1) | ((val >> 13LL) << 8LL);
-			isize = (5<<4)|5;
-		}
-		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 45LL : 49LL)) {
-			if (postfix2)
-				*postfix2 = OP(1) | ((val >> 45LL) << 8);
-			isize = (5<<8)|(5<<4)|5;
+				*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+			isize = (6<<4)|6;
 		}
 		if (insn) {
 			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
 		}
 		return (isize);
 	}
-	if (!is_nbit(val,mnemo->ext.format==CMPI ? 13LL : 17LL))
+	if (!is_nbit(val,19LL))
 		return (isize);
 	if (insn) {
-		if (mnemo->ext.format==CMPI)
-			*insn = *insn | ((val & 0x1fffLL) << 20LL);
-		else
-			*insn = *insn | ((val & 0x1ffffLL) << 20LL);
+		*insn = *insn | ((val & 0x1ffffLL) << 20LL);
 	}
 	return (isize);
 }
 
 static size_t encode_default (
 	uint64_t *postfix,
-	uint64_t *postfix2,
 	uint64_t *insn,
 	mnemonic* mnemo,
 	operand* op,
-	taddr hval,
+	taddr val,
 	int constexpr)
 {
 	size_t isize;
 
-	isize = 5;
+	isize = 6;
 	if (constexpr) {
 		if (op->type & OP_IMM)
-			isize = 5;
-		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 16LL : 20LL)) {
+			isize = 6;
+		if (!is_nbit(val,19LL)) {
 			if (postfix)
-				*postfix = OP(1) | ((val >> 13LL) << 8LL);
-			isize = (5<<4)|5;
-		}
-		if (!is_nbit(hval,45LL)) {
-			if (postfix2)
-				*postfix2 = OP(1) | ((val >> 45LL) << 8);
-			isize = (5<<8)|(5<<4)|5;
+				*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+			isize = (6<<4)|6;
 		}
 		if (insn) {
-			if (mnemo->ext.format==CMPI)
-				*insn = *insn | ((val & 0xffffLL) << 20LL);
-			else
-				*insn = *insn | ((val & 0xfffffLL) << 20LL);
+			*insn = *insn | ((val & 0x7ffffLL) << 20LL);
 		}
 		return (isize);
 	}
 	if (op->type & OP_IMM) {
-		isize = 5;
-		if (!is_nbit(hval,mnemo->ext.format==CMPI ? 16LL : 20LL)) {
-			return (isize);
+		if (abits <= 19LL)
+			;
+		else
+		{
+			if (postfix)
+				*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+			isize = (6<<4)|6;
+		}
 		if (insn) {
-			if (mnemo->ext.format==CMPI)
-				*insn = *insn | ((val & 0xffffLL) << 20LL);
-			else
-				*insn = *insn | ((val & 0xfffffLL) << 20LL);
+			*insn = *insn | ((val & 0x7ffffLL) << 20LL);
 		}
 	}
 	return (isize);
 }
 
-static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn, mnemonic* mnemo,
+static size_t encode_immed(uint64_t *postfix, uint64_t *insn, mnemonic* mnemo,
 	operand *op, taddr hval, int constexpr, int i, char vector)
 {
-	size_t isize;
 	int64_t val;
 
 	if (mnemo->ext.flags & FLG_NEGIMM)
@@ -1724,17 +1495,17 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 	case R3:
 		return (encode_r3(insn,i,val));
 	case DIRECT:
-		return (encode_direct(postfix,postfix2,insn,mnemo,hval,constexpr));
+		return (encode_direct(postfix,insn,mnemo,hval,constexpr));
 	case VDIRECT:
-		return (encode_vdirect(postfix,postfix2,insn,mnemo,hval,constexpr));
+		return (encode_vdirect(postfix,insn,mnemo,hval,constexpr));
 	case SHIFTI:
 		return (encode_shifti(insn,i,val));
 	case RI6:
 		return (encode_ri6(insn,i,val));
 	case VRI:
-		return (encode_vri(postfix,postfix2,insn,mnemo,hval,constexpr));
+		return (encode_vri(postfix,insn,mnemo,hval,constexpr));
 	default:
-		return (encode_default(postfix,postfix2,insn,mnemo,op,hval,constexpr));
+		return (encode_default(postfix,insn,mnemo,op,hval,constexpr));
 	}
 	return (0);	/* Cannot get here */
 }
@@ -1745,7 +1516,7 @@ static size_t encode_immed(uint64_t *postfix, uint64_t *postfix2, uint64_t *insn
 static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t val, int* isize, int i)
 {
 	if (isize)
-		*isize = 5;
+		*isize = 6;
 
 	TRACE("evb:");
 	switch(mnemo->ext.format) {
@@ -1759,7 +1530,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 20LL);
+		  		tgt = ((val & 0x1ffffLL) << 22LL);
 		  		*insn |= tgt;
 			  	break;
 				}
@@ -1778,7 +1549,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 				case 3:
 			  	if (insn) {
 			  		uint64_t tgt;
-			  		tgt = ((val & 0x1ffffLL) << 20LL);
+			  		tgt = ((val & 0x1ffffLL) << 22LL);
 			  		*insn |= tgt;
 			  	}
 			  	break;
@@ -1797,7 +1568,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 20LL);
+		  		tgt = ((val & 0x1ffffLL) << 22LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1824,7 +1595,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 3:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 20LL);
+		  		tgt = ((val & 0x1ffffLL) << 22LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1846,7 +1617,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_IMM) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		tgt = ((val & 0xffffffffLL) << 8LL);
+	  		tgt = ((val & 0xfffffffffLL) << 12LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1858,7 +1629,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		uint64_t tgt;
 	  		//*insn |= CA(mnemo->ext.format==B2 ? 0x7 : 0x0);
-	  		tgt = (val & 0xffffffffLL) << 8;
+	  		tgt = (val & 0xfffffffffLL) << 12;
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1878,7 +1649,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
   	if (op->type==OP_IMM) {
 	  	if (insn) {
     		uint64_t tgt;
-	  		tgt = (val & 0xffffffffLL) << 8;
+	  		tgt = (val & 0xfffffffffLL) << 12;
     		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1889,7 +1660,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
   	if (op->type==OP_IMM) {
 	  	if (insn) {
     		uint64_t tgt;
-	  		tgt = (val & 0xffffffffLL) << 8;
+	  		tgt = (val & 0xfffffffffLL) << 12;
     		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1897,7 +1668,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_REGIND) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		tgt = (val & 0xffffffffLL) << 8;
+	  		tgt = (val & 0xfffffffffLL) << 12;
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1971,7 +1742,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 		break;
 
 	case JL3:
-		*isize = 5;
+		*isize = 6;
 		/*
 	  if (op->type==OP_REGIND) {
 	  	if (insn) {
@@ -2015,7 +1786,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
    shift and sum.
 */
 size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
-                     uint64_t *postfix, uint64_t *postfix2, uint64_t *insn, dblock *db)
+                     uint64_t *postfix, uint64_t *insn, dblock *db)
 {
   mnemonic *mnemo = &mnemonics[ip->code];
   size_t isize;
@@ -2129,7 +1900,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 		}
     else if (((mnemo->operand_type[i])&OP_IMM) && (op.type==OP_IMM) && !is_branch(mnemo)) {
 			TRACE("Etho3:");
-			isize = encode_immed(postfix, postfix2, insn, mnemo, &op, hval, constexpr, i, vector_insn);
+			isize = encode_immed(postfix, insn, mnemo, &op, val, constexpr, i, vector_insn);
     }
     else if (encode_branch(insn, mnemo, &op, val, &isize, i)) {
 			TRACE("Etho4:");
@@ -2141,20 +1912,20 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
     	if (constexpr) {
 //	    	if (0 && is_nbit(val,8) && (mnemo->ext.opcode==0x86LL || mnemo->ext.opcode==0x93LL)) {
 	    		{
-		    		isize = 5;
+		    		isize = 6;
 		    		if (insn) {
 			    		if (i==0)
 			    			*insn |= (RT(op.basereg));
 			    		else if (i==1) {
 			    			*insn |= (RA(op.basereg));
-			    			*insn |= (val & 0x1ffffLL) << 23LL;
+			    			*insn |= (val & 0x1ffffLL) << 20LL;
 			    		}
 		    		}
 		    	}
-	    		if (!is_nbit(val,16) && abits > 16) {
+	    		if (!is_nbit(val,19) && abits > 19) {
 	    			if (postfix)
-							*postfix = OP(1) | ((val >> 16LL) << 8LL);
-						isize = (5<<4)|5;
+							*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+						isize = (6<<4)|6;
 					}
   		}
   		else {
@@ -2163,13 +1934,13 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	    			*insn |= (RT(op.basereg));
 	    		else if (i==1) {
 	    			*insn |= (RA(op.basereg));
-	    			*insn |= (val & 0x1ffffLL) << 23LL;
+	    			*insn |= (val & 0x1ffffLL) << 20LL;
 	    		}
     		}
-    		if (!is_nbit(val,16) && abits > 16) {
+    		if (!is_nbit(val,19) && abits > 19) {
     			if (postfix)
-						*postfix = OP(1) | ((val >> 16LL) << 8LL);
-					isize = (5<<4)|5;
+						*postfix = OP(0x10 | ((val >> 19LL) & 7LL)) | ((val >> 22LL) << 6LL);
+					isize = (6<<4)|6;
 				}
   		}
     }
@@ -2187,66 +1958,30 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	// Set instruction size bits
 	
 	if (insn) {
-		switch (mnemo->ext.format) {
-		case R1:
-		case R2:
-			switch(opsz) {
-			case 'w':
-			case 'W':
-				*insn &= 0x9FFFFFFFFFLL;
-				break;
-			case 't':
-			case 'T':
-				*insn &= 0x9FFFFFFFFFLL;
-				*insn |= 0x2000000000LL;
-				break;
-			case 'h':
-			case 'H':
-				*insn &= 0x9FFFFFFFFFLL;
-				*insn |= 0x4000000000LL;
-				break;
-			}
+		switch(opsz) {
+		case 'b':
+		case 'B':
+			*insn &= 0xfc7FFFFFFFFFLL;
 			break;
-		case RI:
-			switch(opsz) {
-			case 'w':
-			case 'W':
-				*insn &= 0x7FFFFFFFFFLL;
-				break;
-			case 't':
-			case 'T':
-				*insn |= 0x8000000000LL;
-				if (isize > 5) {	// Is there a postfix?
-					if (postfix) {
-						*postfix &= 0xFFFFFFFF3FLL;
-						*postfix |= 0x0000000010LL;
-					}
-				}
-				break;
-			case 'h':
-			case 'H':
-				*insn &= 0x7FFFFFFFFFLL;
-				*insn |= 0x8000000000LL;
-				if (isize > 5) {	// Is there a postfix?
-					if (postfix) {
-						*postfix &= 0xFFFFFFFF3FLL;
-						*postfix |= 0x0000000020LL;
-					}
-				}
-				break;
-			}
+		case 'w':
+		case 'W':
+			*insn &= 0xfc7FFFFFFFFFLL;
+			*insn |= 0x008000000000LL;
 			break;
-		case B:
-			switch(opsz) {
-			case 'w':
-			case 'W':
-				*insn &= 0x7FFFFFFFFFLL;
-				break;
-			case 't':
-			case 'T':
-				*insn |= 0x8000000000LL;
-				break;
-			}
+		case 't':
+		case 'T':
+			*insn &= 0xfc7FFFFFFFFFLL;
+			*insn |= 0x010000000000LL;
+			break;
+		case 'o':
+		case 'O':
+			*insn &= 0xfc7FFFFFFFFFLL;
+			*insn |= 0x018000000000LL;
+			break;
+		case 'h':
+		case 'H':
+			*insn &= 0xfc7FFFFFFFFFLL;
+			*insn |= 0x020000000000LL;
 			break;
 		}
 	}
@@ -2263,7 +1998,7 @@ size_t instruction_size(instruction *ip,section *sec,taddr pc)
 	uint64_t bc;
 
 	TRACE("+instruction_size\n");
-	size_t sz = encode_rfPhoenix_operands(ip,sec,pc,NULL,NULL,NULL,NULL);
+	size_t sz = encode_rfPhoenix_operands(ip,sec,pc,NULL,NULL,NULL);
 	sz = (sz & 0xf) + ((sz >> 4) & 0xf) + (sz >> 8);
 	bc = (pc & 0x3fLL) + sz;
 	if (bc > 63LL && !span_cache_lines)
@@ -2286,7 +2021,7 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 {
   dblock *db = new_dblock();
   unsigned char *d;
-  uint64_t postfix, postfix2;
+  uint64_t postfix;
   uint64_t insn;
   uint64_t bc;
   size_t sz;
@@ -2295,8 +2030,7 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 
 	TRACE("+eval_instruction\n");
 	postfix = 0;
-	postfix2 = 0;
-	sz = encode_rfPhoenix_operands(ip,sec,pc,&postfix,&postfix2,&insn,db);
+	sz = encode_rfPhoenix_operands(ip,sec,pc,&postfix,&insn,db);
 	db->size = (sz & 0xf) + ((sz >> 4) & 0xf) + (sz >> 8);
 	/* Is anything being added to the instruction stream? */
 	if (db->size) {
@@ -2330,13 +2064,7 @@ dblock *eval_instruction(instruction *ip,section *sec,taddr pc)
 			}
 		}
 		insn_sizes2[sz2ndx++] = db->size;
-		if ((sz >> 8LL) & 0xfLL) {
-	    d = setval(0,d,(sz >> 8LL) & 0xfLL,insn);
-	    d = setval(0,d,(sz >> 4LL) & 0xfLL,postfix);
-	    d = setval(0,d,sz & 0xfLL,postfix2);
-	    insn_count+=3;
-		}
-		else if ((sz >> 4LL) & 0xfLL) {
+		if ((sz >> 4LL) & 0xfLL) {
 	    d = setval(0,d,(sz >> 4LL) & 0xfLL,insn);
 	    d = setval(0,d,sz & 0xfLL,postfix);
 	    insn_count+=2;

@@ -39,10 +39,11 @@
 //import const_pkg::*;
 import rfPhoenixPkg::*;
 
-module rfPhoenix_vec_regfile(rst, clk, wr, wthread, wmask, wa, i,
+module rfPhoenix_vec_regfile(rst, clk, ce, wr, wthread, wmask, wa, i,
 	rthread, ra0, ra1, ra2, ra3, ra4, o0, o1, o2, o3, o4);
 input rst;
 input clk;
+input ce;
 input wr;
 input tid_t wthread;
 input [63:0] wmask;
@@ -63,11 +64,11 @@ output vector_value_t o4;
 genvar g;
 generate begin
 	for (g = 0; g < NLANES; g = g + 1) begin
-		gpr_regfile urf0(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra0.num}, o0[g]);
-		gpr_regfile urf1(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra1.num}, o1[g]);
-		gpr_regfile urf2(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra2.num}, o2[g]);
-		gpr_regfile urf3(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra3.num}, o3[g]);
-		gpr_regfile urf4(clk, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra4.num}, o4[g]);
+		gpr_regfile urf0(clk, ce, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra0.num}, o0[g]);
+		gpr_regfile urf1(clk, ce, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra1.num}, o1[g]);
+		gpr_regfile urf2(clk, ce, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra2.num}, o2[g]);
+		gpr_regfile urf3(clk, ce, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra3.num}, o3[g]);
+		gpr_regfile urf4(clk, ce, {4{wr}} & wmask[g*4+3:g*4], {wthread,wa.num}, i[g], {rthread,ra4.num}, o4[g]);
 	end
 end
 endgenerate
