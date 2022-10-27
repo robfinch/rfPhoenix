@@ -41,7 +41,7 @@ F00:0029       	STORE	r1,0xFFFC0004		# stores a
 F00:0030       
 F00:0031       floop: 
 F00:0032       	LOAD	r2,0xFFFC0004		# x = a
-               S03:0000004E:  B4 00 40 00 40 01 D7 FF 00 00 00 00
+               S03:0000004E:  AC 00 40 00 40 01 D7 FF 00 00 00 00
 F00:0033       	ADD		r1,r1,r2				# a += x
                S03:0000005A:  42 20 20 00 01 01
 F00:0034       	STORE	r1,0xFFFC0004		# stores a

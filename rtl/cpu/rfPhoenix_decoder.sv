@@ -42,6 +42,7 @@ input instruction_fetchbuf_t ifb;
 output decode_bus_t deco;
 
 reg pfx;
+reg nop;
 reg op16,op32,op64,op128;
 reg ret;
 reg [2:0] sp_sel;
@@ -52,6 +53,7 @@ begin
 	sp_sel = ifb.sp_sel;
 	pfx = ifb.pfx.opcode==3'b010;
 	ret = ifb.insn.any.opcode==OP_RET;
+	nop = ifb.insn.any.opcode==OP_NOP;
 	deco.v = ifb.v;
 
 	deco.rti = ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func==OP_R1 && ifb.insn.r2.Rb==OP_RTI;
@@ -442,7 +444,7 @@ begin
 	deco.csrrc = ifb.insn.any.opcode==OP_CSR && ifb.insn.csr.func==2'd2;
 	deco.csrrs = ifb.insn.any.opcode==OP_CSR && ifb.insn.csr.func==2'd3;
 
-	deco.hasRa = ifb.insn.pfx.opcode!=3'd2 && !deco.cjb;
+	deco.hasRa = ifb.insn.pfx.opcode!=3'd2 && !deco.cjb && !nop;
 	deco.hasRb = (ifb.insn.any.opcode==OP_R2 && ifb.insn.r2.func!=OP_R1) ||
 								ifb.insn.any.opcode==OP_FMA ||
 								ifb.insn.any.opcode==OP_FMS ||
@@ -455,8 +457,8 @@ begin
 								ifb.insn.any.opcode==OP_FNMA ||
 								ifb.insn.any.opcode==OP_FNMS
 								;
-	deco.hasRm =  !deco.cjb && !deco.br && !deco.pfx;
-	deco.hasRt =	!deco.pfx && !deco.br;
+	deco.hasRm =  !deco.cjb && !deco.br && !deco.pfx && !nop;
+	deco.hasRt =	!deco.pfx && !deco.br && !nop;
 
 	deco.is_vector = (deco.hasRt & deco.Rt.vec) |
 									(deco.hasRa & deco.Ra.vec) |

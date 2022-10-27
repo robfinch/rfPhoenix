@@ -44,54 +44,59 @@ input clk;
 input wr;
 input [WID-1:0] di;
 input rd;
-output reg [WID-1:0] dout = 'd0;
+output [WID-1:0] dout;
 output reg [$clog2(DEP)-1:0] cnt = 'd0;
 output reg almost_full = 'd0;
 output reg full = 'd0;
 output reg empty = 'd0;
 output reg v = 'd0;
 
+
 reg [$clog2(DEP)-1:0] wr_ptr;
 reg [$clog2(DEP)-1:0] rd_ptr;
 (* ram_style="distributed" *)
 reg [WID-1:0] mem [0:DEP-1];
 integer n;
+initial begin
+	for (n = 0; n < DEP; n = n + 1)
+		mem[n] = 'd0;
+end
 
 always_ff @(posedge clk)
-	if (rst) begin
+	if (rst)
 		wr_ptr <= 'd0;
-		rd_ptr <= 'd0;
-		dout <= 'd0;
-		/*
-		for (n = 0; n < DEP; n = n + 1)
-			mem[n] <= 'd0;
-		*/
-	end
 	else begin
-		if (rst)
-			dout <= 'd0;
-		else if (empty)
+		if (wr && !full)
+			wr_ptr <= wr_ptr + 2'd1;
+	end
+always_ff @(posedge clk)
+	if (rst)
+		rd_ptr <= 'd0;
+	else begin
+		if (rd && !empty)
+			rd_ptr <= rd_ptr + 2'd1;
+	end
+always_ff @(posedge clk)
+	if (wr && !full)
+		mem[wr_ptr] <= di;
+
+/*
+always_ff @(posedge clk)
+	if (rst)
+		dout <= 'd0;
+	else begin
+		if (empty)
 			dout <= dout;
 		else
 			dout <= mem[rd_ptr];
 		if (rd & wr) begin
-			mem[wr_ptr] <= di;
-			wr_ptr <= wr_ptr + 2'd1;
-			rd_ptr <= rd_ptr + 2'd1;
 			if (rd_ptr==wr_ptr)
 				dout <= di;
 		end
-		else if (wr) begin
-			if (!full) begin
-				mem[wr_ptr] <= di;
-				wr_ptr <= wr_ptr + 2'd1;
-			end
-		end
-		else if (rd) begin
-			if (!empty)
-				rd_ptr <= rd_ptr + 2'd1;
-		end
 	end
+*/
+assign dout = rst ? 'd0 : mem[rd_ptr];
+
 always_comb
 	if (wr_ptr >= rd_ptr)
 		cnt = wr_ptr - rd_ptr;
@@ -105,5 +110,6 @@ always_comb
 	empty = cnt=='d0;
 always_comb
 	v = cnt > 'd0;
+
 
 endmodule

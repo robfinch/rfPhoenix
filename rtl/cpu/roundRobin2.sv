@@ -50,6 +50,7 @@ reg [2:0] amt;			// how much to rotate forward after a grant
 reg [7:0] rgrnt;		// rotated value of grant
 reg [7:0] nextGrant;	// unrotated value of grant
 reg [7:0] rreq;		// rotated request
+reg [3:0] psel;
 
 // rotate the request lines to set priority
 reg [15:0] reqs;
@@ -115,6 +116,12 @@ always_ff @(posedge clk)
 			// nextGrant should be one-hot
 		end
 
+always_ff @(posedge clk)
+	if (rst)
+		psel <= 'd0;
+	else
+		psel <= sel_enc;
+
 always_comb//ff @(posedge clk)
 	if (rst)
 		sel_enc <= 'd0;
@@ -129,10 +136,10 @@ always_comb//ff @(posedge clk)
 			8'b??100000:	sel_enc <= 4'd5;
 			8'b?1000000:	sel_enc <= 4'd6;
 			8'b10000000:	sel_enc <= 4'd7;
-			default:			sel_enc <= 4'd15;
+			default:			sel_enc <= psel;
 			endcase
 		else
-			sel_enc <= 4'd15;
+			sel_enc <= psel;
 
 endmodule
 

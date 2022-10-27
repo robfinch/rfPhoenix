@@ -712,7 +712,7 @@ always_ff @(posedge clk_g)
 always_ff @(posedge clk_g)
 	ic_tag2o <= ic_tago;
 reg [NTHREADS-1:0] wr_ififo;
-wire [$bits(dco)+$bits(dc_ifb)-1:0] ififo_out [0:NTHREADS-1];
+wire [$bits(decode_bus_t)+$bits(instruction_fetchbuf_t)-1:0] ififo_out [0:NTHREADS-1];
 generate begin
 for (g = 0; g < NTHREADS; g = g + 1) begin
 	always_comb
@@ -999,7 +999,7 @@ always_comb
 
 generate begin : gIssue
 	for (g = 0; g < NTHREADS; g = g + 1)
-		always_comb
+		always_comb//ff @(negedge clk_g)
 			sb_will_issue[g] = dcndx_v && dcndx==g && !stall_pipe[g] && !ififo_empty[g];
 			;//g==dcndx && dcndx_v;// &&	!sb_issue[g];
 end
@@ -1554,7 +1554,7 @@ begin
 				rfndx1 <= dcndx;
 				rfndx2 <= rfndx1;
 				rfndx3 <= rfndx2;
-				rfb1[n] <= dcb;
+				rfb1[n] <= dcb[n];
 				rfb1[n].v <= dcb_v[n];
 				rfb2[n] <= rfb1[n];
 				rfb3[n] <= rfb2[n];
@@ -1843,6 +1843,9 @@ begin
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
 		memreq.adr <= tmpadr[oundx];
+		memreq.tgt <= agb[oundx].dec.Rt;
+		memreq.tgt.vec <= agb[oundx].dec.Rt.vec;
+		memreq.wr_tgt <= (agb[oundx].dec.rfwr & ~agb[oundx].dec.Rt.vec) | (agb[oundx].dec.vrfwr & agb[oundx].dec.Rt.vec);
 		case(agb[oundx].dec.memsz)
 		byt:	memreq.sel <= 64'h1;
 		wyde:	memreq.sel <= 64'h3;
@@ -2054,6 +2057,7 @@ begin
 		memp.ifb.tag <= memresp.tag;
 		memp.dec.Rt <= memresp.tgt;	// Needed for a load
 		memp.cause <= memresp.cause;
+		memp.dec.hasRt <= memresp.wr_tgt;
 		memp.dec.rfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b0;
 		memp.dec.vrfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b1;
 		memp.dec.mem <= TRUE;
@@ -2338,7 +2342,7 @@ begin
 					wbb[wbndx] <= 'd0;
 			end
 			// Writing to machine stack pointer globally enables interrupts.
-			if (wbb[wbndx].dec.Rt==7'd47 && wbb[wbndx].dec.rfwr)
+			if (wbb[wbndx].dec.Rt==7'd62 && wbb[wbndx].dec.rfwr)
 				gie[wbndx] <= 1'b1;
 			if (ic_ifb.v && ic_ifb.insn.pfx.opcode==3'd2)
 				retired <= retired + 2'd2;
@@ -2620,7 +2624,7 @@ begin
 			for (n1 = 0; n1 < NTHREADS; n1 = n1 + 1)
 				$display("  thread[%d].ip=%h", n1[3:0], thread_ip[n1]);
 			$display("DecodeBuffer:");
-			$display("  1:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d", n[3:0],
+			$display("  1:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d Rt%d", n[3:0],
 				dc_ifb[n].v ? "v":"-",
 				dc_ifb[n].ip,
 				dc_ifb[n].tag,
@@ -2628,9 +2632,10 @@ begin
 				dc_ifb[n].insn.any.opcode.name(),
 				dco[n].Ra,
 				dco[n].Rb,
-				dco[n].Rc
+				dco[n].Rc,
+				dco[n].Rt
 			);
-			$display("  2:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d", n[3:0],
+			$display("  2:%d: %c ip=%h.%d ir=%h oc=%0s Ra%d Rb%d Rc%d Rt%d", n[3:0],
 				dcb_v[n] ? "v":"-",
 				dcb[n].ifb.ip,
 				dcb[n].ifb.tag,
@@ -2638,7 +2643,8 @@ begin
 				dcb[n].ifb.insn.any.opcode.name(),
 				ra0,
 				ra1,
-				ra2
+				ra2,
+				dcb[n].dec.Rt
 			);
 			$display("Regfetch %d,%d:", rfndx1,rfndx2);
 			if (REGFILE_LATENCY > 2) begin

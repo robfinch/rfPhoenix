@@ -152,15 +152,15 @@ mnemonic mnemonics[]={
 	"jsr",	{OP_LK,OP_IMM,0,0,0}, {JL2,CPU_ALL,0,OP(24),6},
 	"jsr",	{OP_IMM,0,0,0,0}, {J2,CPU_ALL,0,OP(24),6},
 
-	"load",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(52),6},	
-	"load",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(52),6},	
-	"load",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(52)|OP(2),6},	
-	"load",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(52)|OP(2),6},	
+	"load",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(44),6},	
+	"load",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(44),6},	
+	"load",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(44)|OP(2),6},	
+	"load",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(44)|OP(2),6},	
 
-	"loadu",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(53),6},	
-	"loadu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(53),6},	
-	"loadu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(53)|OP(2),6},	
-	"loadu",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(53)|OP(2),6},	
+	"loadu",	{OP_REG,OP_IMM,0,0}, {DIRECT,CPU_ALL,0,SZ(2LL)|OP(45),6},	
+	"loadu",	{OP_REG,OP_REGIND,0,0}, {REGIND,CPU_ALL,0,SZ(2LL)|OP(45),6},	
+	"loadu",	{OP_REG,OP_SCNDX,0,0,0}, {SCNDX,CPU_ALL,0,SZ(2LL)|FN(45)|OP(2),6},	
+	"loadu",	{OP_VREG,OP_SCNDX,OP_VMREG,0,0}, {SCNDX,SZ(2LL)|CPU_ALL,0,FN(45)|OP(2),6},	
 
 /*****************************************/
 

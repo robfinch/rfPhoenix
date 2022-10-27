@@ -63,18 +63,19 @@ regspec_t [ROLLBACK_STAGES-1:0] wb_Rts;
 always_comb
 begin
 	srcs = 'd0;
-	if (db.v & will_issue) begin
+	if (db.v) begin
 		if (db.hasRa)	srcs[db.Ra] = 1'b1;
 		if (db.hasRb) srcs[db.Rb] = 1'b1;
 		if (db.hasRc) srcs[db.Rc] = 1'b1;
 		if (db.hasRm) srcs[db.Rm] = 1'b1;
+		if (db.hasRt) srcs[db.Rt] = 1'b1;
 	end
 end
 
 always_comb
 begin
 	tgts = 'd0;
-	if (db.v & will_issue)
+	if (db.v)
 		if (db.hasRt & ((db.rfwr&~db.Rt.vec)|(db.vrfwr&db.Rt.vec))) tgts[db.Rt] = 1'b1;
 end
 
@@ -115,7 +116,7 @@ begin
 		wb_Rts[n1] <= wb_Rts[n1-1];	
 end
 
-always_ff @(posedge clk)
+always_comb	//ff @(posedge clk)
 	can_issue <= (busy[127:1] & srcs[127:1]) == 'd0;
 
 endmodule
