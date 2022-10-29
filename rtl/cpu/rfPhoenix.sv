@@ -1776,31 +1776,30 @@ task tAgen;	// placeholder task
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		if (stall_pipe[n])
-			agb[n] <= agb[n];
-		else begin
+		if (!stall_pipe[n]) begin
 			if (wbb[n].dec.need_steps && wbb[n].dec.mem && wbb[n].count != 'd0)
 				agb[n] <= wbb[n];
 			else if (exb[n].dec.mem) begin
 				agb[n] <= exb[n];
 				agb[n].v <= exb_v[n];
+				casez({exb[n].dec.storer|exb[n].dec.loadr,exb[n].dec.Rb.vec,exb[n].dec.Ra.vec})
+				3'b000:	tmpadr[n] <= exb[n].a[0] + exb[n].b[0];
+				3'b001: tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[0];
+				3'b010:	tmpadr[n] <= exb[n].a[0] + exb[n].b[exb[n].step];
+				3'b011:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[exb[n].step];
+				3'b1?0:	tmpadr[n] <= exb[n].a[0] + exb[n].dec.imm;
+				3'b1?1:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].dec.imm;
+				endcase
+				thread[n].sleep <= TRUE;
+				agb[n].res <= vres;
 			end
 			else
-				agb[n].v <= INV;
+				agb[n] <= 'd0;
+//				agb[n].v <= INV;
 			// Get result
-			if (!exb[n].dec.cjb)
-				agb[n].res <= vres;
-			agb[n].agen <= 1'b1;
-			casez({exb[n].dec.storer|exb[n].dec.loadr,exb[n].dec.Rb.vec,exb[n].dec.Ra.vec})
-			3'b000:	tmpadr[n] <= exb[n].a[0] + exb[n].b[0];
-			3'b001: tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[0];
-			3'b010:	tmpadr[n] <= exb[n].a[0] + exb[n].b[exb[n].step];
-			3'b011:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].b[exb[n].step];
-			3'b1?0:	tmpadr[n] <= exb[n].a[0] + exb[n].dec.imm;
-			3'b1?1:	tmpadr[n] <= exb[n].a[exb[n].step] + exb[n].dec.imm;
-			endcase
-			if (exb[n].dec.mem)
-				thread[n].sleep <= TRUE;
+//			if (!exb[n].dec.cjb)
+//				agb[n].res <= vres;
+//			agb[n].agen <= 1'b1;
 		end
 	end
 end
@@ -1996,17 +1995,15 @@ task tOut;
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1) begin
-		if (stall_pipe[n])
-			oub[n] <= oub[n];
-		else begin
+		if (!stall_pipe[n]) begin
 			oub[n] <= agb[n];
-			oub[n].agen <= 1'b1;
+//			oub[n].agen <= 1'b1;
 			if ((agb[n].dec.Ra.vec | ((agb[n].dec.storen|agb[n].dec.loadn) & agb[n].dec.Rb.vec)) && agb[n].dec.memsz==vect) begin
 				if (agb[n].step < NLANES-1) begin
 					oub[n].agen <= 1'b0;
 				end
 			end
-			if (agb[n].agen & agb[n].v) begin
+			if (agb[n].v) begin
 				if (!memreq_full && !req_icload) begin
 					if (|ousel) begin
 						if (n==oundx) begin

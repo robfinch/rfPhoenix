@@ -192,9 +192,9 @@ wire tlbrdy;
 // In this case back-toback reads of the fifo are allowed as a memory
 // pipeline is being filled.
 reg memreq_rd;
-reg overlapping_store;
+reg overlapping_address;
 always_comb
-	memreq_rd = !fifoToCtrl_empty && tlbrdy && !memr_v && !overlapping_store;
+	memreq_rd = !fifoToCtrl_empty && tlbrdy && !memr_v && !overlapping_address;
 
 memory_arg_t memresp, memresp2;
 memory_arg_t [6:0] mem_resp;	// memory pipeline
@@ -564,10 +564,12 @@ rfPhoenix_dchit #(.LINES(256)) udchito
 	.rway(dc_orway)
 );
 
-reg dhit;
+reg dhit, dhit_d1;
 always_ff @(posedge clk)
 	dhit = (dhite & dhito) || (adr_o[5] ? (dhito && padrd1[4:0] < 5'd23) : (dhite && padrd1[4:0] < 5'd23));
 reg dhite_d1, dhito_d1;
+always_ff @(posedge clk)
+	dhit_d1 <= dhit;
 always_ff @(posedge clk)
 	dhite_d1 <= dhite;
 always_ff @(posedge clk)
@@ -2372,10 +2374,10 @@ always_comb
 	mem_pipe_adv = !memresp_full;
 always_comb
 begin
-	overlapping_store = 1'b0;
+	overlapping_address = 1'b0;
 	for (n11 = 0; n11 < 7; n11 = n11 + 1)
-		if (imemreq.adr[31:5]==mem_resp[n11].adr[31:5] && imemreq.func==MR_STORE && mem_resp[n11].func==MR_STORE)
-			overlapping_store = 1'b1;
+		if (imemreq.adr[31:5]==mem_resp[n11].adr[31:5])
+			overlapping_address = 1'b1;
 end
 
 // memreq_rd cannot be used to signal the start of pipeline loading of mem_resp
@@ -2614,7 +2616,7 @@ begin
 				mem_resp[PADR_SET].cause <= {4'h8,FLT_DPF};
 		end
 `endif
-		mem_resp[PADR_SET].dchit <= dhit & mem_resp[VLOOKUP3].acr[3];	// hit and cachable data
+		mem_resp[PADR_SET].dchit <= dhit_d1 & mem_resp[VLOOKUP3].acr[3];	// hit and cachable data
 		case(mem_resp[VLOOKUP3].func)
 		MR_TLBRW,MR_TLBRD:
 			mem_resp[PADR_SET].wr <= TRUE;
@@ -2629,7 +2631,7 @@ begin
 			default:		
 				begin
 					mem_resp[PADR_SET].res <= dc_line;
-					mem_resp[PADR_SET].wr <= !(dce & dhit & mem_resp[VLOOKUP3].acr[3]);
+					mem_resp[PADR_SET].wr <= ~(dce & dhit_d1 & mem_resp[VLOOKUP3].acr[3]);
 					// Allow cache hit to set hit to one, but not zero. hit may have been
 					// one coming in if the cache line is not needed.
 					if (dhite_d1)
@@ -2683,7 +2685,7 @@ begin
 			// For now, always use sequencer on a store. At some point the sequencer may
 			// not be needed if there was a cache hit on a store and policy is writeback.
 			MR_STORE:					memresp.wr <= FALSE;
-			MR_LOAD,MR_LOADZ:	memresp.wr <= ~mem_resp[PADR_SET].wr;
+			MR_LOAD,MR_LOADZ:	memresp.wr <= mem_resp[PADR_SET].wr;
 			MR_TLBRW,MR_TLBRD:	memresp.wr <= TRUE;
 			MR_ICACHE_LOAD:		memresp.wr <= TRUE;
 			default:	memresp.wr <= FALSE;
@@ -2905,12 +2907,12 @@ begin
 			  	if (memr_sel[127:16]=='d0) begin
 		    		if (memr.func2==MR_STPTR) begin	// STPTR
 				    	if (~|ea[AWID-5:0] || shr_ma[5:3] >= region.at[18:16]) begin
-		  					memresp.cause <= FLT_NONE;
-				  			memresp.step <= memreq.step;
-				    	 	memresp.cmt <= TRUE;
-	  						memresp.tid <= memreq.tid;
-	  						memresp.wr <= TRUE;
-								memresp.res <= {127'd0,rb_i};
+		  					memresp2.cause <= FLT_NONE;
+				  			memresp2.step <= memreq.step;
+				    	 	memresp2.cmt <= TRUE;
+	  						memresp2.tid <= memreq.tid;
+	  						memresp2.wr <= TRUE;
+								memresp2.res <= {127'd0,rb_i};
 								if (!memresp_full)
 									ret(0);
 				    	end
@@ -2927,12 +2929,12 @@ begin
 		    		end
 		    		else begin
 		    			tDeactivateBus();
-	  					memresp.cause <= FLT_NONE;
-			  			memresp.step <= memreq.step;
-				    	memresp.cmt <= TRUE;
-			  			memresp.tid <= memreq.tid;
-			  			memresp.wr <= TRUE;
-							memresp.res <= 'd0;//{127'd0,rb_i};
+	  					memresp2.cause <= FLT_NONE;
+			  			memresp2.step <= memreq.step;
+				    	memresp2.cmt <= TRUE;
+			  			memresp2.tid <= memreq.tid;
+			  			memresp2.wr <= TRUE;
+							memresp2.res <= 'd0;//{127'd0,rb_i};
 							if (!memresp_full) begin
 								if (|memr.hit[1:0]) begin
 									//if (memr.adr[5])

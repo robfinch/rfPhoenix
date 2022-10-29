@@ -1,0 +1,94 @@
+F00:0001       # load store test rfPhoenix asm
+F00:0002       
+F00:0003       	.bss
+F00:0004       _bss_a:
+F00:0005       	.space	10
+F00:0006       
+F00:0007       	.data
+F00:0008       _data_a:
+F00:0009       	.space	10
+F00:0010       
+F00:0011       #	.org	0xFFFFFFFFFFFD0000
+F00:0012       	.text
+F00:0013       	.align	1
+F00:0014       start:
+F00:0015       	LDI		r2,0x1234
+               S03:00000000:  89 00 40 23 01 01
+F00:0016       	STORE	r2,0xFFFC0000
+               S03:00000006:  A8 00 00 00 40 01 D7 FF 00 00 00 00
+F00:0017       	NOP
+               S03:00000012:  0B 00 00 00 00 01
+F00:0018       	LOAD	r3,0xFFFC0000
+               S03:00000018:  EC 00 00 00 40 01 D7 FF 00 00 00 00
+F00:0019       	CMP		r4,r2,r3
+               S03:00000024:  0F 41 30 80 03 01
+F00:0020       	LDI		r5,0x5678
+               S03:0000002A:  49 01 80 67 05 01
+F00:0021       	STORE	r5,0xFFFC0004
+               S03:00000030:  68 01 40 00 40 01 D7 FF 00 00 00 00
+F00:0022       	NOP
+               S03:0000003C:  0B 00 00 00 00 01
+F00:0023       	LOAD	r6,0xFFFC0004
+               S03:00000042:  AC 01 40 00 40 01 D7 FF 00 00 00 00
+F00:0024       	LDI		r1,0
+               S03:0000004E:  49 00 00 00 00 01
+F00:0025       	LDI		r2,16
+               S03:00000054:  89 00 00 01 00 01
+F00:0026       loop1:
+F00:0027       	STORE	r1,0xFFFC0000[r1]
+               S03:0000005A:  68 20 00 00 00 01 D7 FF 00 00 00 00
+F00:0028       	ADD		r1,r1,1
+               S03:00000066:  44 20 10 00 00 01
+F00:0029       	ADD		r2,r2,-1
+               S03:0000006C:  84 40 F0 FF 7F 01
+F00:0030       	BNE		r2,r0,loop1
+               S03:00000072:  9C 00 00 FA 7F E1
+F00:0031       	LDI		r1,0x0
+               S03:00000078:  49 00 00 00 00 01
+F00:0032       	LDI		r2,16
+               S03:0000007E:  89 00 00 01 00 01
+F00:0033       loop2:
+F00:0034       	LOAD	r3,0xFFFC0000[r1]
+               S03:00000084:  EC 20 00 00 00 01 D7 FF 00 00 00 00
+F00:0035       	ADD		r1,r1,1
+               S03:00000090:  44 20 10 00 00 01
+F00:0036       	CMP		r4,r3,r1
+               S03:00000096:  0F 61 10 80 03 01
+F00:0037       	AND		r4,r4,1
+               S03:0000009C:  08 81 10 00 00 01
+F00:0038       	BEQ		r4,r0,mismatch
+               S03:000000A2:  1C 01 80 04 00 C1
+F00:0039       	ADD		r2,r2,-1
+               S03:000000A8:  84 40 F0 FF 7F 01
+F00:0040       	BNE		r2,r0,loop2
+               S03:000000AE:  9C 00 80 F5 7F E1
+F00:0041       mismatch:
+F00:0042       	BRA		mismatch
+               S03:000000B4:  19 00 00 00 00 01
+F00:0043       
+F00:0044       	.balign	0x100,0x0B
+F00:0045       
+F00:0046       
+
+
+Sections:
+S01  .bss
+S02  .data
+S03  .text
+
+
+Sources:
+F00  load_store.asm
+
+
+Symbols:
+mismatch LAB (0xb4) sec=.text 
+loop2 LAB (0x84) sec=.text 
+loop1 LAB (0x5a) sec=.text 
+start LAB (0x0) UNUSED sec=.text 
+_data_a LAB (0x0) UNUSED sec=.data 
+_bss_a LAB (0x0) UNUSED sec=.bss 
+__VASM EXPR(0=0x0) INTERNAL 
+__MSDOSFS EXPR(0=0x0) INTERNAL 
+
+There have been no errors.
