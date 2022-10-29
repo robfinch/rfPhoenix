@@ -63,6 +63,7 @@ output reg full;
 input [NTHREADS-1:0] rollback;
 output reg [127:0] rollback_bitmaps [0:NTHREADS-1];
 
+integer n3, n5, n6;
 reg [4:0] qndx = 'd0;
 memory_arg_t [QDEP-1:0] que;
 reg [QDEP-1:0] valid_bits = 'd0;
@@ -72,8 +73,8 @@ reg [255:0] imask0, imask1;
 reg [255:0] dat10, dat11;
 reg [31:0] sx0, sx1;
 reg [7:0] last_tid;
+reg overlapping_store;
 
-integer n5;
 initial begin
 	for (n5 = 0; n5 < QDEP; n5 = n5 + 1) begin
 		que[n5] = 'd0;
@@ -190,7 +191,53 @@ begin
 end
 endtask
 
-integer n3;
+/* under construction */
+/*
+task tMergeStore2;
+input memory_arg_t2 i1;
+input memory_arg_t2 i2;
+output memory_arg_t2 o;
+reg [31:0] sel1, sel2;
+integer g1, g2;
+begin
+	sel1 = i1.sel << i1.adr[4:0];
+	sel2 = i2.sel << i2.adr[4:0];
+	o.dat = 'd0;
+	for (g1 = 0; g1 < 32; g1 = g1 + 1) begin
+		g2 = g1 + i2.adr[4:0];
+		if (i2.sel[g1])
+			o.dat[g2] = i2.dat[g1];
+		g2 = g1 + i1.adr[4:0];
+		if (i1.sel[g1])
+			o.dat[g2] = i1.dat[g1];
+	end
+	o.sel = sel1 | sel2;
+end
+endtask
+
+task tMergeStore;
+integer n;
+begin
+	for (n = 0; n < QDEP; n = n + 1) begin
+		if (que[n].adr[AWID-1:5]==i.adr[AWID-1:5] && i.func==MR_STORE && que[n].func==MR_STORE)
+			tMergeStore2(i, que[n], que[n]);
+	end
+end
+endtask
+*/
+
+/*
+always_comb
+begin
+	overlapping_store = 1'b0;
+	for (n6 = 0; n6 < QDEP; n6 = n6 + 1)
+		if (que[n6].adr[AWID-1:5]==i0.adr[AWID-1:5] && i0.func==MR_STORE && que[n6].func==MR_STORE)
+			overlapping_store = 1'b1;
+end
+*/
+always_comb
+	overlapping_store = 1'b0;
+
 always_ff @(posedge clk, posedge rst)
 if (rst) begin
 	valid_bits <= 'd0;
@@ -210,7 +257,7 @@ else begin
 	if (wr1 && found1)
 		wr_ack1 <= 1'b1;
 	// Port #0 take precedence.
-	if ((rd & ~empty) & wr0 & !foundst0) begin
+	if ((rd & ~empty) & (wr0 & ~overlapping_store) & !foundst0) begin
 		for (n3 = 1; n3 < QDEP; n3 = n3 + 1) begin
 			que[n3-1] <= que[n3];
 			qsel[n3-1] <= qsel[n3];
@@ -248,7 +295,7 @@ else begin
 		else
 			qndx <= qndx - 2'd1;
 	end
-	else if (wr0 && !foundst0) begin
+	else if (wr0 && !overlapping_store && !foundst0) begin
 		if (qndx < QDEP) begin
 			if (last_tid != i0.tid) begin
 				rollback_bitmaps[i0.thread][i0.tgt] <= 1'b1;
@@ -301,6 +348,6 @@ always_comb
 always_comb
 	valid = valid_bits[0];
 always_comb
-	full = qndx==QDEP-1;
+	full = qndx==QDEP-1 || overlapping_store;
 
 endmodule

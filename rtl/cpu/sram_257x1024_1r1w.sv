@@ -48,6 +48,10 @@ input [9:0] radr;
 input DCacheLine i;
 output DCacheLine o;
 
+always_ff @(posedge clk)
+	if (wr)
+		$display("DCache: %h=%h", wadr, i);
+
 // xpm_memory_sdpram : In order to incorporate this function into the design,
 //      Verilog      : the following instance declaration needs to be placed
 //     instance      : in the body of the design code.  The instance name

@@ -68,7 +68,7 @@ begin
 		if (db.hasRb) srcs[db.Rb] = 1'b1;
 		if (db.hasRc) srcs[db.Rc] = 1'b1;
 		if (db.hasRm) srcs[db.Rm] = 1'b1;
-		if (db.hasRt) srcs[db.Rt] = 1'b1;
+//		if (db.hasRt) srcs[db.Rt] = 1'b1;
 	end
 end
 

@@ -57,7 +57,7 @@ output cause_code_t wcause;
 
 parameter IC_LATENCY = 2;
 
-integer n2,n3,n4,n10;
+integer n2,n3,n4,n10,n12;
 
 wire clk_g = clk_i;
 pipeline_reg_t [NTHREADS-1:0] dcb, dcb2, dcbb, rfb1, rfb2, rfb3, exb, agb, oub, wbb, wbb2;
@@ -118,6 +118,7 @@ always_comb
 reg [NTHREADS-1:0] gie;
 reg [7:0] vl = 8'd8;
 tid_t xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
+tid_t mem_tid;
 order_tag_t [NTHREADS-1:0] insn_otag;
 reg exndx_v,exndx1_v;
 reg dcndx_v, dcndx2_v, wbndx_v;
@@ -169,6 +170,8 @@ wire ihit,ihite,ihito;
 reg ihit1,ihit2,ihit3,ihite2,ihito2,ihite1,ihito1;
 memory_arg_t memreq;
 memory_arg_t memresp;
+memory_arg_t memr_buf [0:15];
+reg [15:0] memr_avail;
 wire memreq_full;
 reg memresp_fifo_rd;
 wire memresp_fifo_empty;
@@ -228,6 +231,7 @@ wire exbrf_empty, memf_empty, mcbf_empty;
 wire exbrf_v, memf_v, mcbf_v;
 prec_t xprc, mprc;
 code_address_t [NTHREADS-1:0] last_ip;
+reg [3:0] memr_ptr;
 
 // CSRs
 reg [31:0] cr0;
@@ -903,6 +907,9 @@ begin
 	memp <= 'd0;
 	ic_ifb <= 'd0;
 	exndx2 <= 'd0;
+	mem_tid <= 'd0;
+	memr_avail <= 16'hFFFF;
+	memr_ptr <= 'd0;
 end
 endtask
 
@@ -910,7 +917,9 @@ task tOnce;
 integer n;
 begin
 	rd_trace <= 1'b0;
+	memreq <= 'd0;
 	memreq.wr <= 1'b0;
+	memreq.func <= MR_NOP;
 	memresp_fifo_rd <= 1'b0;
 	for (n = 0; n < NTHREADS; n = n + 1) begin
 		mem_rollback[n] <= FALSE;
@@ -1843,9 +1852,11 @@ begin
 		memreq.omode <= mprv[oundx] ? status[oundx][1].om : status[oundx][0].om;
 		memreq.asid <= asid[oundx];
 		memreq.adr <= tmpadr[oundx];
+		memreq.vcadr <= tmpadr[oundx];
 		memreq.tgt <= agb[oundx].dec.Rt;
 		memreq.tgt.vec <= agb[oundx].dec.Rt.vec;
 		memreq.wr_tgt <= (agb[oundx].dec.rfwr & ~agb[oundx].dec.Rt.vec) | (agb[oundx].dec.vrfwr & agb[oundx].dec.Rt.vec);
+		memreq.res <= 'd0;
 		case(agb[oundx].dec.memsz)
 		byt:	memreq.sel <= 64'h1;
 		wyde:	memreq.sel <= 64'h3;
@@ -2035,6 +2046,19 @@ endtask
 // - the responses are sent to a fifo at the tail of the memory pipe
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+wire [4:0] memr_bndx;
+ffo24 umemrav1 (.i({8'h00,memr_avail}), .o(memr_bndx));
+
+reg in_memr;
+always_comb
+begin
+	in_memr = 1'b0;
+	for (n12 = 0; n12 < 16; n12 = n12 + 1) begin
+		if (memr_buf[n12].tid == memresp.tid)
+			in_memr = 1'b1;
+	end
+end
+
 task tMemory;
 integer n;
 begin
@@ -2049,23 +2073,69 @@ begin
 		// conserver hardware the memory pipeline does not include everything from
 		// the main pipeline. So, some of the field information needs to be
 		// updated here.
-		memf_wr <= TRUE;	// update the pipeline fifo
-		memp <= 'd0;
-		memp.ifb.ip <= memresp.ip;
-		memp.ifb.thread <= memresp.thread;
-		memp.badAddr <= memresp.adr;
-		memp.ifb.tag <= memresp.tag;
-		memp.dec.Rt <= memresp.tgt;	// Needed for a load
-		memp.cause <= memresp.cause;
-		memp.dec.hasRt <= memresp.wr_tgt;
-		memp.dec.rfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b0;
-		memp.dec.vrfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b1;
-		memp.dec.mem <= TRUE;
-		memp.dec.need_steps <= memresp.need_steps;
-		memp.count <= memresp.count;
-		memp.step <= memresp.step;
-		memp.mask <= {64{1'b1}}; // ToDo fix this
-	
+		// Memory responses might not come back in the same order as they were
+		// requested. For instance, a cache load miss could occur and it gets
+		// re-inserted into the pipeline after other requests. So, the responses
+		// are buffered and placed in the pipeline in order from the buffer.
+		
+		// Did we get the expected tid? If so do not buffer, just insert into
+		// the pipeline.
+//		if (mem_tid == memresp.tid) begin
+		begin
+			mem_tid <= mem_tid + 2'd1;
+			memf_wr <= TRUE;	// update the pipeline fifo
+			memp <= 'd0;
+			memp.ifb.ip <= memresp.ip;
+			memp.ifb.thread <= memresp.thread;
+			memp.badAddr <= memresp.adr;
+			memp.ifb.tag <= memresp.tag;
+			memp.dec.Rt <= memresp.tgt;	// Needed for a load
+			memp.cause <= memresp.cause;
+			memp.dec.hasRt <= memresp.wr_tgt;
+			memp.dec.rfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b0;
+			memp.dec.vrfwr <= memresp.wr_tgt && memresp.tgt.vec==1'b1;
+			memp.dec.mem <= TRUE;
+			memp.dec.load <= memresp.load;
+			memp.dec.need_steps <= memresp.need_steps;
+			memp.count <= memresp.count;
+			memp.step <= memresp.step;
+			memp.mask <= {64{1'b1}}; // ToDo fix this
+		end
+		/*
+		// Not the expected tid, buffer the response.
+		begin
+			begin
+				if (!in_memr) begin
+					memr_buf[memr_bndx] <= memresp;
+					memr_avail[memr_bndx] <= 1'b0;
+				end
+			end
+			// Search buffer for the desired response.
+			for (n = 0; n < 16; n = n + 1) begin
+				if (memr_buf[n].tid==mem_tid) begin
+					mem_tid <= mem_tid + 2'd1;
+					memr_avail[memr_bndx] <= 1'b1;
+					memf_wr <= TRUE;	// update the pipeline fifo
+					memp <= 'd0;
+					memp.ifb.ip <= memr_buf[n].ip;
+					memp.ifb.thread <= memr_buf[n].thread;
+					memp.badAddr <= memr_buf[n].adr;
+					memp.ifb.tag <= memr_buf[n].tag;
+					memp.dec.Rt <= memr_buf[n].tgt;	// Needed for a load
+					memp.cause <= memr_buf[n].cause;
+					memp.dec.hasRt <= memr_buf[n].wr_tgt;
+					memp.dec.rfwr <= memr_buf[n].wr_tgt && memr_buf[n].tgt.vec==1'b0;
+					memp.dec.vrfwr <= memr_buf[n].wr_tgt && memr_buf[n].tgt.vec==1'b1;
+					memp.dec.mem <= TRUE;
+					memp.dec.need_steps <= memr_buf[n].need_steps;
+					memp.count <= memr_buf[n].count;
+					memp.step <= memr_buf[n].step;
+					memp.mask <= {64{1'b1}}; // ToDo fix this
+				end
+			end
+		end
+		*/
+
 		// Clear the imiss status. The thread might still miss again if the I$
 		// has not updated before the thread is selected again, but at least
 		// it can be prevented from being selected for a few cycles while the
@@ -2723,9 +2793,42 @@ begin
 				agb[n].c
 			);
 			$display("Out");
-			$display("  res=%h",oub[n].res);
+			$display("  %h %0s res=%h",
+				oub[n].ifb.ip,
+				oub[n].ifb.insn.any.opcode.name(),
+				oub[n].res);
+			$display("Memory Pipe");
+				for (n1 = 0; n1 < 7; n1 = n1 + 1)
+				$display(" mem_resp[%d] %c adr=%h tgt=r%d res=%h",
+					n1[2:0], ubiu.mem_resp[n1].load ? "L" : ubiu.mem_resp[n1].store ? "S" : 
+						ubiu.mem_resp[n1].func==MR_ICACHE_LOAD ? "I" :	"-",
+					ubiu.mem_resp[n1].adr, ubiu.mem_resp[n1].tgt, ubiu.mem_resp[n1].res
+				);
+				$display(" biu:memresp %c adr=%h tgt=r%d res=%h",
+					ubiu.memresp.load ? "L" : ubiu.memresp.store ? "S" : 
+						ubiu.memresp.func==MR_ICACHE_LOAD ? "I" :	"-",
+					ubiu.memresp.adr, ubiu.memresp.tgt, ubiu.memresp.res
+				);
+				$display(" cpu:memresp %c adr=%h tgt=r%d res=%h",
+					memresp.load ? "L" : memresp.store ? "S" : 
+						memresp.func==MR_ICACHE_LOAD ? "I" :	"-",
+					memresp.adr, memresp.tgt, memresp.res
+				);
+				$display(" cpu:memf %c pc=%h tgt=r%d res=%h",
+					memf.dec.load ? "L" : memf.dec.store ? "S" : "-",
+					memf.ifb.ip, memf.dec.Rt, memf.res
+				);
+			$display("DCache");
+				$display("  %c upd_adr=%h, dat=%h",
+					ubiu.dc_ewr ? "e" : ubiu.dc_owr ? "o" : "-",
+					ubiu.upd_adr,
+					ubiu.dci2
+				);
 			$display("Writeback");
-			$display("  res=%h",wbb[n].res);
+			$display("  %h %0s res=%h",
+				wbb[n].ifb.ip,
+				wbb[n].ifb.insn.any.opcode.name(),
+				wbb[n].res);
 		end
 	end
 `endif

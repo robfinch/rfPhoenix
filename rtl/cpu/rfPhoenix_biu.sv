@@ -117,14 +117,14 @@ parameter LOW = 1'b0;
 
 parameter VLOOKUP1	= 4'd2;
 parameter VLOOKUP2  = 4'd3;
-parameter PADR_SET 	= 4'd4;
-parameter DATA_ALN	= 4'd5;
-parameter VLOOKUP3  = 4'd6;
+parameter VLOOKUP3  = 4'd4;
+parameter PADR_SET 	= 4'd5;
+parameter DATA_ALN	= 4'd6;
 
 parameter IO_KEY_ADR	= 16'hFF88;
 
 integer m,n,k;
-integer n4,n5,n7;
+integer n4,n5,n7,n10,n11;
 genvar g;
 
 /*
@@ -140,6 +140,7 @@ begin
 end
 */
 
+reg mem_pipe_adv;
 reg [5:0] shr_ma;
 
 reg [6:0] state;
@@ -149,9 +150,10 @@ reg [6:0] state;
 // PT_FETCH <on a tlbmiss>
 // READ_PDE/PTE
 // 
-Address next_adr_o;
+wb_address_t next_adr_o;
 reg [6:0] stk_state [0:15];
 reg [3:0] stk_dep;
+memory_arg_t memq_o, memr, memr_hold;
 
 wb_segment_t last_seg;
 reg xlaten_stk;
@@ -190,8 +192,9 @@ wire tlbrdy;
 // In this case back-toback reads of the fifo are allowed as a memory
 // pipeline is being filled.
 reg memreq_rd;
+reg overlapping_store;
 always_comb
-	memreq_rd = !fifoToCtrl_empty && tlbrdy && !memr_v;
+	memreq_rd = !fifoToCtrl_empty && tlbrdy && !memr_v && !overlapping_store;
 
 memory_arg_t memresp, memresp2;
 memory_arg_t [6:0] mem_resp;	// memory pipeline
@@ -246,7 +249,8 @@ biu_dati_align uda2
 (
 	.dati(dati),
 	.datis(datis2), 
-	.amt({adr_o[6:0],3'b0})
+	.amt({memr.adr[6:0],3'b0})
+//	.amt({adr_o[6:0],3'b0})
 );
 
 `ifdef CPU_B64
@@ -266,7 +270,6 @@ rfPhoenix_stmask ustmsk1 (mem_resp[VLOOKUP3].sel, mem_resp[VLOOKUP3].adr[5:0], s
 always_comb
 	dc_linein = (dc_line & ~stmask) | ((mem_resp[VLOOKUP3].res << {mem_resp[VLOOKUP3].adr[5:0],3'b0}) & stmask);
 
-integer n10;
 always_comb
 	for (n10 = 0; n10 < NTHREADS; n10 = n10 + 1)
 		rollback_bitmaps[n10] = rb_bitmaps1[n10]|rb_bitmaps2[n10]|rb_bitmaps3[n10]|rb_bitmaps4[n10];
@@ -380,7 +383,6 @@ else
 	rd_memq1 <= rd_memq;
 
 wire [3:0] memq_cnt;
-memory_arg_t memq_o, memr;
 
 rfPhoenix_mem_resp_fifo uofifo2
 (
@@ -482,6 +484,7 @@ always_ff @(posedge clk)
 reg [2:0] dwait;		// wait state counter for dcache
 Address dadr;
 DCacheLine dci [0:1];
+DCacheLine dci1,dci2;
 DCacheLine dc_eline, dc_oline;
 DCacheLine dc_elin, dc_olin;
 reg [1023:0] datil;
@@ -501,7 +504,7 @@ sram_257x1024_1r1w udcme
 	.wr(dc_ewr),
 	.wadr({dc_ewway,upd_adr[13:6]+upd_adr[5]}),
 	.radr({dc_erway,padrd1[13:6]+padrd1[5]}),
-	.i(dci[0]),
+	.i(dci2),
 	.o(dc_eline)
 );
 
@@ -512,7 +515,7 @@ sram_257x1024_1r1w udcmo
 	.wr(dc_owr),
 	.wadr({dc_owway,upd_adr[13:6]}),
 	.radr({dc_orway,padrd1[13:6]}),
-	.i(dci[0]),
+	.i(dci2),
 	.o(dc_oline)
 );
 
@@ -1135,12 +1138,14 @@ if (rst) begin
 	prev_tid <= 'd0;
 end
 else begin
+	if (state==DFETCH5 && next_i && dcnt[4:2]==blen_o[2:0])
+		count <= 'd0;
 	if (ack_i) begin
 		if (tid_i[7:3]!=prev_tid[7:3]) begin
 			count <= 'd0;
 			prev_tid <= tid_i;
 		end
-		else
+		else if (count < req.blen)
 			count <= count + 2'd1;
 	end
 end
@@ -1170,6 +1175,8 @@ else begin
 		if (count=='d0)
 			upd_adr <= {req.adr[$bits(wb_address_t)-1:5],5'h0};
 	end
+	if (state==MEMORY_UPD1 || state==MEMORY_UPD2)
+		upd_adr <= memr.adr;
 end
 
 always_ff @(posedge clk)
@@ -1185,6 +1192,15 @@ else begin
 		default:	;
 		endcase
 	end
+end
+always_ff @(posedge clk)
+if (rst) begin
+	dci1 <= 'd0;
+	dci2 <= 'd0;
+end
+else begin
+	dci1 <= dci[0];
+	dci2 <= dci1;
 end
 
 always_ff @(posedge clk)
@@ -1250,6 +1266,9 @@ else begin
 		;
 	endcase
 end
+
+always_ff @(posedge clk)
+	wr_dc2 = ack_i && count==req.blen && req.seg==wishbone_pkg::DATA && !req.we;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // State Machine
@@ -1351,9 +1370,9 @@ else begin
 	if (ack_i && count==req.blen && req.seg==wishbone_pkg::CODE)
 		wr_ic1 <= TRUE;
 	wr_dc1 <= FALSE;
-	wr_dc2 <= wr_dc1;
-	if (ack_i && count==req.blen && req.seg==wishbone_pkg::DATA)
-		wr_dc1 <= TRUE;
+//	wr_dc2 <= wr_dc1;
+//	if (ack_i && count==req.blen && req.seg==wishbone_pkg::DATA)	// && !req.we)
+//		wr_dc1 <= TRUE;
 	wr_reqtbl <= 'd0;
 	clr_req_done <= 'd0;
 
@@ -1390,6 +1409,7 @@ else begin
 				if (memq_o.tid != last_tid) begin
 //					rd_memq <= FALSE;
 					last_tid <= memq_o.tid;
+					memr_hold <= memq_o;
 					memr <= memq_o;
 					memr_sel <= memq_o.sel;
 					memr_res <= memq_o.res;
@@ -1620,6 +1640,7 @@ else begin
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
+	    dcnt <= 'd0;
 	    tid_o <= {tid_cnt[7:3]+2'd1,3'd0};
     	tid_cnt[7:3] <= tid_cnt[7:3] + 2'd1;
     	tid_cnt[2:0] <= 'd0;
@@ -1634,11 +1655,13 @@ else begin
 	    2'b01:		// If got a hit on the even address, the odd one must be missing
 	    	begin
 			  	blen_o <= 8'd1;
+			  	cti_o <= wishbone_pkg::CLASSIC;
 					adr_o <= {memr.adr[AWID-1:6],1'b1,5'h0};
 				end
 			2'b10:		// Otherwise the even one must be missing
 				begin
 			  	blen_o <= 8'd1;
+			  	cti_o <= wishbone_pkg::CLASSIC;
 					adr_o <= {memr.adr[AWID-1:6]+memr.adr[5],1'b0,5'h0};
 				end
 			2'b11:		// not missing lines, finished
@@ -1655,16 +1678,15 @@ else begin
 	  	stb_o <= HIGH;
 	    if (next_i) begin
 	    	wr_reqtbl <= 1'b1;
-	    	adr_o <= adr_o + 5'd16;
 				seg_o <= wishbone_pkg::DATA;
 	    	tid_o <= tid_cnt;
 	    	tid_cnt[2:0] <= tid_cnt[2:0] + 2'd1;
 	    	dcnt <= dcnt + 4'd4;
 	      //dci[0].data <= {dat_i,dci[0].data[255:128]};
 	      //dci[0].m <= 1'b0;
-	      if (dcnt[4:2]==blen_o-1)
+	      if (dcnt[4:2]==blen_o-1 && blen_o > 'd0)
 	      	cti_o <= wishbone_pkg::EOB;
-	      if (dcnt[4:2]==blen_o) begin		// Are we done?
+	      if (dcnt[4:2]==blen_o[2:0]) begin		// Are we done?
 	      	case(memr.hit)
 	      	2'b00:	memr.hit <= 2'b01;
 	      	2'b01:	memr.hit <= 2'b11;
@@ -1683,6 +1705,8 @@ else begin
 	      	tDeactivateBus();
 	      	goto (DFETCH7);
 	    	end
+	    	else
+		    	adr_o <= adr_o + 5'd16;
 	    	/*
 	    	if (!bok_i) begin							// burst mode supported?
 	    		cti_o <= wishbone_pkg::CLASSIC;						// no, use normal cycles
@@ -2344,7 +2368,15 @@ endtask
 // Start of memory pipeline.
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
-wire mem_pipe_adv = !memresp_full;
+always_comb
+	mem_pipe_adv = !memresp_full;
+always_comb
+begin
+	overlapping_store = 1'b0;
+	for (n11 = 0; n11 < 7; n11 = n11 + 1)
+		if (imemreq.adr[31:5]==mem_resp[n11].adr[31:5] && imemreq.func==MR_STORE && mem_resp[n11].func==MR_STORE)
+			overlapping_store = 1'b1;
+end
 
 // memreq_rd cannot be used to signal the start of pipeline loading of mem_resp
 // as it must pulse only once for each read of the fifo. If it is held the fifo
@@ -2375,16 +2407,22 @@ begin
 					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
 				end
 				else if (fifoToCtrl_v) begin
-					xlaten <= imemreq.omode != 2'd3;
-					mem_resp[0] <= imemreq;
-					mem_resp[0].v <= 1'b1;
-					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+					if (imemreq.tid != mem_resp[0].tid) begin
+						xlaten <= imemreq.omode != 2'd3;
+						mem_resp[0] <= imemreq;
+						mem_resp[0].v <= 1'b1;
+						rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+					end
+					else begin
+						mem_resp[0] <= 'd0;
+						mem_resp[0].tid <= mem_resp[0].tid;
+					end
 				end
 			end
 		end
 		// Hold onto the request if pipe could not advance.
 		else
-			mem_resp[0] <= mem_resp[0];
+			mem_resp[0] <= 'd0;//mem_resp[0];
 	end
 	// If there is an empty spot, insert an outstanding memory request that
 	// missed on a data cache read.
@@ -2393,17 +2431,34 @@ begin
 			if (tlbrdy) begin
 				if (memr_v) begin
 					xlaten <= memr.omode != 2'd3;
-					mem_resp[0] <= memr;
+					mem_resp[0] <= memr_hold;
 					mem_resp[0].v <= 1'b1;
 					rb_bitmaps2[memr.thread][memr.tgt] <= 1'b1;
 					memr_fed <= TRUE;
 					memr_v <= FALSE;
 				end
+				else if (tlb_cyc) begin
+					mem_resp[0].func <= MR_TLB;
+					mem_resp[0].adr <= {tlb_adr[AWID-1:5],5'h0} + 5'd16;
+					rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+				end
+				else if (fifoToCtrl_v) begin
+					if (imemreq.tid != mem_resp[0].tid) begin
+						xlaten <= imemreq.omode != 2'd3;
+						mem_resp[0] <= imemreq;
+						mem_resp[0].v <= 1'b1;
+						rb_bitmaps2[imemreq.thread][imemreq.tgt] <= 1'b1;
+					end
+					else begin
+						mem_resp[0] <= 'd0;
+						mem_resp[0].tid <= mem_resp[0].tid;
+					end
+				end
 			end
 		end
 		// Hold onto the request if pipe could not advance.
 		else
-			mem_resp[0] <= mem_resp[0];
+			mem_resp[0] <= 'd0;//mem_resp[0];
 	end
 	if (mem_pipe_adv)
 		mp_delay <= 4'd0;
@@ -2442,7 +2497,13 @@ begin
 		else if ((mem_resp[0].func==MR_LOAD || mem_resp[0].func==MR_LOADZ || mem_resp[0].func==MR_STORE || 
 			mem_resp[0].func==MR_TLBRD || mem_resp[0].func==MR_TLBRW ||
 			mem_resp[0].func==MR_ICACHE_LOAD) && mem_resp[0].v) begin
-	    mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].adr[3:0];
+			// For a store, select lines are shifted into position during data cache
+			// line masking. Do not shift them here.
+			if (mem_resp[0].func == MR_STORE)
+				mem_resp[1].sel <= mem_resp[0].sel;
+			// Check if the select lines have been shifted already by testing bit 0.
+			else if (mem_resp[0].sel[0])
+	    	mem_resp[1].sel <= {32'h0,mem_resp[0].sel} << mem_resp[0].adr[3:0];
 			casez(mem_resp[0].adr)
 			32'hFF9F????:
 				begin
@@ -2502,6 +2563,8 @@ begin
 		mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP1];	// data tag lookup
 	//	mem_resp[VLOOKUP3] <= mem_resp[VLOOKUP2];	// data fetch 1
 		mem_resp[PADR_SET] <= mem_resp[VLOOKUP3];	// data fetch 2
+		if (mem_resp[VLOOKUP3].func == MR_STORE && mem_resp[VLOOKUP3].sel[0])
+    	mem_resp[PADR_SET].sel <= {32'h0,mem_resp[VLOOKUP3].sel} << mem_resp[VLOOKUP3].adr[4:0];
 		// No address translations for machine mode, this is checked in the TLB so
 		// this condition statement may not be necessary.
 		if (mem_resp[VLOOKUP3].omode!=2'd3)
@@ -2615,6 +2678,7 @@ begin
 		if (mem_resp[PADR_SET].v) begin
 			// A response will be sent back here only on a load when there is a cache hit.
 			// Otherwise the memory sequencer is needed.
+			memresp <= mem_resp[PADR_SET];
 			case(mem_resp[PADR_SET].func)
 			// For now, always use sequencer on a store. At some point the sequencer may
 			// not be needed if there was a cache hit on a store and policy is writeback.
@@ -2624,7 +2688,6 @@ begin
 			MR_ICACHE_LOAD:		memresp.wr <= TRUE;
 			default:	memresp.wr <= FALSE;
 			endcase
-			memresp <= mem_resp[PADR_SET];
 			case(1'b1)
 			mem_resp[PADR_SET].tlb_access:	;
 			mem_resp[PADR_SET].ptgram_en:		;
@@ -2634,29 +2697,30 @@ begin
 			  case(mem_resp[PADR_SET].func)
 			  MR_LOAD,MR_MOVLD:
 		    	case(memreq.sz)
-		    	nul:	memresp.res[mem_resp[PADR_SET].step] <= 'h0;
-		    	byt:	memresp.res[mem_resp[PADR_SET].step] <= {{56{datis[7]}},datis[7:0]};
-		    	wyde:	memresp.res[mem_resp[PADR_SET].step] <= {{48{datis[15]}},datis[15:0]};
-		    	tetra:	memresp.res[mem_resp[PADR_SET].step] <= {{32{datis[31]}},datis[31:0]};
+		    	nul:	memresp.res <= 'h0;
+		    	byt:	memresp.res <= {{56{datis[7]}},datis[7:0]};
+		    	wyde:	memresp.res <= {{48{datis[15]}},datis[15:0]};
+//		    	tetra:	memresp.res[mem_resp[PADR_SET].step] <= {{32{datis[31]}},datis[31:0]};
+		    	tetra:	memresp.res <= {{32{datis[31]}},datis[31:0]};
 		//    	octa:	begin memresp.res[mem_resp[5].step] <= {{64{datis[63]}},datis[63:0]}; end
 		//    	hexi:	begin memresp.res <= datis[127:0]; end
 		//    	hexipair:	memresp.res <= dati;
 		//    	hexiquad:	begin memresp.res <= dati512; end
 					// vector, return entire result
-		    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
+		    	default:	memresp.res <= mem_resp[PADR_SET].res;
 		    	endcase
 			  MR_LOADZ:
 		    	case(mem_resp[PADR_SET].sz)
-		    	nul:	memresp.res[mem_resp[PADR_SET].step] <= 'h0;
-		    	byt:	begin memresp.res[mem_resp[PADR_SET].step] <= {56'd0,datis[7:0]}; end
-		    	wyde:	begin memresp.res[mem_resp[PADR_SET].step] <= {48'd0,datis[15:0]}; end
-		    	tetra:	begin memresp.res[mem_resp[PADR_SET].step] <= {32'd0,datis[31:0]}; end
+		    	nul:	memresp.res <= 'h0;
+		    	byt:	begin memresp.res <= {56'd0,datis[7:0]}; end
+		    	wyde:	begin memresp.res <= {48'd0,datis[15:0]}; end
+		    	tetra:	begin memresp.res <= {32'd0,datis[31:0]}; end
 		//    	octa:	begin memresp.res[mem_resp[5].step] <= {64'd0,datis[63:0]}; end
 		//    	hexi:	begin memresp.res <= datis[127:0]; end
 		//    	hexipair:	memresp.res <= dati;
 		//    	hexiquad:	begin memresp.res <= dati512; end
 					// vector, return entire result
-		    	default:	memresp.res[mem_resp[PADR_SET].step] <= mem_resp[PADR_SET].res;
+		    	default:	memresp.res <= mem_resp[PADR_SET].res;
 		    	endcase
 			  default:  ;
 			  endcase
@@ -2868,7 +2932,7 @@ begin
 				    	memresp.cmt <= TRUE;
 			  			memresp.tid <= memreq.tid;
 			  			memresp.wr <= TRUE;
-							memresp.res <= {127'd0,rb_i};
+							memresp.res <= 'd0;//{127'd0,rb_i};
 							if (!memresp_full) begin
 								if (|memr.hit[1:0]) begin
 									//if (memr.adr[5])
@@ -2969,7 +3033,7 @@ begin
 		if (memr.step == NLANES-1) begin
 			memresp2.wr <= TRUE;
 		end
-		memresp2.res[memr.count] <= datis2[63:0];
+		memresp2.res <= datis2[63:0];
 		memresp2.step <= memr.step;
 		memresp2.tid <= memr.tid;
 	end
@@ -2984,35 +3048,35 @@ begin
   MR_LOAD,MR_MOVLD:
   	begin
   		if (memr.func2==MR_LDV)
-  			memresp2.res <= dati >> {memresp.adr[6:0],3'b0};
+  			memresp2.res <= dati >> {memr.adr[6:0],3'b0};
   		else
 	    	case(memr.sz)
-	    	nul:	memresp2.res[memr.step] <= 'h0;
-	    	byt:	begin memresp2.res[memr.step] <= {{56{datis2[7]}},datis2[7:0]}; end
-	    	wyde:	begin memresp2.res[memr.step] <= {{48{datis2[15]}},datis2[15:0]}; end
-	    	tetra:	begin memresp2.res[memr.step] <= {{32{datis2[31]}},datis2[31:0]}; end
-	    	octa:	begin memresp2.res[memr.step] <= {{64{datis2[63]}},datis2[63:0]}; end
+	    	nul:	memresp2.res <= 'h0;
+	    	byt:	begin memresp2.res <= {{56{datis2[7]}},datis2[7:0]}; end
+	    	wyde:	begin memresp2.res <= {{48{datis2[15]}},datis2[15:0]}; end
+	    	tetra:	begin memresp2.res <= {{32{datis2[31]}},datis2[31:0]}; end
+	    	octa:	begin memresp2.res <= {{64{datis2[63]}},datis2[63:0]}; end
 	//    	hexi:	begin memresp.res <= datis[127:0]; end
 	//    	hexipair:	memresp.res <= dati;
 	//    	hexiquad:	begin memresp.res <= dati512; end
-	    	default:	memresp2.res[memr.step] <= memr.res;
+	    	default:	memresp2.res <= memr.res;
 	    	endcase
   	end
   MR_LOADZ:
   	begin
   		if (memr.func2==MR_LDV)
-  			memresp2.res <= dati >> {memresp.adr[6:0],3'b0};
+  			memresp2.res <= dati >> {memr.adr[6:0],3'b0};
   		else
 	    	case(memr.sz)
-	    	nul:	memresp2.res[memr.step] <= 'h0;
-	    	byt:	begin memresp2.res[memr.step] <= {56'd0,datis2[7:0]}; end
-	    	wyde:	begin memresp2.res[memr.step] <= {48'd0,datis2[15:0]}; end
-	    	tetra:	begin memresp2.res[memr.step] <= {32'd0,datis2[31:0]}; end
-	    	octa:	begin memresp2.res[memr.step] <= {64'd0,datis2[63:0]}; end
+	    	nul:	memresp2.res <= 'h0;
+	    	byt:	begin memresp2.res <= {56'd0,datis2[7:0]}; end
+	    	wyde:	begin memresp2.res <= {48'd0,datis2[15:0]}; end
+	    	tetra:	begin memresp2.res <= {32'd0,datis2[31:0]}; end
+	    	octa:	begin memresp2.res <= {64'd0,datis2[63:0]}; end
 	//    	hexi:	begin memresp.res <= datis[127:0]; end
 	//    	hexipair:	memresp.res <= dati;
 	//    	hexiquad:	begin memresp.res <= dati512; end
-	    	default:	memresp2.res[memr.step] <= memr.res;
+	    	default:	memresp2.res <= memr.res;
 	    	endcase
   	end
 //    	RTS2:	begin memresp.res <= datis[63:0]; memresp.ret <= TRUE; end
@@ -3225,12 +3289,15 @@ reg [1023:0] shift3;
 reg [1023:0] shift4;
 always_comb
 begin
+	datis = dati >> amt;
+	/*
 	shift0 = dati >> {amt[9:8],8'd0};
 	shift1 = shift0 >> {amt[7:6],6'd0};
 	shift2 = shift1 >> {amt[5:4],4'd0};
 	shift3 = shift2 >> {amt[3:2],2'd0};
 	shift4 = shift3 >> amt[1:0];
 	datis = shift4[127:0];
+	*/
 end
 
 endmodule
