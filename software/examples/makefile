@@ -18,8 +18,11 @@ BIOS:
 
 	vasmrfPhoenix_std_win32.exe -Fvobj -L fibonacci.lst fibonacci.asm -o fibonacci.o
 	vasmrfPhoenix_std_win32.exe -Fvobj -L load_store.lst load_store.asm -o load_store.o
+	vasmrfPhoenix_std_win32.exe -Fvobj -L add.lst add.asm -o add.o
 	vlink -T rom_bios.cmd -brawbin1 fibonacci.o -o fibonacci.bin
 	vlink -T rom_bios.cmd -brawbin1 load_store.o -o load_store.bin
-	bin2ver fibonacci.bin 128
+	vlink -T rom_bios.cmd -brawbin1 add.o -o add.bin
+#	bin2ver fibonacci.bin 128
 #	bin2ver load_store.bin 128
+	bin2ver add.bin 128
 

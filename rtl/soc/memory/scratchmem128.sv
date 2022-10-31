@@ -34,17 +34,17 @@
 //                                                                          
 // ============================================================================
 //
-module scratchmem128(rst_i, clk_i, cti_i, bndx_i, bndx_o,
-	cs_i, cyc_i, stb_i, adack_o, ack_o, we_i, sel_i, adr_i, dat_i, dat_o, ip, sp);
+module scratchmem128(rst_i, clk_i, cti_i, tid_i, tid_o,
+	cs_i, cyc_i, stb_i, next_o, ack_o, we_i, sel_i, adr_i, dat_i, dat_o, ip, sp);
 input rst_i;
 input clk_i;
 input [2:0] cti_i;
-input [7:0] bndx_i;
-output reg [7:0] bndx_o;
+input [7:0] tid_i;
+output reg [7:0] tid_o;
 input cs_i;
 input cyc_i;
 input stb_i;
-output adack_o;
+output next_o;
 output ack_o;
 input we_i;
 input [15:0] sel_i;
@@ -61,11 +61,11 @@ reg [17:4] radr;
 
 
 initial begin
-`include "d:/cores2022/rfPhoenix/software/examples/rom.ver";
+`include "f:/cores2022/rfPhoenix/software/examples/rom.ver";
 end
 
 wire cs = cs_i && cyc_i && stb_i;
-assign adack_o = cs;
+assign next_o = cs;
 reg csd;
 reg wed;
 reg [15:0] seld;
@@ -89,7 +89,7 @@ end
 assign ack_o = cs ? (we_i ? 1'b1 : rdy) : 1'b0;
 */
 wire rd_ack, wr_ack;
-vtdl #(.WID(1), .DEP(16)) udlyr (.clk(clk_i), .ce(1'b1), .a(3), .d(cs & ~we_i), .q(rd_ack));
+vtdl #(.WID(1), .DEP(16)) udlyr (.clk(clk_i), .ce(1'b1), .a(2), .d(cs & ~we_i), .q(rd_ack));
 vtdl #(.WID(1), .DEP(16)) udlyw (.clk(clk_i), .ce(1'b1), .a(1), .d(cs &  we_i), .q(wr_ack));
 assign ack_o = rd_ack|wr_ack;
 /*
@@ -166,7 +166,7 @@ end
 always_ff @(posedge clk_i)
 	radr <= adr_i[17:4];//pe_cs ? adr_i[17:4] : ctr;
 always_ff @(posedge clk_i)
-	bndxd1 <= bndx_i;
+	bndxd1 <= tid_i;
 
 //assign dat_o = cs ? {smemH[radr],smemG[radr],smemF[radr],smemE[radr],
 //				smemD[radr],smemC[radr],smemB[radr],smemA[radr]} : 64'd0;
@@ -187,8 +187,8 @@ begin
 end
 
 always_ff @(posedge clk_i)
-if (cs_i) begin
-	bndx_o <= bndxd;
+if (cs_i|rd_ack) begin
+	tid_o <= bndxd;
 	dat_o <= datod;
 end
 else
