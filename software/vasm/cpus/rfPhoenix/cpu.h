@@ -170,15 +170,17 @@ typedef struct {
 #define VIMM(x)	(((x) & 0x7ffffLL) << 20LL)
 #define LSDISP(x)	(((x) & 0x7ffffLL) << 20LL)
 #define VLSDISP(x)	(((x) & 0x7ffffLL) << 20LL)
-#define BDISP(x)	(((x) & 0x1ffffLL) << 20LL)
+#define BRA(x)	(((x) & 3LL) << 20LL)
+#define BDISP(x)	(((x) & 0x1ffffLL) << 22LL)
 #define RB(x)		(((x) & 0x7fLL) << 20LL)
 #define TB(x)		(((x) & 1LL) << 26LL)
 #define RC(x)		(((x) & 0x7fLL) << 27LL)
 #define TC(x)		(((x) & 1LL) << 33LL)
 #define RM(x)		(((x) & 3LL) << 34LL)
 #define SZ(x)		(((x) & 7LL) << 39LL)
-#define MSK(x)	(((x) & 0x3f) << 42LL)
-#define CND(x)	(((x) & 0x7) << 45LL)
+#define MSK(x)	(((x) & 0x3fLL) << 42LL)
+#define BRB(x)	(((x) & 3LL) << 42LL)
+#define CND(x)	(((x) & 0x7LL) << 45LL)
 
 /* special data operand types: */
 #define OP_D8  0x40001001

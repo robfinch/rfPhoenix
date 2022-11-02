@@ -464,11 +464,9 @@ typedef struct packed
 typedef struct packed
 {
 	branch_cnd_t cnd;	
-	logic resv;
-	logic [1:0] B;
+	logic [2:0] resv;
 	prec_t sz;
-	logic [16:0] disp;
-	logic [1:0] A;
+	logic [18:0] disp;
 	regspec_t	Ra;
 	regspec_t Rb;
 	opcode_t opcode;
@@ -476,8 +474,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [35:0] target;
-	logic [5:0] Rt;
+	logic [34:0] target;
+	regspec_t Rt;
 	opcode_t opcode;
 } callinst_t;
 

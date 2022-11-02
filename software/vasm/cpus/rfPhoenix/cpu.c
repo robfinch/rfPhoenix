@@ -1,3 +1,5 @@
+#define FLOAT_PARSER	1
+
 #include "vasm.h"
 
 #define TRACE(x)		/* printf(x) */
@@ -7,7 +9,7 @@ char *cpu_copyright="vasm rfPhoenix cpu backend (c) in 2022 Robert Finch";
 
 char *cpuname="rfPhoenix";
 int bitsperbyte=8;
-int bytespertaddr=4;
+int bytespertaddr=8;
 int abits=32;
 /* The following indicates if instructions including postfixes can span cache
    lines. */
@@ -65,7 +67,7 @@ mnemonic mnemonics[]={
 	"add", {OP_REG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|OP(4),6},	
 	"add", {OP_VREG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TT(1LL)|OP(4),6},	
 	"add", {OP_VREG,OP_VREG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|TA(1LL)|TT(1)|OP(4),6},	
-	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(4),6},	
+	"add", {OP_REG,OP_REG,OP_IMM,0,0}, {RI,CPU_ALL,0,SZ(2LL)|OP(4LL),6},	
 
 	"and", {OP_REG,OP_REG,OP_VREG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TB(1LL)|OP(2),6},	
 	"and", {OP_REG,OP_VREG,OP_REG,0,0},	{R2,CPU_ALL,0,SZ(2LL)|FN(8LL)|TA(1LL)|OP(2),6},	
@@ -91,7 +93,7 @@ mnemonic mnemonics[]={
 	"bltu",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(2LL)|OP(28),6},
 	"bne",	{OP_REG,OP_REG,OP_IMM,0,0}, {B,CPU_ALL,0,SZ(2LL)|CND(7LL)|OP(28),6},
 	
-	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25),6},
+	"bra",	{OP_IMM,0,0,0,0}, {B2,CPU_ALL,0,OP(25LL),6},
 
 	"brk",	{0,0,0,0,0}, {R2,CPU_ALL,0,RM(1LL)|TB(0LL)|RB(1LL)|TA(1LL)|RA(63LL)|TT(1LL)|RT(63LL)|OP(32),6},
 	"bsr",	{OP_LK,OP_IMM,0,0,0}, {BL2,CPU_ALL,0,OP(25LL),6},
@@ -1068,20 +1070,21 @@ static taddr make_reloc(int reloctype,operand *op,section *sec,
       }
       else {  /* instruction operand */
         addend = (btype == BASE_PCREL) ? val + disp : val;
+        printf("addend=%lld\n", addend);
       	switch(op->format) {
       	/* Conditional jump */
       	case B:
       	case J:
       	case JL:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
-                           22,17,0,0x1ffffLL);
+                           20,19,0,0x7ffffLL);
           break;
       	/* Unconditional jump */
       	case B2:
         case J2:
         case JL2:
 		      add_extnreloc_masked(reloclist,base,val,reloctype,
-                           12,36,0,0xfffffffffLL);
+                           13,35,0,0x7ffffffffLL);
           break;
         case RI:
 		      add_extnreloc_masked(reloclist,base,addend,reloctype,
@@ -1530,7 +1533,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 22LL);
+		  		tgt = ((val & 0x7ffffLL) << 20LL);
 		  		*insn |= tgt;
 			  	break;
 				}
@@ -1544,12 +1547,12 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 			if (insn) {
 				switch(i) {
 				case 2:
-					*insn |= RB(val>>2)|((val & 3LL) << 12);
+					*insn |= RB(val>>2)|((val & 3LL) << 12LL);
 					break;
 				case 3:
 			  	if (insn) {
 			  		uint64_t tgt;
-			  		tgt = ((val & 0x1ffffLL) << 22LL);
+			  		tgt = ((val & 0x7ffffLL) << 20LL);
 			  		*insn |= tgt;
 			  	}
 			  	break;
@@ -1564,11 +1567,11 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		switch(i) {
 	  		case 1:
-					*insn |= RB(val>>2)|((val & 3LL) << 12);
+					*insn |= RB(val>>2)|((val & 3LL) << 12LL);
 					break;
 				case 2:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 22LL);
+		  		tgt = ((val & 0x7ffffLL) << 20LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1595,7 +1598,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 					break;
 				case 3:
 		  		uint64_t tgt;
-		  		tgt = ((val & 0x1ffffLL) << 22LL);
+		  		tgt = ((val & 0x7ffffLL) << 20LL);
 		  		*insn |= tgt;
 		  		break;
 	  		}
@@ -1605,8 +1608,8 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_REGIND) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		*insn |= RC(op->basereg & 0x1f);
-		  		tgt = ((val & 0x1ffffLL) << 20LL);
+	  		*insn |= RC(op->basereg & 0x3f);
+		  		tgt = ((val & 0x7ffffLL) << 20LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1617,7 +1620,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_IMM) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		tgt = ((val & 0xfffffffffLL) << 12LL);
+	  		tgt = ((val & 0x7ffffffffLL) << 13LL);
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1629,7 +1632,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  	if (insn) {
 	  		uint64_t tgt;
 	  		//*insn |= CA(mnemo->ext.format==B2 ? 0x7 : 0x0);
-	  		tgt = (val & 0xfffffffffLL) << 12;
+	  		tgt = (val & 0x7ffffffffLL) << 13LL;
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1649,7 +1652,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
   	if (op->type==OP_IMM) {
 	  	if (insn) {
     		uint64_t tgt;
-	  		tgt = (val & 0xfffffffffLL) << 12;
+	  		tgt = (val & 0x7ffffffffLL) << 13LL;
     		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1660,7 +1663,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
   	if (op->type==OP_IMM) {
 	  	if (insn) {
     		uint64_t tgt;
-	  		tgt = (val & 0xfffffffffLL) << 12;
+	  		tgt = (val & 0x7ffffffffLL) << 13LL;
     		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1668,7 +1671,7 @@ static int encode_branch(uint64_t* insn, mnemonic* mnemo, operand* op, int64_t v
 	  if (op->type==OP_REGIND) {
 	  	if (insn) {
 	  		uint64_t tgt;
-	  		tgt = (val & 0xfffffffffLL) << 12;
+	  		tgt = (val & 0x7ffffffffLL) << 13LL;
 	  		*insn |= tgt;
 	  	}
 	  	return (1);
@@ -1847,9 +1850,10 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
       }
       else {
         if (!eval_expr(op.value,&val,sec,pc)) {
-          if (reloctype == REL_PC)
-//          	hval = hsub(huge_zero(),pc);
+          if (reloctype == REL_PC) {
+          	//          	hval = hsub(huge_zero(),pc);
 						val -= pc;
+					}
         }
       }
     }
@@ -1891,7 +1895,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
  				case BL3:
  				case RTS:
  					if (i==0)
- 						*insn = *insn| RT(op.basereg & 0x3);
+ 						*insn = *insn| RT(op.basereg & 0x3fLL);
  					break;
 				default:
  					cpu_error(18);
@@ -1918,7 +1922,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 			    			*insn |= (RT(op.basereg));
 			    		else if (i==1) {
 			    			*insn |= (RA(op.basereg));
-			    			*insn |= (val & 0x1ffffLL) << 20LL;
+			    			*insn |= (val & 0x7ffffLL) << 20LL;
 			    		}
 		    		}
 		    	}
@@ -1934,7 +1938,7 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	    			*insn |= (RT(op.basereg));
 	    		else if (i==1) {
 	    			*insn |= (RA(op.basereg));
-	    			*insn |= (val & 0x1ffffLL) << 20LL;
+	    			*insn |= (val & 0x7ffffLL) << 20LL;
 	    		}
     		}
     		if (!is_nbit(val,19) && abits > 19) {
@@ -1958,6 +1962,8 @@ size_t encode_rfPhoenix_operands(instruction *ip,section *sec,taddr pc,
 	// Set instruction size bits
 	
 	if (insn) {
+		if (mnemo->ext.format != B2 && mnemo->ext.format != BL2 &&
+				mnemo->ext.format != J2 && mnemo->ext.format != JL2)
 		switch(opsz) {
 		case 'b':
 		case 'B':

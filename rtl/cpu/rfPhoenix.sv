@@ -57,7 +57,7 @@ output cause_code_t wcause;
 
 parameter IC_LATENCY = 2;
 
-integer n2,n3,n4,n10,n12;
+integer n2,n3,n4,n10,n12,n13;
 
 wire clk_g = clk_i;
 pipeline_reg_t [NTHREADS-1:0] dcb, dcb2, dcbb, rfb1, rfb2, rfb3, exb, agb, oub, wbb, wbb2;
@@ -210,6 +210,7 @@ reg [NTHREADS-1:0] mem_rollback, ou_rollback, rollback, rolledback1, rolledback2
 regs_bitmap_t mem_rollback_bitmaps [0:NTHREADS-1];
 regs_bitmap_t ou_rollback_bitmaps [0:NTHREADS-1];
 regs_bitmap_t rollback_bitmaps [0:NTHREADS-1];
+regs_bitmap_t rollback_bitmaps_latched [0:NTHREADS-1];
 code_address_t [NTHREADS-1:0] rollback_ip;
 reg [NTHREADS-1:0] rollback_ipv;
 reg [NTHREADS-1:0] sb_will_issue, sb_issue;
@@ -508,20 +509,28 @@ ffo12 ufo10 (.i({11'd0,ou_rollback}), .o(ort));
 assign mem_rollback_thread = mrt;
 assign ou_rollback_thread = ort;
 
+always_ff @(posedge clk_g)
+if (rst_i)
+	for (n13 = 0; n13 < NTHREADS; n13 = n13 + 1)
+		rollback_bitmaps_latched[n13] <= 'd0;
+else
+	for (n13 = 0; n13 < NTHREADS; n13 = n13 + 1)
+		rollback_bitmaps_latched[n13] <= rollback_bitmaps[n13];
+
 always_comb
 	for (n2 = 0; n2 < NTHREADS; n2 = n2 + 1) begin
-		if (mem_rollback[n2]) begin
+		if (mem_rollback[n2])
 			rollback[n2] = TRUE;
-			rollback_bitmaps[n2] = mem_rollback_bitmaps[n2];
-		end
-		else if (ou_rollback[n2]) begin
+		else if (ou_rollback[n2])
 			rollback[n2] = TRUE;
-			rollback_bitmaps[n2] = ou_rollback_bitmaps[n2];
-		end
-		else begin
+		else
 			rollback[n2] = FALSE;
-			rollback_bitmaps[n2] = 'd0;
-		end
+		if (mem_rollback[n2])
+			rollback_bitmaps[n2] = mem_rollback_bitmaps[n2];
+		else if (ou_rollback[n2])
+			rollback_bitmaps[n2] = ou_rollback_bitmaps[n2];
+		else
+			rollback_bitmaps[n2] = rollback_bitmaps_latched[n2];
 	end
 	
 generate begin : gScoreboard
@@ -1211,7 +1220,7 @@ begin
 		else
 			thread_ip[exndx] <= exb[exndx].a[0];
 	OP_Bcc:
-		if (takbd1) 
+		if (takbd1)
 			thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
 		else
 			tIfIp();
@@ -1391,6 +1400,7 @@ begin
 //			dcb[n].v <= dc_ifb[n].v;
 			dcb[n].ifb <= dc_ifb[n];
 			dcb[n].dec <= dco[n];
+			ou_rollback_bitmaps[n][dco[n].Rt] <= 1'b1;
 			// Needed for virtualization
 			if (dco[n].csr && omode[n]!=OM_MACHINE)
 				dcb[n].cause <= FLT_CSR;
@@ -1506,7 +1516,7 @@ begin
 	end
 	// ToDo: update for more latencies.
 	else if (REGFILE_LATENCY==2) begin
-		if ((rfb2[n].dec.rfwr & ~rfb2[n].dec.Rt.vec) | (rfb2[n].dec.vrfwr & rfb2[n].dec.Rt.vec))
+		if (((rfb2[n].dec.rfwr & ~rfb2[n].dec.Rt.vec) | (rfb2[n].dec.vrfwr & rfb2[n].dec.Rt.vec)) & rfb2[n].v)
 			ou_rollback_bitmaps[n][rfb2[n].dec.Rt] <= 1'b1;
 	end
 	else if (REGFILE_LATENCY==4) begin
@@ -1598,6 +1608,7 @@ begin
 			thread[exndx].ip <= rfb3[exndx].dec.imm;
 			rollback_ip[exndx] <= rfb3[exndx].dec.imm;
 			rollback_ipv[exndx] <= 1'b1;
+			tInvalidatePipe(exndx);
 			exb[exndx].res <= 'd0;
 			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd6;
 			ou_rollback[exndx] <= 1'b1;
@@ -1608,6 +1619,7 @@ begin
 			thread[exndx].ip <= rfb3[exndx].dec.imm + rfb3[exndx].ifb.ip;
 			rollback_ip[exndx] <= rfb3[exndx].dec.imm + rfb3[exndx].ifb.ip;
 			rollback_ipv[exndx] <= 1'b1;
+			tInvalidatePipe(exndx);
 			exb[exndx].res <= 'd0;
 			exb[exndx].res[0] <= rfb3[exndx].ifb.ip + 4'd6;
 			ou_rollback[exndx] <= 1'b1;
@@ -1615,6 +1627,7 @@ begin
 		end
 	OP_RET:
 		begin
+			tInvalidatePipe(exndx);
 			thread[exndx].ip <= rfb3[exndx].a[0];
 			rollback_ip[exndx] <= rfb3[exndx].a[0];
 			rollback_ipv[exndx] <= VAL;
@@ -1631,6 +1644,7 @@ input tid_t exndx;
 begin
 	if (exb[exndx].dec.br & exb_v[exndx]) begin
 		if (takbd1) begin
+			tInvalidatePipe(exndx);
 			thread[exndx].ip <= exb[exndx].ifb.ip + exb[exndx].dec.imm;
 			rollback_ip[exndx] <= exb[exndx].ifb.ip + exb[exndx].dec.imm;
 			rollback_ipv[exndx] <= TRUE;
@@ -2419,23 +2433,33 @@ begin
 //		if (!dcndx_v || dcndx!=wbndx)
 //			wbb[wbndx] <= 'd0;
 	end
-	if ((wbb[wbndx].dec.rfwr & ~commit_tgt.vec) | (wbb[wbndx].dec.vrfwr & commit_tgt.vec))
-		ou_rollback_bitmaps[commit_thread][commit_tgt] <= 1'b0;
+	if ((wbb[wbndx].dec.rfwr & ~wbb[wbndx].dec.Rt.vec) | (wbb[wbndx].dec.vrfwr & wbb[wbndx].dec.Rt.vec))
+		ou_rollback_bitmaps[wbndx][wbb[wbndx].dec.Rt] <= 1'b0;
 end
 endtask
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+task tInvalidatePipe;
+input [31:0] n;
+begin
+	dcb[n].v <= INV;
+	dcb_v[n] <= INV;
+	rfb1[n].v <= INV;
+	rfb2[n].v <= INV;
+	rfb3[n].v <= INV;
+	exb[n].v <= INV;
+	exb_v[n] <= INV;
+end
+endtask
+
 task tRollback;
 integer n;
 begin
 	for (n = 0; n < NTHREADS; n = n + 1)
 		if (rollback[n]) begin
-			dcb[n].v <= INV;
-			rfb1[n].v <= INV;
-			rfb2[n].v <= INV;
-			exb[n].v <= INV;
+			tInvalidatePipe(n);
 		end
 end
 endtask
@@ -2774,8 +2798,9 @@ begin
 				exb[n].dec.imm
 			);
 			$display("Execute Pipe Input:");
-			$display("  %d ip=%h, oc=%0s,res=%h",
+			$display("  %d: %c ip=%h, oc=%0s,res=%h",
 				n[3:0],
+				exbr.v ? "v": "-",
 				exbr.ifb.ip,
 				exbr.ifb.insn.any.opcode.name(),
 				exbr.res
@@ -2822,6 +2847,11 @@ begin
 					ubiu.dci2
 				);
 			$display("Writeback");
+			$display("  exbrf: %h %0s res=%h",
+				exbrf.ifb.ip,
+				exbrf.ifb.insn.any.opcode.name(),
+				exbrf.res
+				);
 			$display("  %h %0s res=%h",
 				wbb[n].ifb.ip,
 				wbb[n].ifb.insn.any.opcode.name(),

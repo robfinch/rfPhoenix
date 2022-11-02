@@ -79,18 +79,28 @@ begin
 		if (db.hasRt & ((db.rfwr&~db.Rt.vec)|(db.vrfwr&db.Rt.vec))) tgts[db.Rt] = 1'b1;
 end
 
+always_ff @(posedge clk)
+	if (db.v && db.hasRt & ((db.rfwr&~db.Rt.vec)|(db.vrfwr&db.Rt.vec)))
+		$display("scoreboard: locked r%d", db.Rt.num);
+
 always_comb
 begin
 	wbs = 'd0;
 	if (wb_v) wbs[wb_Rt] = 1'b1;
 end
 
+always_ff @(posedge clk)
+	if (wb_v)
+		$display("scoreboard: released r%d", wb_Rt.num);
+
+
 always_comb
 	clr_bm = wbs | (rollback ? rollback_bitmap : 'd0);
 always_comb
 	set_bm = tgts & {{127{will_issue}},1'b0};	// r0 is always valid
 always_comb
-	nxt_busy = (busy & ~clr_bm) | set_bm;
+//	nxt_busy = (busy & ~clr_bm) | set_bm;
+	nxt_busy = (busy | set_bm) & ~clr_bm;
 
 always_ff @(posedge clk, posedge rst)
 if (rst)
