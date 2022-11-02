@@ -121,10 +121,10 @@ tid_t xrid,mc_rid,mc_rid1,mc_rid2,mc_rido;
 tid_t mem_tid;
 order_tag_t [NTHREADS-1:0] insn_otag;
 reg exndx_v,exndx1_v;
-reg dcndx_v, dcndx2_v, wbndx_v;
+reg dcndx_v, wbndx_v;
 reg agndx_v,oundx_v;
 reg itndx_v;
-reg rfndx1_v, rfndx2_v, rfndx3_v;
+reg rfndx1_v;
 tid_t dcndx,dcndx2,itndx,exndx,exndx1,exndx2,oundx,wbndx,wbndx2,rfndx1,rfndx2,rfndx3,agndx;
 reg xrid_v,mcrid_v;
 reg [NTHREADS-1:0] dcb_v, rfb2_v, rfb3_v, exb_v;
@@ -217,6 +217,7 @@ reg [NTHREADS-1:0] sb_will_issue, sb_issue;
 wire [NTHREADS-1:0] sb_can_issue;
 reg [NTHREADS-1:0] clr_ififo;
 wire [NTHREADS-1:0] ififo_empty;
+wire [NTHREADS-1:0] ififo_v;
 instruction_fetchbuf_t ic_ifb;
 instruction_fetchbuf_t [NTHREADS-1:0] dc_ifb, dc1_ifb;
 reg [5:0] imiss_count;
@@ -755,10 +756,10 @@ for (g = 0; g < NTHREADS; g = g + 1) begin
 		.almost_full(ififo_almost_full[g]),
 		.full(),
 		.empty(ififo_empty[g]),
-		.v()
+		.v(ififo_v[g])
 	);
 	always_comb
-		{dco[g],dc_ifb[g]} = rollback[g] ? 'd0 : ififo_out[g];
+		{dco[g],dc_ifb[g]} = rollback[g] || !ififo_v[g] ? 'd0 : ififo_out[g];
 
 /*
 	rfPhoenix_insn_fifo #(.DEP(16)) ufifo1
@@ -919,6 +920,7 @@ begin
 	mem_tid <= 'd0;
 	memr_avail <= 16'hFFFF;
 	memr_ptr <= 'd0;
+	rfndx1 <= 'd0;
 end
 endtask
 
@@ -1211,26 +1213,29 @@ endtask
 
 task tExIp;
 begin
-	case(exb[exndx].ifb.insn.any.opcode)
-	OP_CALL:	thread_ip[exndx] <= exb[exndx].dec.imm;
-	OP_BSR:	thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
-	OP_RET:	
-		if (exb[exndx].ifb.insn[39])
-			thread_ip[exndx] <= exb[exndx].a[0] + exb[exndx].dec.imm;
-		else
-			thread_ip[exndx] <= exb[exndx].a[0];
-	OP_Bcc:
-		if (takbd1)
-			thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
-		else
-			tIfIp();
-	OP_FBcc:
-		if (takbd1)
-			thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
-		else
-			tIfIp();
-	default:	tIfIp();
-	endcase
+	if (exb[exndx].v)
+		case(exb[exndx].ifb.insn.any.opcode)
+		OP_CALL:	thread_ip[exndx] <= exb[exndx].dec.imm;
+		OP_BSR:	thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
+		OP_RET:	
+			if (exb[exndx].ifb.insn[39])
+				thread_ip[exndx] <= exb[exndx].a[0] + exb[exndx].dec.imm;
+			else
+				thread_ip[exndx] <= exb[exndx].a[0];
+		OP_Bcc:
+			if (takbd1)
+				thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
+			else
+				tIfIp();
+		OP_FBcc:
+			if (takbd1)
+				thread_ip[exndx] <= exb[exndx].dec.imm + exb[exndx].ifb.ip;
+			else
+				tIfIp();
+		default:	tIfIp();
+		endcase
+	else
+		tIfIp();
 end
 endtask
 
@@ -1599,7 +1604,7 @@ endtask
 task tExCall;
 input tid_t exndx;
 begin
-	if (rfb3_v[exndx])
+	if (rfb3_v[exndx] & rfb3[exndx].v)
 	casez(rfb3[exndx].ifb.insn.any.opcode)
 	6'b010???:	;	// PFX
 	OP_NOP:	;
@@ -1642,7 +1647,7 @@ endtask
 task tExBranch;
 input tid_t exndx;
 begin
-	if (exb[exndx].dec.br & exb_v[exndx]) begin
+	if (exb[exndx].dec.br & exb_v[exndx] & exb[exndx].v) begin
 		if (takbd1) begin
 			tInvalidatePipe(exndx);
 			thread[exndx].ip <= exb[exndx].ifb.ip + exb[exndx].dec.imm;
@@ -2450,7 +2455,6 @@ begin
 	rfb2[n].v <= INV;
 	rfb3[n].v <= INV;
 	exb[n].v <= INV;
-	exb_v[n] <= INV;
 end
 endtask
 
@@ -2784,7 +2788,7 @@ begin
 			);
 			$display("Execute:");
 			$display("  %d: %c%c ip=%h.%d ir=%h oc=%0s res=%h a=%h b=%h c=%h t=%h i=%h", n[3:0],
-				exb_v[n] ? "v":"-",
+				exb_v[n]&exb[n].v ? "v":"-",
 				exb[n].regfetched ? "r": "-",
 				exb[n].ifb.ip,
 				exb[n].ifb.tag,

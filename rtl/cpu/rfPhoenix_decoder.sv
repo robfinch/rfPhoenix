@@ -161,8 +161,8 @@ begin
 		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
 	OP_FCMPI:
 		deco.imm = {{115{ifb.insn.cmpi.imm[12]}},ifb.insn.cmpi.imm};
-	OP_CALL:	deco.imm = {{92{ifb.insn.call.target[35]}},ifb.insn.call.target};
-	OP_BSR:	deco.imm = {{92{ifb.insn.call.target[35]}},ifb.insn.call.target};
+	OP_CALL:	deco.imm = {{93{ifb.insn.call.target[34]}},ifb.insn.call.target};
+	OP_BSR:	deco.imm = {{93{ifb.insn.call.target[34]}},ifb.insn.call.target};
 	OP_Bcc,OP_FBcc:	deco.imm = {{111{ifb.insn.br.disp[16]}},ifb.insn.br.disp};
 	OP_RET:	deco.imm = {{109{ifb.insn.ri.imm[18]}},ifb.insn.ri.imm};
 	OP_LOAD,OP_LOADU,OP_STORE:
